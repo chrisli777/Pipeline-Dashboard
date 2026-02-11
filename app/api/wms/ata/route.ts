@@ -113,15 +113,16 @@ export async function POST(request: Request) {
 
       // Iterate through each receiver and its ReceiveItems
       for (const receiver of receivers) {
-        const receiveItems = receiver.ReceiveItems?.ResourceList || receiver.ReceiveItems || []
+        // ReceiveItems is a direct array on each receiver
+        const receiveItems = receiver.ReceiveItems || []
         const items = Array.isArray(receiveItems) ? receiveItems : []
 
         for (const item of items) {
-          // Check if this item's SKU matches our target
-          const itemSku = item.ItemIdentifier?.Sku || item.Sku || ''
-          if (itemSku === skuId) {
-            // Sum up the quantity
-            const qty = item.Qty || item.Quantity || item.ReceivedQty || 0
+          // SKU in WMS has "GT" suffix (e.g. "61415GT" for SKU "61415")
+          const itemSku = item.ItemIdentifier?.Sku || ''
+          // Match by checking if the WMS SKU starts with our target SKU ID
+          if (itemSku === skuId || itemSku === `${skuId}GT` || itemSku.startsWith(skuId)) {
+            const qty = item.Qty || 0
             totalAta += qty
           }
         }
