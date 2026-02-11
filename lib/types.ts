@@ -21,10 +21,11 @@ export interface SKUData {
 export interface InventoryAlert {
   skuId: string
   partModelNumber: string
-  weekNumber: number
-  weekOf: string
-  weeksOnHand: number
-  severity: 'critical' | 'warning' | 'low'
+  stockoutWeekNumber: number  // The week when stockout is predicted
+  stockoutWeekOf: string
+  reorderByWeekNumber: number // 12 weeks before stockout = reorder deadline
+  reorderByWeekOf: string
+  weeksUntilStockout: number  // How many weeks from now until stockout
 }
 
 export type RowType = 

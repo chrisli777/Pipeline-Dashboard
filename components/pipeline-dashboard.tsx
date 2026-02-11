@@ -190,59 +190,38 @@ export function PipelineDashboard() {
     fetchData()
   }, [fetchData])
 
-  // Calculate alerts based on data (only for weeks >= 1)
-  // Only show the earliest problem week for each SKU per severity level
+  // Calculate reorder alerts: warn 12 weeks before predicted stockout
+  // Find the first week where inventory goes to 0 or negative for each SKU
   const alerts = useMemo<InventoryAlert[]>(() => {
     const alertList: InventoryAlert[] = []
-    
+    const REORDER_LEAD_WEEKS = 12
+
     skus.forEach((sku) => {
-      // Track if we've already found the first problem for each severity
-      let foundCritical = false
-      let foundWarning = false
-      let foundLow = false
-      
-      // Weeks are already sorted by weekNumber, so we iterate in order
-      for (const week of sku.weeks) {
-        // Only show alerts for Week 1 and onwards
-        if (week.weekNumber < 1 || week.weeksOnHand === null) continue
-        
-        if (week.weeksOnHand < 0 && !foundCritical) {
-          alertList.push({
-            skuId: sku.id,
-            partModelNumber: sku.partModelNumber,
-            weekNumber: week.weekNumber,
-            weekOf: week.weekOf,
-            weeksOnHand: week.weeksOnHand,
-            severity: 'critical',
-          })
-          foundCritical = true
-        } else if (week.weeksOnHand >= 0 && week.weeksOnHand < 2 && !foundWarning) {
-          alertList.push({
-            skuId: sku.id,
-            partModelNumber: sku.partModelNumber,
-            weekNumber: week.weekNumber,
-            weekOf: week.weekOf,
-            weeksOnHand: week.weeksOnHand,
-            severity: 'warning',
-          })
-          foundWarning = true
-        } else if (week.weeksOnHand >= 2 && week.weeksOnHand < 4 && !foundLow) {
-          alertList.push({
-            skuId: sku.id,
-            partModelNumber: sku.partModelNumber,
-            weekNumber: week.weekNumber,
-            weekOf: week.weekOf,
-            weeksOnHand: week.weeksOnHand,
-            severity: 'low',
-          })
-          foundLow = true
-        }
-        
-        // Stop early if we've found all three types
-        if (foundCritical && foundWarning && foundLow) break
-      }
+      // Find the first week (>=1) where weeksOnHand <= 0 (stockout)
+      const stockoutWeek = sku.weeks.find(
+        (w) => w.weekNumber >= 1 && w.weeksOnHand !== null && w.weeksOnHand <= 0
+      )
+
+      if (!stockoutWeek) return // No predicted stockout for this SKU
+
+      // Reorder deadline = stockout week - 12
+      const reorderByWeekNum = stockoutWeek.weekNumber - REORDER_LEAD_WEEKS
+      const reorderByWeek = sku.weeks.find((w) => w.weekNumber === reorderByWeekNum)
+
+      // Current week is week 1; weeksUntilStockout = stockout week - 1
+      const weeksUntilStockout = stockoutWeek.weekNumber - 1
+
+      alertList.push({
+        skuId: sku.id,
+        partModelNumber: sku.partModelNumber,
+        stockoutWeekNumber: stockoutWeek.weekNumber,
+        stockoutWeekOf: stockoutWeek.weekOf,
+        reorderByWeekNumber: reorderByWeekNum,
+        reorderByWeekOf: reorderByWeek?.weekOf || `Week ${reorderByWeekNum}`,
+        weeksUntilStockout,
+      })
     })
-    
+
     return alertList
   }, [skus])
 

@@ -1,9 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertTriangle, AlertCircle, Info, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle } from 'lucide-react'
 import type { InventoryAlert } from '@/lib/types'
-import { cn } from '@/lib/utils'
 import {
   Dialog,
   DialogContent,
@@ -23,47 +22,15 @@ interface InventoryAlertBarProps {
   alerts: InventoryAlert[]
 }
 
-type AlertSeverity = 'critical' | 'warning' | 'low'
-
 export function InventoryAlertBar({ alerts }: InventoryAlertBarProps) {
-  const [selectedSeverity, setSelectedSeverity] = useState<AlertSeverity | null>(null)
-  
-  const criticalAlerts = alerts.filter(a => a.severity === 'critical')
-  const warningAlerts = alerts.filter(a => a.severity === 'warning')
-  const lowAlerts = alerts.filter(a => a.severity === 'low')
-
-  const getSelectedAlerts = () => {
-    switch (selectedSeverity) {
-      case 'critical':
-        return criticalAlerts
-      case 'warning':
-        return warningAlerts
-      case 'low':
-        return lowAlerts
-      default:
-        return []
-    }
-  }
-
-  const getDialogTitle = () => {
-    switch (selectedSeverity) {
-      case 'critical':
-        return 'Critical Stock Alerts - Out of Stock or Negative Inventory'
-      case 'warning':
-        return 'Warning Alerts - Inventory Below 2 Weeks'
-      case 'low':
-        return 'Low Stock Alerts - Inventory Below 4 Weeks'
-      default:
-        return ''
-    }
-  }
+  const [showDetails, setShowDetails] = useState(false)
 
   if (alerts.length === 0) {
     return (
       <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
         <div className="flex items-center gap-2">
-          <Info className="h-5 w-5 text-emerald-600" />
-          <span className="font-medium text-emerald-800">All inventory levels are healthy</span>
+          <CheckCircle className="h-5 w-5 text-emerald-600" />
+          <span className="font-medium text-emerald-800">All inventory levels are healthy - no reorder needed</span>
         </div>
       </div>
     )
@@ -71,66 +38,25 @@ export function InventoryAlertBar({ alerts }: InventoryAlertBarProps) {
 
   return (
     <>
-      <div className="mb-4 flex flex-col gap-2">
-        {criticalAlerts.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setSelectedSeverity('critical')}
-            className="w-full rounded-lg border border-red-300 bg-red-50 p-4 text-left transition-all hover:bg-red-100 hover:shadow-md cursor-pointer"
-          >
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
-              <span className="font-semibold text-red-800">
-                Critical: {criticalAlerts.length} SKU(s) out of stock or negative inventory
-              </span>
-            </div>
-          </button>
-        )}
+      <button
+        type="button"
+        onClick={() => setShowDetails(true)}
+        className="mb-4 w-full rounded-lg border border-amber-300 bg-amber-50 p-4 text-left transition-all hover:bg-amber-100 hover:shadow-md cursor-pointer"
+      >
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+          <span className="font-semibold text-amber-800">
+            Reorder Warning: {alerts.length} SKU(s) need replenishment within 12 weeks to avoid stockout
+          </span>
+        </div>
+      </button>
 
-        {warningAlerts.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setSelectedSeverity('warning')}
-            className="w-full rounded-lg border border-amber-300 bg-amber-50 p-4 text-left transition-all hover:bg-amber-100 hover:shadow-md cursor-pointer"
-          >
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
-              <span className="font-semibold text-amber-800">
-                Warning: {warningAlerts.length} SKU(s) with low inventory (less than 2 weeks)
-              </span>
-            </div>
-          </button>
-        )}
-
-        {lowAlerts.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setSelectedSeverity('low')}
-            className="w-full rounded-lg border border-yellow-300 bg-yellow-50 p-4 text-left transition-all hover:bg-yellow-100 hover:shadow-md cursor-pointer"
-          >
-            <div className="flex items-center gap-2">
-              <Info className="h-5 w-5 text-yellow-600 shrink-0" />
-              <span className="font-semibold text-yellow-800">
-                Low Stock: {lowAlerts.length} SKU(s) with inventory below 4 weeks
-              </span>
-            </div>
-          </button>
-        )}
-      </div>
-
-      <Dialog open={selectedSeverity !== null} onOpenChange={(open) => !open && setSelectedSeverity(null)}>
+      <Dialog open={showDetails} onOpenChange={setShowDetails}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle className={cn(
-              'flex items-center gap-2',
-              selectedSeverity === 'critical' && 'text-red-700',
-              selectedSeverity === 'warning' && 'text-amber-700',
-              selectedSeverity === 'low' && 'text-yellow-700',
-            )}>
-              {selectedSeverity === 'critical' && <AlertTriangle className="h-5 w-5" />}
-              {selectedSeverity === 'warning' && <AlertCircle className="h-5 w-5" />}
-              {selectedSeverity === 'low' && <Info className="h-5 w-5" />}
-              {getDialogTitle()}
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
+              <AlertTriangle className="h-5 w-5" />
+              Reorder Warning - 12 Week Lead Time Required
             </DialogTitle>
           </DialogHeader>
           <div className="overflow-auto flex-1">
@@ -138,25 +64,25 @@ export function InventoryAlertBar({ alerts }: InventoryAlertBarProps) {
               <TableHeader>
                 <TableRow>
                   <TableHead>Part/Model #</TableHead>
-                  <TableHead>Week #</TableHead>
-                  <TableHead>Week Of</TableHead>
-                  <TableHead className="text-right">Weeks on Hand</TableHead>
+                  <TableHead>Predicted Stockout Week</TableHead>
+                  <TableHead>Stockout Date</TableHead>
+                  <TableHead>Reorder By Week</TableHead>
+                  <TableHead className="text-right">Weeks Until Stockout</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {getSelectedAlerts().map((alert, idx) => (
-                  <TableRow key={`${alert.skuId}-${alert.weekNumber}-${idx}`}>
+                {alerts.map((alert, idx) => (
+                  <TableRow key={`${alert.skuId}-${idx}`}>
                     <TableCell className="font-medium">{alert.partModelNumber}</TableCell>
-                    <TableCell>{alert.weekNumber}</TableCell>
-                    <TableCell>{alert.weekOf}</TableCell>
-                    <TableCell className={cn(
-                      'text-right font-mono',
-                      alert.weeksOnHand < 0 && 'text-red-600 font-bold',
-                      alert.weeksOnHand >= 0 && alert.weeksOnHand < 1 && 'text-red-500',
-                      alert.weeksOnHand >= 1 && alert.weeksOnHand < 2 && 'text-amber-600',
-                      alert.weeksOnHand >= 2 && alert.weeksOnHand < 4 && 'text-yellow-600',
-                    )}>
-                      {alert.weeksOnHand.toFixed(2)}
+                    <TableCell>Week {alert.stockoutWeekNumber}</TableCell>
+                    <TableCell>{alert.stockoutWeekOf}</TableCell>
+                    <TableCell className="font-semibold text-amber-700">
+                      {alert.reorderByWeekNumber <= 0 
+                        ? 'Overdue - Order Now!' 
+                        : `Week ${alert.reorderByWeekNumber} (${alert.reorderByWeekOf})`}
+                    </TableCell>
+                    <TableCell className="text-right font-mono font-bold text-amber-700">
+                      {alert.weeksUntilStockout}
                     </TableCell>
                   </TableRow>
                 ))}
