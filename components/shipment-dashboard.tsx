@@ -278,14 +278,9 @@ export function ShipmentDashboard() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Shipment Tracking</h1>
-          <p className="text-sm text-muted-foreground">Track shipments from origin to warehouse delivery</p>
-        </div>
-        <Button variant="outline" onClick={() => fetchData()} className="gap-2">
-          <RefreshCw className="h-4 w-4" /> Refresh
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Shipment Tracking</h1>
+        <p className="text-sm text-muted-foreground">Track shipments from origin to warehouse delivery</p>
       </div>
 
       {/* Summary Cards */}
