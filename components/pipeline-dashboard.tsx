@@ -474,7 +474,7 @@ export function PipelineDashboard() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-amber-600 mx-auto mb-4" />
+          <Loader2 className="h-12 w-12 animate-spin text-blue-700 mx-auto mb-4" />
           <p className="text-muted-foreground">Loading inventory data...</p>
         </div>
       </div>
@@ -522,7 +522,7 @@ export function PipelineDashboard() {
           </div>
           <div className="flex items-center gap-2">
             {hasUnsavedChanges && (
-              <span className="text-sm text-amber-600 font-medium">
+              <span className="text-sm text-blue-700 font-medium">
                 {pendingChanges.length} unsaved change{pendingChanges.length !== 1 ? 's' : ''}
               </span>
             )}
