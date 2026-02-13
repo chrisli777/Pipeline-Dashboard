@@ -1,5 +1,6 @@
 -- Update inventory_dashboard view to include supplier_code
-CREATE OR REPLACE VIEW inventory_dashboard AS
+DROP VIEW IF EXISTS inventory_dashboard;
+CREATE VIEW inventory_dashboard AS
 SELECT
   i.id,
   i.sku_id,
