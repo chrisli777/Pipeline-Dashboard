@@ -63,11 +63,12 @@ export function InventoryFilters({
         <span className="text-sm font-medium text-foreground">Filters:</span>
       </div>
 
+      {/* Customer filter - controls which SKUs appear in the SKU dropdown */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">Customer:</label>
         <Select value={selectedCustomer} onValueChange={onCustomerChange}>
           <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Select Customer" />
+            <SelectValue placeholder="All Customers" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Customers</SelectItem>
@@ -80,6 +81,7 @@ export function InventoryFilters({
         </Select>
       </div>
 
+      {/* SKU filter - filtered by selected customer */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">SKU:</label>
         <Select value={selectedSku} onValueChange={onSkuChange}>
