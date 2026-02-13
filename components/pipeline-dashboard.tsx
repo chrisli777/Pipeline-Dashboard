@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import { Package, Download, RefreshCw, Loader2, Save, RefreshCcw, CloudDownload } from 'lucide-react'
+import { Package, Download, Loader2, Save, RefreshCcw, CloudDownload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { InventoryAlertBar } from '@/components/inventory-alert-bar'
 import { InventoryFilters } from '@/components/inventory-filters'
@@ -487,7 +487,7 @@ export function PipelineDashboard() {
         <div className="text-center">
           <p className="text-destructive mb-4">Error: {error}</p>
           <Button onClick={fetchData}>
-            <RefreshCw className="mr-2 h-4 w-4" />
+            <RefreshCcw className="mr-2 h-4 w-4" />
             Retry
           </Button>
         </div>
@@ -514,9 +514,9 @@ export function PipelineDashboard() {
       <header className="border-b border-border bg-card px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Package className="h-8 w-8 text-amber-600" />
+            <Package className="h-8 w-8 text-blue-700" />
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Warehouse Pipeline Dashboard</h1>
+              <h1 className="text-2xl font-bold text-blue-800">Warehouse Pipeline Dashboard</h1>
               <p className="text-sm text-muted-foreground">Inventory Management & Forecasting</p>
             </div>
           </div>
@@ -526,11 +526,7 @@ export function PipelineDashboard() {
                 {pendingChanges.length} unsaved change{pendingChanges.length !== 1 ? 's' : ''}
               </span>
             )}
-            <Button variant="outline" size="sm" onClick={fetchData} disabled={loading || saving || syncing}>
-              <RefreshCw className={`mr-1 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button 
+        <Button
               variant="outline"
               size="sm" 
               onClick={() => setSyncDialogOpen(true)} 
@@ -548,7 +544,7 @@ export function PipelineDashboard() {
               size="sm" 
               onClick={handleSave} 
               disabled={!hasUnsavedChanges || saving}
-              className="bg-amber-600 hover:bg-amber-700 text-white"
+              className="bg-blue-700 hover:bg-blue-800 text-white"
             >
               {saving ? (
                 <Loader2 className="mr-1 h-4 w-4 animate-spin" />
