@@ -106,10 +106,6 @@ function getCellBackground(rowType: RowType, value: number | null): string {
     return ''
   }
   
-  if (rowType === 'defect' && value > 0) {
-    return 'bg-red-200'
-  }
-  
   return ''
 }
 
