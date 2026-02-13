@@ -173,7 +173,9 @@ export function PipelineDashboard() {
         throw new Error(data.error)
       }
       
+      console.log('[v0] First inventory row:', JSON.stringify(data.inventoryData?.[0]))
       const transformedData = transformDatabaseData(data.inventoryData || [])
+      console.log('[v0] Transformed SKUs supplier codes:', transformedData.map((s: SKUData) => ({ id: s.id, supplierCode: s.supplierCode })))
       setSkus(transformedData)
       setLoading(false)
     } catch (err) {
