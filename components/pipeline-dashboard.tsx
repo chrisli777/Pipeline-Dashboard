@@ -58,6 +58,7 @@ function transformDatabaseData(inventoryData: any[]): SKUData[] {
         partModelNumber: row.part_model,
         description: row.description || '',
         category: row.category || 'COUNTERWEIGHT',
+        supplierCode: row.supplier_code || '',
         weeks: [],
         allWeeks: [], // Include historical weeks for calculation
       })
@@ -141,6 +142,7 @@ export function PipelineDashboard() {
   const [syncing, setSyncing] = useState(false)
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<string>('all')
   const [selectedSku, setSelectedSku] = useState<string>('all')
   const [weekRange, setWeekRange] = useState({ start: 1, end: 53 })
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([])
@@ -225,11 +227,22 @@ export function PipelineDashboard() {
     return alertList
   }, [skus])
 
-  // Filter SKUs based on selection
+  // Filter SKUs based on customer and SKU selection
+  const customerFilteredSkus = useMemo(() => {
+    if (selectedCustomer === 'all') return skus
+    return skus.filter((sku) => sku.supplierCode === selectedCustomer)
+  }, [skus, selectedCustomer])
+
   const filteredSkus = useMemo(() => {
-    if (selectedSku === 'all') return skus
-    return skus.filter((sku) => sku.id === selectedSku)
-  }, [skus, selectedSku])
+    if (selectedSku === 'all') return customerFilteredSkus
+    return customerFilteredSkus.filter((sku) => sku.id === selectedSku)
+  }, [customerFilteredSkus, selectedSku])
+
+  // When customer changes, reset SKU selection
+  const handleCustomerChange = useCallback((customer: string) => {
+    setSelectedCustomer(customer)
+    setSelectedSku('all')
+  }, [])
 
   // Handle data changes - update locally and track pending changes
   const handleDataChange = useCallback(
@@ -560,6 +573,8 @@ export function PipelineDashboard() {
         {/* Filters */}
         <InventoryFilters
           skus={skus}
+          selectedCustomer={selectedCustomer}
+          onCustomerChange={handleCustomerChange}
           selectedSku={selectedSku}
           onSkuChange={setSelectedSku}
           weekRange={weekRange}
