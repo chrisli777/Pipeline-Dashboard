@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   Ship, Truck, CalendarClock, AlertTriangle, CheckCircle2,
   DollarSign, RefreshCw, Search, ChevronDown, ChevronRight,
-  Package, Globe, Anchor
+  Package, Globe, Anchor, Loader2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -255,8 +255,8 @@ export function ShipmentDashboard() {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="flex flex-col items-center gap-3">
-          <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-muted-foreground">Loading shipments...</p>
+<Loader2 className="h-12 w-12 animate-spin text-blue-700 mx-auto mb-4" />
+<p className="text-muted-foreground">Loading shipments...</p>
         </div>
       </div>
     )
