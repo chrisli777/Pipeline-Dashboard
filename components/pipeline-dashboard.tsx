@@ -396,9 +396,26 @@ export function PipelineDashboard() {
               }
             }
           }
+        } else if (field === 'etd') {
+          // Sync ETD from shipment tracking data
+          for (const skuId of skuIds) {
+            for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
+              try {
+                const res = await fetch('/api/wms/etd', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ skuId, weekNumber }),
+                })
+                const data = await res.json()
+                results.push(data)
+                await new Promise(resolve => setTimeout(resolve, 200))
+              } catch (err) {
+                results.push({ error: 'Request failed' })
+              }
+            }
+          }
         } else {
-          // For other fields (etd, eta), just mark as synced
-          // These would connect to different APIs in the future
+          // For other fields (eta), just mark as synced
           for (const skuId of skuIds) {
             for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
               results.push({ success: true })
