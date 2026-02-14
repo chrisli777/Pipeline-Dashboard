@@ -18,11 +18,21 @@ import {
 } from '@/components/ui/select'
 import {
   Ship, Package, AlertTriangle, DollarSign,
-  Truck, CheckCircle2, Container,
+  Truck, CheckCircle2, CalendarClock,
   Search, RefreshCw, ArrowUpRight, Loader2,
 } from 'lucide-react'
 
 type StatusFilter = 'ALL' | ShipmentStatus
+
+// Fetch with exponential backoff retry (adopted from Chris's pattern)
+async function fetchWithRetry(url: string, retryCount = 0): Promise<Response> {
+  const res = await fetch(url)
+  if ((res.status >= 429 || !res.ok) && retryCount < 3) {
+    await new Promise(r => setTimeout(r, 2000 * (retryCount + 1)))
+    return fetchWithRetry(url, retryCount + 1)
+  }
+  return res
+}
 
 export default function ShipmentTrackingPage() {
   const [shipments, setShipments] = useState<ShipmentWithTracking[]>([])
@@ -43,8 +53,8 @@ export default function ShipmentTrackingPage() {
       if (searchQuery) params.set('search', searchQuery)
 
       const [shipmentsRes, statsRes] = await Promise.all([
-        fetch(`/api/shipments?${params}`),
-        fetch('/api/shipments/dashboard'),
+        fetchWithRetry(`/api/shipments?${params}`),
+        fetchWithRetry('/api/shipments/dashboard'),
       ])
 
       const shipmentsData = await shipmentsRes.json()
@@ -102,7 +112,7 @@ export default function ShipmentTrackingPage() {
 
       {/* Dashboard Stats Cards — 5-stage model */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
           <StatsCard
             title="Active Shipments"
             value={stats.active_shipments}
@@ -127,6 +137,12 @@ export default function ShipmentTrackingPage() {
             icon={AlertTriangle}
             color={stats.lfd_critical_count > 0 ? 'red' : 'green'}
             pulse={stats.lfd_critical_count > 0}
+          />
+          <StatsCard
+            title="Arriving This Week"
+            value={stats.arriving_this_week}
+            icon={CalendarClock}
+            color="cyan"
           />
           <StatsCard
             title="Delivering"

@@ -49,6 +49,16 @@ interface DispatchSummary {
   by_warehouse: Record<string, number>
 }
 
+// Fetch with exponential backoff retry
+async function fetchWithRetry(url: string, retryCount = 0): Promise<Response> {
+  const res = await fetch(url)
+  if ((res.status >= 429 || !res.ok) && retryCount < 3) {
+    await new Promise(r => setTimeout(r, 2000 * (retryCount + 1)))
+    return fetchWithRetry(url, retryCount + 1)
+  }
+  return res
+}
+
 // ═══════════════════════════════════════════
 // Main Page Component
 // ═══════════════════════════════════════════
@@ -86,7 +96,7 @@ export default function DispatcherDashboardPage() {
       if (warehouseFilter !== 'ALL') params.set('warehouse', warehouseFilter)
       params.set('sort', sortBy)
 
-      const res = await fetch(`/api/dispatcher/containers?${params}`)
+      const res = await fetchWithRetry(`/api/dispatcher/containers?${params}`)
       const data = await res.json()
 
       let containersList = data.containers || []

@@ -20,7 +20,7 @@ const menuItems = [
   },
   {
     name: 'Shipment Tracking',
-    href: '/shipment-tracking',
+    href: '/shipments',
     icon: Ship,
   },
   {
