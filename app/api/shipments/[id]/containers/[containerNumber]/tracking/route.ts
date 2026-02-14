@@ -95,11 +95,33 @@ export async function PATCH(
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
 
+    // When container transitions to DELIVERED, update inventory (ATA + refresh in-transit)
+    let inventoryResult = null
+    if (status === 'DELIVERED') {
+      const deliveryDate = delivered_date || new Date().toISOString().split('T')[0]
+      const { data: invData, error: invError } = await supabase.rpc(
+        'deliver_container_to_inventory',
+        {
+          p_shipment_id: shipmentId,
+          p_container_number: decodedContainer,
+          p_delivered_date: deliveryDate,
+        }
+      )
+      if (invError) {
+        // Log but don't fail the container update — inventory sync is secondary
+        console.error('deliver_container_to_inventory error:', invError.message)
+        inventoryResult = { error: invError.message }
+      } else {
+        inventoryResult = invData
+      }
+    }
+
     return NextResponse.json({
       container: updated,
       message: status
         ? `Container ${decodedContainer}: ${existing.status} → ${status}`
         : `Container ${decodedContainer} updated`,
+      inventorySync: inventoryResult,
     })
   } catch (error) {
     return NextResponse.json(
