@@ -1,6 +1,5 @@
 'use client'
 
-import { useMemo } from 'react'
 import { Filter, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,8 +13,6 @@ import type { SKUData } from '@/lib/types'
 
 interface InventoryFiltersProps {
   skus: SKUData[]
-  selectedCustomer: string
-  onCustomerChange: (value: string) => void
   selectedSku: string
   onSkuChange: (value: string) => void
   weekRange: { start: number; end: number }
@@ -25,8 +22,6 @@ interface InventoryFiltersProps {
 
 export function InventoryFilters({
   skus,
-  selectedCustomer,
-  onCustomerChange,
   selectedSku,
   onSkuChange,
   weekRange,
@@ -35,23 +30,7 @@ export function InventoryFilters({
 }: InventoryFiltersProps) {
   const weekOptions = Array.from({ length: totalWeeks }, (_, i) => i + 1)
 
-  // Get unique customer/supplier codes from all SKUs
-  const customers = useMemo(() => {
-    const codes = new Set<string>()
-    skus.forEach((sku) => {
-      if (sku.supplierCode) codes.add(sku.supplierCode)
-    })
-    return Array.from(codes).sort()
-  }, [skus])
-
-  // Filter SKUs shown in dropdown based on selected customer
-  const availableSkus = useMemo(() => {
-    if (selectedCustomer === 'all') return skus
-    return skus.filter((sku) => sku.supplierCode === selectedCustomer)
-  }, [skus, selectedCustomer])
-
   const handleReset = () => {
-    onCustomerChange('all')
     onSkuChange('all')
     onWeekRangeChange({ start: 1, end: totalWeeks })
   }
@@ -63,25 +42,6 @@ export function InventoryFilters({
         <span className="text-sm font-medium text-foreground">Filters:</span>
       </div>
 
-      {/* Customer filter - controls which SKUs appear in the SKU dropdown */}
-      <div className="flex items-center gap-2">
-        <label className="text-sm text-muted-foreground">Customer:</label>
-        <Select value={selectedCustomer} onValueChange={onCustomerChange}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="All Customers" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Customers</SelectItem>
-            {customers.map((code) => (
-              <SelectItem key={code} value={code}>
-                {code}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* SKU filter - filtered by selected customer */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">SKU:</label>
         <Select value={selectedSku} onValueChange={onSkuChange}>
@@ -90,7 +50,7 @@ export function InventoryFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All SKUs</SelectItem>
-            {availableSkus.map((sku) => (
+            {skus.map((sku) => (
               <SelectItem key={sku.id} value={sku.id}>
                 {sku.partModelNumber}
               </SelectItem>

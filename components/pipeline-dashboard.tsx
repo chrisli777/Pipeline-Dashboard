@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import { Package, Download, Loader2, Save, RefreshCcw, CloudDownload } from 'lucide-react'
+import { Package, Download, RefreshCw, Loader2, Save, RefreshCcw, CloudDownload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { InventoryAlertBar } from '@/components/inventory-alert-bar'
 import { InventoryFilters } from '@/components/inventory-filters'
@@ -58,7 +58,6 @@ function transformDatabaseData(inventoryData: any[]): SKUData[] {
         partModelNumber: row.part_model,
         description: row.description || '',
         category: row.category || 'COUNTERWEIGHT',
-        supplierCode: row.supplier_code || '',
         weeks: [],
         allWeeks: [], // Include historical weeks for calculation
       })
@@ -80,6 +79,7 @@ function transformDatabaseData(inventoryData: any[]): SKUData[] {
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
       eta: row.ata !== null ? Number(row.ata) : null,
+      inTransit: row.in_transit !== null && row.in_transit !== undefined ? Number(row.in_transit) : null,
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
       weeksOnHand: 0, // Will be calculated after sorting
@@ -142,7 +142,6 @@ export function PipelineDashboard() {
   const [syncing, setSyncing] = useState(false)
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('all')
   const [selectedSku, setSelectedSku] = useState<string>('all')
   const [weekRange, setWeekRange] = useState({ start: 1, end: 53 })
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([])
@@ -155,25 +154,63 @@ export function PipelineDashboard() {
       setError(null)
     }
     try {
-      const response = await fetch('/api/inventory')
-      
+      // Fetch inventory data and in-transit data in parallel
+      const [inventoryRes, inTransitRes] = await Promise.all([
+        fetch('/api/inventory'),
+        fetch('/api/inventory/in-transit'),
+      ])
+
       // Auto-retry on server errors (429, 500, 502, 503, 504)
-      if (response.status >= 429 && retryCount < 5) {
+      if (inventoryRes.status >= 429 && retryCount < 5) {
         await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)))
         return fetchData(retryCount + 1)
       }
-      
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`)
+
+      if (!inventoryRes.ok) {
+        throw new Error(`Server error: ${inventoryRes.status}`)
       }
-      
-      const data = await response.json()
-      
+
+      const data = await inventoryRes.json()
+
       if (data.error) {
         throw new Error(data.error)
       }
-      
+
+      // Parse in-transit invoice data for tooltips
+      let inTransitInvoiceMap: Map<string, Map<number, string[]>> | undefined
+      if (inTransitRes.ok) {
+        const inTransitData = await inTransitRes.json()
+        if (inTransitData.inTransitData) {
+          // Build map: sku_id -> week -> invoice_numbers[]
+          inTransitInvoiceMap = new Map()
+          for (const row of inTransitData.inTransitData) {
+            if (!row.sku_id) continue
+            if (!inTransitInvoiceMap.has(row.sku_id)) {
+              inTransitInvoiceMap.set(row.sku_id, new Map())
+            }
+            const weekMap = inTransitInvoiceMap.get(row.sku_id)!
+            const existing = weekMap.get(row.expected_week) || []
+            weekMap.set(row.expected_week, [...existing, ...(row.invoice_numbers || [])])
+          }
+        }
+      }
+
       const transformedData = transformDatabaseData(data.inventoryData || [])
+
+      // Merge in-transit invoice info into transformed data
+      if (inTransitInvoiceMap) {
+        for (const sku of transformedData) {
+          const weekMap = inTransitInvoiceMap.get(sku.id)
+          if (!weekMap) continue
+          for (const week of sku.weeks) {
+            const invoices = weekMap.get(week.weekNumber)
+            if (invoices && invoices.length > 0) {
+              week.inTransitInvoices = [...new Set(invoices)] // deduplicate
+            }
+          }
+        }
+      }
+
       setSkus(transformedData)
       setLoading(false)
     } catch (err) {
@@ -192,57 +229,67 @@ export function PipelineDashboard() {
     fetchData()
   }, [fetchData])
 
-  // Calculate reorder alerts: warn 12 weeks before predicted stockout
-  // Find the first week where inventory goes to 0 or negative for each SKU
+  // Calculate alerts based on data (only for weeks >= 1)
+  // Only show the earliest problem week for each SKU per severity level
   const alerts = useMemo<InventoryAlert[]>(() => {
     const alertList: InventoryAlert[] = []
-    const REORDER_LEAD_WEEKS = 12
-
+    
     skus.forEach((sku) => {
-      // Find the first week (>=1) where weeksOnHand <= 0 (stockout)
-      const stockoutWeek = sku.weeks.find(
-        (w) => w.weekNumber >= 1 && w.weeksOnHand !== null && w.weeksOnHand <= 0
-      )
-
-      if (!stockoutWeek) return // No predicted stockout for this SKU
-
-      // Reorder deadline = stockout week - 12
-      const reorderByWeekNum = stockoutWeek.weekNumber - REORDER_LEAD_WEEKS
-      const reorderByWeek = sku.weeks.find((w) => w.weekNumber === reorderByWeekNum)
-
-      // Current week is week 1; weeksUntilStockout = stockout week - 1
-      const weeksUntilStockout = stockoutWeek.weekNumber - 1
-
-      alertList.push({
-        skuId: sku.id,
-        partModelNumber: sku.partModelNumber,
-        stockoutWeekNumber: stockoutWeek.weekNumber,
-        stockoutWeekOf: stockoutWeek.weekOf,
-        reorderByWeekNumber: reorderByWeekNum,
-        reorderByWeekOf: reorderByWeek?.weekOf || `Week ${reorderByWeekNum}`,
-        weeksUntilStockout,
-      })
+      // Track if we've already found the first problem for each severity
+      let foundCritical = false
+      let foundWarning = false
+      let foundLow = false
+      
+      // Weeks are already sorted by weekNumber, so we iterate in order
+      for (const week of sku.weeks) {
+        // Only show alerts for Week 1 and onwards
+        if (week.weekNumber < 1 || week.weeksOnHand === null) continue
+        
+        if (week.weeksOnHand < 0 && !foundCritical) {
+          alertList.push({
+            skuId: sku.id,
+            partModelNumber: sku.partModelNumber,
+            weekNumber: week.weekNumber,
+            weekOf: week.weekOf,
+            weeksOnHand: week.weeksOnHand,
+            severity: 'critical',
+          })
+          foundCritical = true
+        } else if (week.weeksOnHand >= 0 && week.weeksOnHand < 2 && !foundWarning) {
+          alertList.push({
+            skuId: sku.id,
+            partModelNumber: sku.partModelNumber,
+            weekNumber: week.weekNumber,
+            weekOf: week.weekOf,
+            weeksOnHand: week.weeksOnHand,
+            severity: 'warning',
+          })
+          foundWarning = true
+        } else if (week.weeksOnHand >= 2 && week.weeksOnHand < 4 && !foundLow) {
+          alertList.push({
+            skuId: sku.id,
+            partModelNumber: sku.partModelNumber,
+            weekNumber: week.weekNumber,
+            weekOf: week.weekOf,
+            weeksOnHand: week.weeksOnHand,
+            severity: 'low',
+          })
+          foundLow = true
+        }
+        
+        // Stop early if we've found all three types
+        if (foundCritical && foundWarning && foundLow) break
+      }
     })
-
+    
     return alertList
   }, [skus])
 
-  // Filter SKUs based on customer and SKU selection
-  const customerFilteredSkus = useMemo(() => {
-    if (selectedCustomer === 'all') return skus
-    return skus.filter((sku) => sku.supplierCode === selectedCustomer)
-  }, [skus, selectedCustomer])
-
+  // Filter SKUs based on selection
   const filteredSkus = useMemo(() => {
-    if (selectedSku === 'all') return customerFilteredSkus
-    return customerFilteredSkus.filter((sku) => sku.id === selectedSku)
-  }, [customerFilteredSkus, selectedSku])
-
-  // When customer changes, reset SKU selection
-  const handleCustomerChange = useCallback((customer: string) => {
-    setSelectedCustomer(customer)
-    setSelectedSku('all')
-  }, [])
+    if (selectedSku === 'all') return skus
+    return skus.filter((sku) => sku.id === selectedSku)
+  }, [skus, selectedSku])
 
   // Handle data changes - update locally and track pending changes
   const handleDataChange = useCallback(
@@ -396,26 +443,9 @@ export function PipelineDashboard() {
               }
             }
           }
-        } else if (field === 'etd') {
-          // Sync ETD from shipment tracking data
-          for (const skuId of skuIds) {
-            for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
-              try {
-                const res = await fetch('/api/wms/etd', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ skuId, weekNumber }),
-                })
-                const data = await res.json()
-                results.push(data)
-                await new Promise(resolve => setTimeout(resolve, 200))
-              } catch (err) {
-                results.push({ error: 'Request failed' })
-              }
-            }
-          }
         } else {
-          // For other fields (eta), just mark as synced
+          // For other fields (etd, eta), just mark as synced
+          // These would connect to different APIs in the future
           for (const skuId of skuIds) {
             for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
               results.push({ success: true })
@@ -460,7 +490,7 @@ export function PipelineDashboard() {
         (w) => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
       )
       
-      const rowTypes = ['customerForecast', 'actualConsumption', 'etd', 'eta', 'defect', 'actualInventory', 'weeksOnHand'] as const
+      const rowTypes = ['customerForecast', 'actualConsumption', 'etd', 'eta', 'inTransit', 'defect', 'actualInventory', 'weeksOnHand'] as const
       
       rowTypes.forEach((rowType) => {
         const row = [
@@ -543,7 +573,16 @@ export function PipelineDashboard() {
                 {pendingChanges.length} unsaved change{pendingChanges.length !== 1 ? 's' : ''}
               </span>
             )}
-        <Button
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchData}
+              disabled={loading || saving}
+            >
+              <RefreshCw className="mr-1 h-4 w-4" />
+              Refresh
+            </Button>
+            <Button
               variant="outline"
               size="sm" 
               onClick={() => setSyncDialogOpen(true)} 
@@ -553,7 +592,7 @@ export function PipelineDashboard() {
               {syncing ? (
                 <Loader2 className="mr-1 h-4 w-4 animate-spin" />
               ) : (
-                <RefreshCcw className="mr-1 h-4 w-4" />
+                <CloudDownload className="mr-1 h-4 w-4" />
               )}
               Sync
             </Button>
@@ -586,8 +625,6 @@ export function PipelineDashboard() {
         {/* Filters */}
         <InventoryFilters
           skus={skus}
-          selectedCustomer={selectedCustomer}
-          onCustomerChange={handleCustomerChange}
           selectedSku={selectedSku}
           onSkuChange={setSelectedSku}
           weekRange={weekRange}
