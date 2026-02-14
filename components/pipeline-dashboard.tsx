@@ -79,6 +79,7 @@ function transformDatabaseData(inventoryData: any[]): SKUData[] {
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
       eta: row.ata !== null ? Number(row.ata) : null,
+      inTransit: row.in_transit !== null && row.in_transit !== undefined ? Number(row.in_transit) : null,
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
       weeksOnHand: 0, // Will be calculated after sorting
@@ -153,25 +154,63 @@ export function PipelineDashboard() {
       setError(null)
     }
     try {
-      const response = await fetch('/api/inventory')
-      
+      // Fetch inventory data and in-transit data in parallel
+      const [inventoryRes, inTransitRes] = await Promise.all([
+        fetch('/api/inventory'),
+        fetch('/api/inventory/in-transit'),
+      ])
+
       // Auto-retry on server errors (429, 500, 502, 503, 504)
-      if (response.status >= 429 && retryCount < 5) {
+      if (inventoryRes.status >= 429 && retryCount < 5) {
         await new Promise(resolve => setTimeout(resolve, 2000 * (retryCount + 1)))
         return fetchData(retryCount + 1)
       }
-      
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`)
+
+      if (!inventoryRes.ok) {
+        throw new Error(`Server error: ${inventoryRes.status}`)
       }
-      
-      const data = await response.json()
-      
+
+      const data = await inventoryRes.json()
+
       if (data.error) {
         throw new Error(data.error)
       }
-      
+
+      // Parse in-transit invoice data for tooltips
+      let inTransitInvoiceMap: Map<string, Map<number, string[]>> | undefined
+      if (inTransitRes.ok) {
+        const inTransitData = await inTransitRes.json()
+        if (inTransitData.inTransitData) {
+          // Build map: sku_id -> week -> invoice_numbers[]
+          inTransitInvoiceMap = new Map()
+          for (const row of inTransitData.inTransitData) {
+            if (!row.sku_id) continue
+            if (!inTransitInvoiceMap.has(row.sku_id)) {
+              inTransitInvoiceMap.set(row.sku_id, new Map())
+            }
+            const weekMap = inTransitInvoiceMap.get(row.sku_id)!
+            const existing = weekMap.get(row.expected_week) || []
+            weekMap.set(row.expected_week, [...existing, ...(row.invoice_numbers || [])])
+          }
+        }
+      }
+
       const transformedData = transformDatabaseData(data.inventoryData || [])
+
+      // Merge in-transit invoice info into transformed data
+      if (inTransitInvoiceMap) {
+        for (const sku of transformedData) {
+          const weekMap = inTransitInvoiceMap.get(sku.id)
+          if (!weekMap) continue
+          for (const week of sku.weeks) {
+            const invoices = weekMap.get(week.weekNumber)
+            if (invoices && invoices.length > 0) {
+              week.inTransitInvoices = [...new Set(invoices)] // deduplicate
+            }
+          }
+        }
+      }
+
       setSkus(transformedData)
       setLoading(false)
     } catch (err) {
@@ -451,7 +490,7 @@ export function PipelineDashboard() {
         (w) => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
       )
       
-      const rowTypes = ['customerForecast', 'actualConsumption', 'etd', 'eta', 'defect', 'actualInventory', 'weeksOnHand'] as const
+      const rowTypes = ['customerForecast', 'actualConsumption', 'etd', 'eta', 'inTransit', 'defect', 'actualInventory', 'weeksOnHand'] as const
       
       rowTypes.forEach((rowType) => {
         const row = [

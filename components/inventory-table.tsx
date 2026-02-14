@@ -88,7 +88,7 @@ function EditableCell({ value, onChange, className, isWeeksOnHand = false, isRea
 
 function getCellBackground(rowType: RowType, value: number | null): string {
   if (value === null) return ''
-  
+
   if (rowType === 'weeksOnHand') {
     if (value < 0) return 'bg-red-600 text-white'
     if (value < 1) return 'bg-red-400 text-white'
@@ -98,18 +98,22 @@ function getCellBackground(rowType: RowType, value: number | null): string {
     if (value < 16) return 'bg-yellow-100'
     return 'bg-green-100'
   }
-  
+
   if (rowType === 'actualInventory') {
     if (value < 0) return 'bg-red-600 text-white'
     if (value < 10) return 'bg-red-200'
     if (value < 30) return 'bg-yellow-100'
     return ''
   }
-  
+
   if (rowType === 'defect' && value > 0) {
     return 'bg-red-200'
   }
-  
+
+  if (rowType === 'inTransit' && value > 0) {
+    return 'bg-blue-50 text-blue-700'
+  }
+
   return ''
 }
 
@@ -117,7 +121,8 @@ const ROW_TYPE_ORDER: RowType[] = [
   'customerForecast',
   'actualConsumption',
   'etd',
-  'eta',
+  'ata',
+  'inTransit',
   'defect',
   'actualInventory',
 ]
@@ -227,15 +232,21 @@ function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) 
           </td>
           {skuWeeks.map((week) => {
             const value = week[rowType]
-            // Actual inventory is only editable for week 1, rest are calculated
-            const isActualInventoryReadOnly = rowType === 'actualInventory' && week.weekNumber !== 1
+            // In Transit and calculated Actual Inventory are read-only
+            const isReadOnly =
+              rowType === 'inTransit' ||
+              (rowType === 'actualInventory' && week.weekNumber !== 1)
+            const tooltipText =
+              rowType === 'inTransit' && week.inTransitInvoices && week.inTransitInvoices.length > 0
+                ? `Invoices: ${week.inTransitInvoices.join(', ')}`
+                : undefined
             return (
-              <td key={week.weekNumber} className="p-0">
+              <td key={week.weekNumber} className="p-0" title={tooltipText}>
                 <EditableCell
                   value={value}
                   onChange={(v) => onDataChange(sku.id, week.weekNumber, rowType, v)}
                   className={getCellBackground(rowType, value)}
-                  isReadOnly={isActualInventoryReadOnly}
+                  isReadOnly={isReadOnly}
                 />
               </td>
             )

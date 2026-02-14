@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { LayoutDashboard, FileText, ChevronLeft, ChevronRight } from 'lucide-react'
+import { LayoutDashboard, FileText, Ship, Truck, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 const menuItems = [
@@ -17,6 +17,16 @@ const menuItems = [
     name: 'Customer Forecast',
     href: '/customer-forecast',
     icon: FileText,
+  },
+  {
+    name: 'Shipment Tracking',
+    href: '/shipment-tracking',
+    icon: Ship,
+  },
+  {
+    name: 'Dispatcher',
+    href: '/dispatcher',
+    icon: Truck,
   },
 ]
 
@@ -35,7 +45,7 @@ export function Sidebar() {
         "p-4 border-b border-slate-700 flex items-center",
         collapsed ? "justify-center" : "justify-between"
       )}>
-        {!collapsed && <h1 className="text-lg font-bold">Inventory</h1>}
+        {!collapsed && <h1 className="text-lg font-bold">WHI SCM</h1>}
         <Button
           variant="ghost"
           size="icon"
