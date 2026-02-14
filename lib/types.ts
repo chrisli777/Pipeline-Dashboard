@@ -245,6 +245,56 @@ export interface ShipmentDashboardStats {
 
 export type LfdStatus = 'N/A' | 'RESOLVED' | 'OVERDUE' | 'CRITICAL' | 'WARNING' | 'OK'
 
+// ═══════════════════════════════════════════
+// Phase 3A: ABC/XYZ Classification Types
+// ═══════════════════════════════════════════
+
+export interface SKUClassification {
+  id: string
+  sku_code: string
+  part_model: string | null
+  description: string | null
+  supplier_code: string | null
+  abc_class: 'A' | 'B' | 'C'
+  xyz_class: 'X' | 'Y' | 'Z'
+  matrix_cell: string
+  unit_cost: number | null
+  annual_consumption_value: number | null
+  avg_weekly_demand: number | null
+  cv_demand: number | null
+  safety_stock_weeks: number | null
+  reorder_point: number | null
+  moq: number | null
+  lead_time_weeks: number | null
+  unit_weight: number | null
+  qty_per_container: number | null
+  dimensions_cbm: number | null
+  length_in: number | null
+  width_in: number | null
+  height_in: number | null
+}
+
+export interface ClassificationPolicy {
+  id: string
+  matrix_cell: string
+  service_level: number
+  target_woh: number
+  review_frequency: 'weekly' | 'biweekly' | 'monthly'
+  replenishment_method: 'auto' | 'manual_review' | 'on_demand'
+  safety_stock_multiplier: number
+  notes: string | null
+}
+
+export interface ClassificationSummary {
+  totalSkus: number
+  abcCounts: { A: number; B: number; C: number }
+  xyzCounts: { X: number; Y: number; Z: number }
+  matrixCounts: Record<string, number>
+  matrixValues: Record<string, number>
+  totalAnnualValue: number
+  suppliers: string[]
+}
+
 export interface ShipmentOverview extends Shipment {
   status: ShipmentStatus | null
   lfd: string | null
