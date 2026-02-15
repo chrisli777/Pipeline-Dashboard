@@ -221,10 +221,19 @@ export function computeProjection(
     })
   }
 
-  // Urgency: CRITICAL if stockout within LT, WARNING if below ROP
+  // ★ Urgency determination — uses review_frequency to set relevant horizon
+  // Instead of checking the full 20-week window, only flag WARNING if the
+  // reorder trigger falls within the review cycle + lead time.
+  // This prevents items with 15+ weeks of cover from being flagged WARNING
+  // just because they dip below ROP in week 19.
+  const reviewCycle = sku.review_frequency === 'monthly' ? 4
+    : sku.review_frequency === 'biweekly' ? 2
+      : 1  // 'weekly' or default
+  const urgencyHorizon = currentWeek + reviewCycle + lt  // review window + lead time
+
   const urgency: SKUProjection['urgency'] =
     (stockoutWeek !== null && stockoutWeek <= currentWeek + lt) ? 'CRITICAL'
-      : reorderTriggerWeek !== null ? 'WARNING'
+      : (reorderTriggerWeek !== null && reorderTriggerWeek <= urgencyHorizon) ? 'WARNING'
         : 'OK'
 
   return {

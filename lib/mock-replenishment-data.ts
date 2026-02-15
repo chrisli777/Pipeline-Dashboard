@@ -187,82 +187,146 @@ const MOCK_SKUS: SKUClassificationExtended[] = [
 ]
 
 // ─── Mock Inventory (realistic scenario) ─────────────────────────────────────
+// Designed to produce a realistic distribution: ~2 CRITICAL, ~2-3 WARNING, ~7 OK
+// Cover = inventory / avg_weekly_demand (weeks)
 
 const MOCK_INVENTORY: Record<string, number> = {
-  '1282199': 45,    // AX: ~3 weeks cover — slightly low
-  '1277620': 8,     // AY: < 1 week cover — CRITICAL
-  '61415':   12,    // AZ: ~2 weeks cover — below SS
-  '1306776': 150,   // AY: ~3 weeks cover
-  '824433':  18,    // AY: ~5 weeks cover — OK
-  '1267365': 3,     // BZ: ~1.4 weeks cover — WARNING
-  '1301444': 30,    // BY: ~4 weeks cover
-  '1278414': 15,    // BX: ~6 weeks cover — OK
-  '1272762': 0,     // BZ: STOCKOUT!
-  '56174':   35,    // CX: ~8 weeks cover — OK
-  '1277619': 5,     // CY: ~6 weeks cover — OK
-  '1304828': 2,     // CZ: ~3.5 weeks cover
+  '1282199': 350,   // AX: 15/wk, ROP=192 → stays above with 3 shipments → OK target
+  '1277620': 8,     // AY: 13/wk, ROP=207 → < 1 week → CRITICAL
+  '61415':   25,    // AZ: 5.8/wk, ROP=98 → ~4 weeks, below SS → WARNING
+  '1306776': 900,   // AY: 48/wk, ROP=673 → above ROP early; dips later → WARNING target
+  '824433':  70,    // AY: 3.6/wk, ROP=55 → ~19wk + 2 shipments → WARNING target
+  '1267365': 8,     // BZ: 2.2/wk, ROP=41 → ~4wk, no in-transit → WARNING
+  '1301444': 190,   // BY: 7.3/wk, ROP=100 → ~26wk + 2 shipments → OK target
+  '1278414': 65,    // BX: 2.5/wk, ROP=32 → ~26wk + 2 shipments → OK
+  '1272762': 0,     // BZ: 1.9/wk, ROP=33 → STOCKOUT → CRITICAL
+  '56174':   110,   // CX: 4.2/wk, ROP=52 → ~26wk + 2 shipments → OK target
+  '1277619': 25,    // CY: 0.85/wk, ROP=13 → ~29wk + shipment → OK target
+  '1304828': 22,    // CZ: 0.57/wk, ROP=9 → ~39wk → OK target (on_demand)
 }
 
 // ─── Mock In-Transit ─────────────────────────────────────────────────────────
+// Most SKUs should have pipeline orders; realistic lead times ~11 weeks
 
 function getMockInTransit(currentWeek: number): Map<string, Map<number, number>> {
   const map = new Map<string, Map<number, number>>()
 
-  // 1277620 (AY, CRITICAL) — order in transit arriving week+3
+  // 1282199 (AX) — 4 shipments: steady pipeline for high-demand A-class
   const lt1 = new Map<number, number>()
-  lt1.set(currentWeek + 3, 24)
-  map.set('1277620', lt1)
+  lt1.set(currentWeek + 2, 48)   // 2 containers arriving soon
+  lt1.set(currentWeek + 7, 48)   // second batch
+  lt1.set(currentWeek + 13, 48)  // third batch
+  lt1.set(currentWeek + 19, 48)  // fourth batch
+  map.set('1282199', lt1)
 
-  // 61415 (AZ) — order arriving week+5
+  // 1277620 (AY, CRITICAL) — emergency order placed, arriving week+3
   const lt2 = new Map<number, number>()
-  lt2.set(currentWeek + 5, 16)
-  map.set('61415', lt2)
+  lt2.set(currentWeek + 3, 24)   // partial mitigation
+  map.set('1277620', lt2)
 
-  // 1282199 (AX) — order arriving week+2
+  // 61415 (AZ, WARNING) — order in transit
   const lt3 = new Map<number, number>()
-  lt3.set(currentWeek + 2, 48)
-  map.set('1282199', lt3)
+  lt3.set(currentWeek + 5, 16)   // 2 containers
+  map.set('61415', lt3)
 
-  // 1272762 (BZ, STOCKOUT) — order arriving week+7
+  // 1306776 (AY) — regular replenishment, 3 batches (high demand ~48/wk)
   const lt4 = new Map<number, number>()
-  lt4.set(currentWeek + 7, 8)
-  map.set('1272762', lt4)
+  lt4.set(currentWeek + 4, 96)   // 2 containers (48/container)
+  lt4.set(currentWeek + 11, 96)  // follow-up 2 containers
+  lt4.set(currentWeek + 18, 96)  // third batch
+  map.set('1306776', lt4)
+
+  // 824433 (AY) — regular pipeline: 2 shipments
+  const lt5 = new Map<number, number>()
+  lt5.set(currentWeek + 6, 8)    // 1 container
+  lt5.set(currentWeek + 16, 8)   // follow-up container
+  map.set('824433', lt5)
+
+  // 1267365 (BZ, WARNING) — NO in-transit → warning stays unmitigated
+  // (intentionally omitted to keep this SKU as WARNING/NONE mitigation)
+
+  // 1301444 (BY) — regular replenishment, 3 shipments
+  const lt6 = new Map<number, number>()
+  lt6.set(currentWeek + 5, 24)   // 1 container
+  lt6.set(currentWeek + 12, 24)  // second container
+  lt6.set(currentWeek + 19, 24)  // third container
+  map.set('1301444', lt6)
+
+  // 1278414 (BX) — pipeline order + follow-up
+  const lt7 = new Map<number, number>()
+  lt7.set(currentWeek + 8, 12)   // 1 container
+  lt7.set(currentWeek + 18, 12)  // follow-up container
+  map.set('1278414', lt7)
+
+  // 1272762 (BZ, STOCKOUT) — emergency order, but arrives late
+  const lt8 = new Map<number, number>()
+  lt8.set(currentWeek + 7, 8)    // 2 containers, arrives after stockout
+  map.set('1272762', lt8)
+
+  // 56174 (CX) — regular replenishment: 2 shipments
+  const lt9 = new Map<number, number>()
+  lt9.set(currentWeek + 10, 12)  // 1 container
+  lt9.set(currentWeek + 18, 12)  // follow-up container
+  map.set('56174', lt9)
+
+  // 1277619 (CY) — small orders, 2 shipments
+  const lt10 = new Map<number, number>()
+  lt10.set(currentWeek + 7, 4)   // MOQ order
+  lt10.set(currentWeek + 16, 4)  // follow-up MOQ order
+  map.set('1277619', lt10)
+
+  // 1304828 (CZ) — on_demand, no standing order
+  // (intentionally omitted — on_demand replenishment method)
 
   return map
 }
 
 // ─── Mock Forecast (Genie customer forecast for top SKUs) ────────────────────
+// Values are deterministic and close to historical averages (±5-10%)
+// Only top A-class SKUs have customer forecast (realistic — not all SKUs get forecasts)
 
 function getMockForecast(currentWeek: number): Map<string, Map<number, number>> {
   const map = new Map<string, Map<number, number>>()
 
-  // Forecast for 1282199 (AX): higher than historical avg (14.34)
+  // 1282199 (AX): stable forecast, ~5% above historical 14.34/wk
   const fc1 = new Map<number, number>()
-  for (let w = 1; w <= 12; w++) {
-    fc1.set(currentWeek + w, 16 + Math.round(Math.random() * 4))  // 16-20/wk forecast
+  const demand1282199 = [15, 15, 14, 16, 15, 14, 15, 16, 15, 14, 15, 15]
+  for (let w = 0; w < demand1282199.length; w++) {
+    fc1.set(currentWeek + w + 1, demand1282199[w])
   }
   map.set('1282199', fc1)
 
-  // Forecast for 1277620 (AY): seasonal spike
+  // 1277620 (AY): slightly elevated, ~8% above historical 12.17/wk
   const fc2 = new Map<number, number>()
-  for (let w = 1; w <= 12; w++) {
-    fc2.set(currentWeek + w, w <= 4 ? 18 : 10)  // spike first 4 weeks, then normalize
+  const demand1277620 = [13, 14, 13, 12, 13, 14, 13, 12, 13, 13, 12, 13]
+  for (let w = 0; w < demand1277620.length; w++) {
+    fc2.set(currentWeek + w + 1, demand1277620[w])
   }
   map.set('1277620', fc2)
 
-  // Forecast for 61415 (AZ): consistent with history
+  // 61415 (AZ): close to historical 5.56/wk, erratic pattern (Z class)
   const fc3 = new Map<number, number>()
-  for (let w = 1; w <= 8; w++) {
-    fc3.set(currentWeek + w, 5 + Math.round(Math.random() * 2))
+  const demand61415 = [6, 5, 7, 4, 6, 5, 8, 5]
+  for (let w = 0; w < demand61415.length; w++) {
+    fc3.set(currentWeek + w + 1, demand61415[w])
   }
   map.set('61415', fc3)
 
-  // Forecast for 1306776 (AY): ramping up
+  // 1306776 (AY): mild seasonal uptick, ~5% above historical 46.05/wk
   const fc4 = new Map<number, number>()
-  for (let w = 1; w <= 10; w++) {
-    fc4.set(currentWeek + w, 40 + w * 3)  // 43 → 70/wk ramp
+  const demand1306776 = [48, 47, 49, 48, 50, 47, 48, 49, 48, 47]
+  for (let w = 0; w < demand1306776.length; w++) {
+    fc4.set(currentWeek + w + 1, demand1306776[w])
   }
   map.set('1306776', fc4)
+
+  // 824433 (AY): close to historical 3.61/wk
+  const fc5 = new Map<number, number>()
+  const demand824433 = [4, 3, 4, 4, 3, 4, 3, 4, 4, 3, 4, 3]
+  for (let w = 0; w < demand824433.length; w++) {
+    fc5.set(currentWeek + w + 1, demand824433[w])
+  }
+  map.set('824433', fc5)
 
   return map
 }
