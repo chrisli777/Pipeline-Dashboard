@@ -368,6 +368,9 @@ export interface SKUProjection {
   inventoryPosition: number
   totalInTransit: number
   inTransitSchedule: InTransitEntry[]
+  // Demand source tracking
+  demandSource: 'forecast' | 'historical'
+  forecastDemand: number | null
 }
 
 /** Actionable replenishment suggestion */
@@ -408,6 +411,8 @@ export interface ReplenishmentSuggestion {
   annualConsumptionValue: number | null
   unitWeight: number | null
   totalWeight: number | null
+  // Demand source
+  demandSource: 'forecast' | 'historical'
 }
 
 /** Consolidated PO for a single supplier */
@@ -448,4 +453,68 @@ export interface ProjectionSummary {
     suggestedValue: number
   }>
   consolidatedPOs: ConsolidatedPO[]
+}
+
+// ═══════════════════════════════════════════
+// Phase 3F: Risk Analysis Types
+// ═══════════════════════════════════════════
+
+export type RiskType = 'STOCKOUT' | 'BELOW_SAFETY' | 'BELOW_REORDER' | 'LOW_COVER'
+
+export interface RiskItem {
+  skuCode: string
+  partModel: string | null
+  supplierCode: string | null
+  matrixCell: string
+  riskLevel: 'CRITICAL' | 'WARNING' | 'OK'
+  riskType: RiskType
+  // Current status
+  currentInventory: number
+  totalInTransit: number
+  inventoryPosition: number
+  daysOfSupply: number
+  weeksOfCover: number
+  // Demand source
+  demandSource: 'forecast' | 'historical'
+  avgWeeklyDemand: number
+  // Risk timeline
+  stockoutWeek: number | null
+  stockoutDate: string | null
+  weeksUntilStockout: number | null
+  // Mitigation (from suggestions)
+  hasPendingOrder: boolean
+  orderQty: number | null
+  orderArrivalWeek: number | null
+  orderArrivalDate: string | null
+  estimatedCost: number | null
+  mitigationStatus: 'COVERED' | 'PARTIAL' | 'NONE'
+  // Customer impact (pre-generated text)
+  customerImpactNote: string
+  actionNote: string
+  // Chart data (reuse ProjectionWeek[])
+  weekProjections: ProjectionWeek[]
+  safetyStock: number
+  reorderPoint: number
+  targetInventory: number
+  leadTimeWeeks: number
+}
+
+export interface RiskReport {
+  generatedAt: string
+  currentWeek: number
+  reportWeekLabel: string
+  totalSkus: number
+  criticalCount: number
+  warningCount: number
+  okCount: number
+  criticalItems: RiskItem[]
+  warningItems: RiskItem[]
+  okItems: RiskItem[]
+  totalPendingOrders: number
+  totalOrderValue: number
+  unmitigatedRiskCount: number
+  // AI-generated (optional)
+  aiSummary: string | null
+  aiActionItems: string | null
+  aiMeetingAgenda: string | null
 }

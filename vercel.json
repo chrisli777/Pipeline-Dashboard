@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/reports/weekly-risk",
+      "schedule": "0 13 * * 6"
+    }
+  ]
+}

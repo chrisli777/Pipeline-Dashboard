@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { BarChart3, Package, TrendingUp, Loader2, RefreshCw, AlertTriangle, ShoppingCart } from 'lucide-react'
+import { BarChart3, Package, TrendingUp, Loader2, RefreshCw, AlertTriangle, ShoppingCart, Shield } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ClassificationMatrix } from '@/components/classification-matrix'
 import { ClassificationTable } from '@/components/classification-table'
 import { ProjectionTab } from '@/components/projection-tab'
 import { SuggestionsTab } from '@/components/suggestions-tab'
+import { RiskAnalysisTab } from '@/components/risk-analysis-tab'
 import type {
   SKUClassification,
   ClassificationPolicy,
@@ -76,7 +77,7 @@ export default function ReplenishmentPage() {
 
   // Lazy-load projection when tab is first clicked
   useEffect(() => {
-    if ((activeTab === 'projection' || activeTab === 'suggestions') && projections.length === 0 && !projLoading) {
+    if ((activeTab === 'projection' || activeTab === 'suggestions' || activeTab === 'risk') && projections.length === 0 && !projLoading) {
       fetchProjection()
     }
   }, [activeTab])
@@ -121,7 +122,7 @@ export default function ReplenishmentPage() {
             Replenishment Engine
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            ABC/XYZ Classification &bull; Inventory Projection &bull; Replenishment Suggestions
+            ABC/XYZ Classification &bull; Inventory Projection &bull; Risk Analysis &bull; Suggestions
           </p>
         </div>
         <Button
@@ -149,6 +150,15 @@ export default function ReplenishmentPage() {
             {projSummary && projSummary.criticalCount > 0 && (
               <span className="ml-1 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
                 {projSummary.criticalCount}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="risk" className="gap-1.5">
+            <Shield className="h-4 w-4" />
+            Risk Analysis
+            {projSummary && (projSummary.criticalCount + projSummary.warningCount) > 0 && (
+              <span className={`ml-1 text-white text-[10px] px-1.5 py-0.5 rounded-full ${projSummary.criticalCount > 0 ? 'bg-red-500' : 'bg-amber-500'}`}>
+                {projSummary.criticalCount + projSummary.warningCount}
               </span>
             )}
           </TabsTrigger>
@@ -261,7 +271,28 @@ export default function ReplenishmentPage() {
           )}
         </TabsContent>
 
-        {/* Tab 3: Suggestions */}
+        {/* Tab 3: Risk Analysis */}
+        <TabsContent value="risk">
+          {projLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+              <span className="ml-3 text-slate-500">Analyzing risk...</span>
+            </div>
+          ) : projSummary ? (
+            <RiskAnalysisTab
+              projections={projections}
+              suggestions={suggestions}
+              summary={projSummary}
+              currentWeek={currentWeek}
+            />
+          ) : (
+            <div className="text-center py-12 text-slate-400">
+              No data available. Make sure migration 015 has been executed.
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Tab 4: Suggestions */}
         <TabsContent value="suggestions">
           {projLoading ? (
             <div className="flex items-center justify-center h-64">

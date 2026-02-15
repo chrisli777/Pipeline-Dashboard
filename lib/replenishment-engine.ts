@@ -1,5 +1,5 @@
 /**
- * Phase 3B/3C/3D/3E — Replenishment Computation Engine
+ * Phase 3B/3C/3D/3E/3F — Replenishment Computation Engine
  *
  * Pure computation module — no React, no Supabase, no side effects.
  * All functions are deterministic given their inputs.
@@ -9,6 +9,10 @@
  * - lead_time = production + shipping (11-16 weeks)
  * - Target < ROP is EXPECTED for long-LT supply chains
  * - Inventory Position = on-hand + in-transit (full pipeline view)
+ * - Safety stock capped by target_woh (customer requires 4-6 wks max)
+ * - Demand source: customer forecast preferred over historical average
+ * - review_frequency: biweekly/monthly SKUs only reviewed on schedule
+ * - on_demand (CZ class): no auto-suggestions unless CRITICAL
  */
 
 import type {
@@ -47,18 +51,28 @@ export function getZScore(serviceLevel: number): number {
 
 // ─── Safety Stock & Inventory Targets ────────────────────────────────────────
 
-/** Safety stock in UNITS */
+/** Safety stock in UNITS — capped by target_woh to meet customer requirements */
 export function computeSafetyStockUnits(
   avgWeeklyDemand: number,
   cvDemand: number,
   leadTimeWeeks: number,
   serviceLevel: number,
-  multiplier: number = 1.0
+  multiplier: number = 1.0,
+  targetWoh?: number  // cap SS at target_woh weeks of demand
 ): number {
   if (avgWeeklyDemand <= 0 || leadTimeWeeks <= 0) return 0
   const z = getZScore(serviceLevel)
   const sigmaDemand = avgWeeklyDemand * (cvDemand || 0.5)
-  return z * sigmaDemand * Math.sqrt(leadTimeWeeks) * multiplier
+  let ss = z * sigmaDemand * Math.sqrt(leadTimeWeeks) * multiplier
+
+  // Cap safety stock: SS(weeks) must not exceed target_woh
+  // Customer (Genie) requires warehouse safety stock of 4-6 weeks only
+  if (targetWoh && targetWoh > 0) {
+    const maxSS = avgWeeklyDemand * targetWoh
+    ss = Math.min(ss, maxSS)
+  }
+
+  return ss
 }
 
 /** Safety stock in WEEKS of demand */
@@ -67,10 +81,11 @@ export function computeSafetyStockWeeks(
   cvDemand: number,
   leadTimeWeeks: number,
   serviceLevel: number,
-  multiplier: number = 1.0
+  multiplier: number = 1.0,
+  targetWoh?: number
 ): number {
   if (avgWeeklyDemand <= 0) return 0
-  const ssUnits = computeSafetyStockUnits(avgWeeklyDemand, cvDemand, leadTimeWeeks, serviceLevel, multiplier)
+  const ssUnits = computeSafetyStockUnits(avgWeeklyDemand, cvDemand, leadTimeWeeks, serviceLevel, multiplier, targetWoh)
   return ssUnits / avgWeeklyDemand
 }
 
@@ -140,16 +155,29 @@ export function computeProjection(
   currentInventory: number,
   currentWeek: number,
   inTransitByWeek: Map<number, number>,  // weekNumber → qty arriving
-  projectionHorizon: number = 20
+  projectionHorizon: number = 20,
+  weeklyForecast?: Map<number, number>   // weekNum → customer forecast qty
 ): SKUProjection {
-  const avgWk = sku.avg_weekly_demand || 0
+  const historicalDemand = sku.avg_weekly_demand || 0
   const cv = sku.cv_demand || 0.5
   const lt = sku.lead_time_weeks || 11
   const sl = sku.service_level || 0.90
   const multiplier = sku.safety_stock_multiplier || 1.0
   const targetWoh = sku.target_woh || 8
 
-  const ssUnits = computeSafetyStockUnits(avgWk, cv, lt, sl, multiplier)
+  // ★ Demand source: prefer customer forecast, fallback to historical average
+  const hasForecast = weeklyForecast !== undefined && weeklyForecast.size > 0
+  let effectiveDemand = historicalDemand
+  if (hasForecast) {
+    const forecastValues = [...weeklyForecast!.values()].filter(v => v > 0)
+    if (forecastValues.length > 0) {
+      effectiveDemand = forecastValues.reduce((a, b) => a + b, 0) / forecastValues.length
+    }
+  }
+  const avgWk = effectiveDemand
+
+  // ★ Pass targetWoh to cap safety stock at customer-required levels
+  const ssUnits = computeSafetyStockUnits(avgWk, cv, lt, sl, multiplier, targetWoh)
   const ssWeeks = avgWk > 0 ? ssUnits / avgWk : 0
   const rop = computeReorderPoint(avgWk, lt, ssUnits)
   const target = computeTargetInventory(avgWk, targetWoh)
@@ -165,7 +193,8 @@ export function computeProjection(
 
   for (let i = 0; i < projectionHorizon; i++) {
     const weekNum = currentWeek + i + 1
-    const demand = avgWk
+    // ★ Per-week demand: use forecast for that specific week if available
+    const demand = weeklyForecast?.get(weekNum) ?? effectiveDemand
     const arriving = inTransitByWeek.get(weekNum) || 0
 
     projected = projected - demand + arriving
@@ -224,6 +253,9 @@ export function computeProjection(
     inventoryPosition: Math.round(invPos.inventoryPosition * 10) / 10,
     totalInTransit: Math.round(invPos.totalInTransit * 10) / 10,
     inTransitSchedule: invPos.schedule,
+    // Demand source tracking
+    demandSource: hasForecast ? 'forecast' : 'historical',
+    forecastDemand: hasForecast ? Math.round(effectiveDemand * 10) / 10 : null,
   }
 }
 
@@ -241,6 +273,15 @@ export function generateSuggestions(
     if (proj.avgWeeklyDemand <= 0) continue
     // Skip if no risk detected
     if (proj.urgency === 'OK') continue
+
+    // ★ Skip on_demand SKUs (CZ class) unless CRITICAL
+    if (proj.replenishmentMethod === 'on_demand' && proj.urgency !== 'CRITICAL') continue
+
+    // ★ Apply review_frequency filter (CRITICAL always bypasses)
+    const skuMasterForFreq = skuMap?.get(proj.skuCode)
+    if (skuMasterForFreq?.review_frequency && !shouldReviewThisWeek(currentWeek, skuMasterForFreq.review_frequency)) {
+      if (proj.urgency !== 'CRITICAL') continue
+    }
 
     const arrivalWeek = currentWeek + proj.leadTimeWeeks
     // Find projected inventory at arrival
@@ -315,6 +356,7 @@ export function generateSuggestions(
       annualConsumptionValue: annualValue,
       unitWeight,
       totalWeight: unitWeight ? Math.round(orderQty * unitWeight) : null,
+      demandSource: proj.demandSource,
     })
   }
 
@@ -325,6 +367,19 @@ export function generateSuggestions(
     if (diff !== 0) return diff
     return (b.estimatedCost || 0) - (a.estimatedCost || 0)
   })
+}
+
+// ─── Review Frequency Filter ────────────────────────────────────────────────
+
+/** Check if this week is a review week based on ABC/XYZ frequency policy */
+export function shouldReviewThisWeek(
+  currentWeek: number,
+  frequency: 'weekly' | 'biweekly' | 'monthly' | string
+): boolean {
+  if (frequency === 'weekly') return true
+  if (frequency === 'biweekly') return currentWeek % 2 === 0  // even weeks
+  if (frequency === 'monthly') return currentWeek % 4 === 0   // every 4th week
+  return true // unknown frequency = always review
 }
 
 // ─── Supplier Consolidation ─────────────────────────────────────────────────
