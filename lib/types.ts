@@ -308,3 +308,93 @@ export interface ShipmentOverview extends Shipment {
   days_to_lfd: number | null
   lfd_status: LfdStatus
 }
+
+// ═══════════════════════════════════════════
+// Phase 3B/3C/3D: Replenishment Engine Types
+// ═══════════════════════════════════════════
+
+/** Extended SKU view row — includes policy fields from v_sku_classification */
+export interface SKUClassificationExtended extends SKUClassification {
+  service_level: number | null
+  target_woh: number | null
+  safety_stock_multiplier: number | null
+  replenishment_method: 'auto' | 'manual_review' | 'on_demand' | null
+  review_frequency: 'weekly' | 'biweekly' | 'monthly' | null
+}
+
+/** One week in a 12-week projection */
+export interface ProjectionWeek {
+  weekNumber: number
+  weekStartDate: string
+  projectedInventory: number
+  demand: number
+  inTransitArrival: number
+  safetyStock: number
+  reorderPoint: number
+  targetInventory: number
+  status: 'OK' | 'WARNING' | 'CRITICAL' | 'STOCKOUT'
+}
+
+/** Full 12-week projection for a single SKU */
+export interface SKUProjection {
+  skuId: string
+  skuCode: string
+  partModel: string | null
+  supplierCode: string | null
+  abcClass: 'A' | 'B' | 'C'
+  xyzClass: 'X' | 'Y' | 'Z'
+  matrixCell: string
+  currentInventory: number
+  avgWeeklyDemand: number
+  leadTimeWeeks: number
+  safetyStock: number          // in units
+  safetyStockWeeks: number     // in weeks of demand
+  reorderPoint: number         // in units
+  targetInventory: number      // in units
+  moq: number
+  unitCost: number | null
+  replenishmentMethod: string
+  weeks: ProjectionWeek[]
+  stockoutWeek: number | null
+  reorderTriggerWeek: number | null
+  urgency: 'CRITICAL' | 'WARNING' | 'OK'
+}
+
+/** Actionable replenishment suggestion */
+export interface ReplenishmentSuggestion {
+  skuId: string
+  skuCode: string
+  partModel: string | null
+  supplierCode: string | null
+  matrixCell: string
+  urgency: 'CRITICAL' | 'WARNING' | 'OK'
+  replenishmentMethod: string
+  suggestedOrderQty: number
+  moq: number
+  orderDate: string
+  expectedArrivalWeek: number
+  expectedArrivalDate: string
+  currentInventory: number
+  projectedAtArrival: number
+  safetyStock: number
+  targetInventory: number
+  avgWeeklyDemand: number
+  leadTimeWeeks: number
+  weeksOfCover: number
+  estimatedCost: number | null
+}
+
+/** Dashboard summary for projection/suggestions */
+export interface ProjectionSummary {
+  totalSkus: number
+  criticalCount: number
+  warningCount: number
+  okCount: number
+  totalSuggestedOrders: number
+  totalSuggestedValue: number
+  bySupplier: Record<string, {
+    skuCount: number
+    criticalCount: number
+    suggestedValue: number
+  }>
+}
