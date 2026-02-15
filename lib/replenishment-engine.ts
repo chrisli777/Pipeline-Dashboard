@@ -1,15 +1,23 @@
 /**
- * Phase 3B/3C/3D — Replenishment Computation Engine
+ * Phase 3B/3C/3D/3E — Replenishment Computation Engine
  *
  * Pure computation module — no React, no Supabase, no side effects.
  * All functions are deterministic given their inputs.
+ *
+ * Key design notes:
+ * - target_woh = warehouse stock only (does NOT include in-transit)
+ * - lead_time = production + shipping (11-16 weeks)
+ * - Target < ROP is EXPECTED for long-LT supply chains
+ * - Inventory Position = on-hand + in-transit (full pipeline view)
  */
 
 import type {
+  InTransitEntry,
   ProjectionWeek,
   SKUProjection,
   ReplenishmentSuggestion,
   ProjectionSummary,
+  ConsolidatedPO,
   SKUClassificationExtended,
 } from './types'
 
@@ -76,12 +84,35 @@ export function computeReorderPoint(
   return avgWeeklyDemand * leadTimeWeeks + safetyStockUnits
 }
 
-/** Target inventory in UNITS = avg_weekly_demand × target_woh */
+/** Target inventory in UNITS = avg_weekly_demand × target_woh (warehouse only) */
 export function computeTargetInventory(
   avgWeeklyDemand: number,
   targetWoh: number
 ): number {
   return avgWeeklyDemand * targetWoh
+}
+
+// ─── Inventory Position ─────────────────────────────────────────────────────
+
+/** Compute inventory position = on-hand + total in-transit pipeline */
+export function computeInventoryPosition(
+  currentInventory: number,
+  inTransitByWeek: Map<number, number>
+): { inventoryPosition: number; totalInTransit: number; schedule: InTransitEntry[] } {
+  let totalInTransit = 0
+  const schedule: InTransitEntry[] = []
+  for (const [weekNumber, qty] of inTransitByWeek.entries()) {
+    if (qty > 0) {
+      totalInTransit += qty
+      schedule.push({ weekNumber, qty })
+    }
+  }
+  schedule.sort((a, b) => a.weekNumber - b.weekNumber)
+  return {
+    inventoryPosition: currentInventory + totalInTransit,
+    totalInTransit,
+    schedule,
+  }
 }
 
 // ─── Week Utilities ──────────────────────────────────────────────────────────
@@ -102,14 +133,14 @@ export function getCurrentWeekNumber(): number {
   return Math.max(1, Math.floor(diffDays / 7) + 1)
 }
 
-// ─── 12-Week Inventory Projection ────────────────────────────────────────────
+// ─── Inventory Projection (default 20 weeks) ────────────────────────────────
 
 export function computeProjection(
   sku: SKUClassificationExtended,
   currentInventory: number,
   currentWeek: number,
   inTransitByWeek: Map<number, number>,  // weekNumber → qty arriving
-  projectionHorizon: number = 12
+  projectionHorizon: number = 20
 ): SKUProjection {
   const avgWk = sku.avg_weekly_demand || 0
   const cv = sku.cv_demand || 0.5
@@ -123,6 +154,9 @@ export function computeProjection(
   const rop = computeReorderPoint(avgWk, lt, ssUnits)
   const target = computeTargetInventory(avgWk, targetWoh)
   const moq = sku.moq || 1
+
+  // Compute inventory position (on-hand + pipeline)
+  const invPos = computeInventoryPosition(currentInventory, inTransitByWeek)
 
   const weeks: ProjectionWeek[] = []
   let projected = currentInventory
@@ -186,14 +220,19 @@ export function computeProjection(
     stockoutWeek,
     reorderTriggerWeek,
     urgency,
+    // Inventory position fields
+    inventoryPosition: Math.round(invPos.inventoryPosition * 10) / 10,
+    totalInTransit: Math.round(invPos.totalInTransit * 10) / 10,
+    inTransitSchedule: invPos.schedule,
   }
 }
 
-// ─── Replenishment Suggestions ───────────────────────────────────────────────
+// ─── Replenishment Suggestions (enriched) ────────────────────────────────────
 
 export function generateSuggestions(
   projections: SKUProjection[],
-  currentWeek: number
+  currentWeek: number,
+  skuMap?: Map<string, SKUClassificationExtended>
 ): ReplenishmentSuggestion[] {
   const suggestions: ReplenishmentSuggestion[] = []
 
@@ -212,7 +251,6 @@ export function generateSuggestions(
       : proj.weeks[proj.weeks.length - 1]?.projectedInventory ?? 0
 
     // Order qty = target - projected_at_arrival
-    // Ensure at least safety stock maintained
     let orderQty = proj.targetInventory - projectedAtArrival
     if (orderQty <= 0) continue  // no order needed
 
@@ -225,6 +263,22 @@ export function generateSuggestions(
     }
 
     const weeksOfCover = proj.avgWeeklyDemand > 0 ? orderQty / proj.avgWeeklyDemand : 0
+
+    // Enrichment from SKU master data
+    const skuMaster = skuMap?.get(proj.skuCode)
+    const qtyPerContainer = skuMaster?.qty_per_container ?? null
+    const unitWeight = skuMaster?.unit_weight ?? null
+    const annualValue = skuMaster?.annual_consumption_value ?? null
+
+    // Days of supply = current inventory / daily demand
+    const daysOfSupply = proj.avgWeeklyDemand > 0
+      ? Math.round(proj.currentInventory / (proj.avgWeeklyDemand / 7))
+      : 999
+
+    // Weeks until stockout
+    const weeksUntilStockout = proj.stockoutWeek !== null
+      ? proj.stockoutWeek - currentWeek
+      : null
 
     suggestions.push({
       skuId: proj.skuId,
@@ -247,6 +301,20 @@ export function generateSuggestions(
       leadTimeWeeks: proj.leadTimeWeeks,
       weeksOfCover: Math.round(weeksOfCover * 10) / 10,
       estimatedCost: proj.unitCost ? Math.round(orderQty * proj.unitCost) : null,
+      // Enriched fields
+      inventoryPosition: proj.inventoryPosition,
+      totalInTransit: proj.totalInTransit,
+      inTransitSchedule: proj.inTransitSchedule,
+      daysOfSupply,
+      stockoutWeek: proj.stockoutWeek,
+      weeksUntilStockout,
+      qtyPerContainer,
+      estimatedContainers: qtyPerContainer && qtyPerContainer > 0
+        ? Math.round((orderQty / qtyPerContainer) * 10) / 10
+        : null,
+      annualConsumptionValue: annualValue,
+      unitWeight,
+      totalWeight: unitWeight ? Math.round(orderQty * unitWeight) : null,
     })
   }
 
@@ -257,6 +325,80 @@ export function generateSuggestions(
     if (diff !== 0) return diff
     return (b.estimatedCost || 0) - (a.estimatedCost || 0)
   })
+}
+
+// ─── Supplier Consolidation ─────────────────────────────────────────────────
+
+export function consolidateBySupplier(
+  suggestions: ReplenishmentSuggestion[]
+): ConsolidatedPO[] {
+  // Group by supplier
+  const groups = new Map<string, ReplenishmentSuggestion[]>()
+  for (const sug of suggestions) {
+    const sup = sug.supplierCode || 'Unknown'
+    if (!groups.has(sup)) groups.set(sup, [])
+    groups.get(sup)!.push(sug)
+  }
+
+  const pos: ConsolidatedPO[] = []
+  for (const [supplierCode, items] of groups.entries()) {
+    let totalQty = 0
+    let totalCost = 0
+    let totalWeight: number | null = 0
+    let totalContainers = 0
+    let hasContainerData = false
+    let criticalCount = 0
+    let maxArrivalWeek = 0
+
+    const poItems: ConsolidatedPO['items'] = []
+    for (const sug of items) {
+      totalQty += sug.suggestedOrderQty
+      totalCost += sug.estimatedCost || 0
+      if (sug.totalWeight !== null && totalWeight !== null) {
+        totalWeight += sug.totalWeight
+      } else if (sug.totalWeight === null) {
+        totalWeight = null  // can't compute total if any item missing weight
+      }
+      if (sug.urgency === 'CRITICAL') criticalCount++
+      if (sug.expectedArrivalWeek > maxArrivalWeek) maxArrivalWeek = sug.expectedArrivalWeek
+
+      let containerHint: string | null = null
+      if (sug.qtyPerContainer && sug.qtyPerContainer > 0) {
+        const ctrs = sug.suggestedOrderQty / sug.qtyPerContainer
+        containerHint = `~${Math.round(ctrs * 10) / 10} ctr`
+        totalContainers += ctrs
+        hasContainerData = true
+      }
+
+      poItems.push({
+        skuCode: sug.skuCode,
+        partModel: sug.partModel,
+        matrixCell: sug.matrixCell,
+        urgency: sug.urgency,
+        suggestedOrderQty: sug.suggestedOrderQty,
+        estimatedCost: sug.estimatedCost,
+        weeksOfCover: sug.weeksOfCover,
+        containerHint,
+      })
+    }
+
+    pos.push({
+      supplierCode,
+      orderDate: new Date().toISOString().split('T')[0],
+      expectedArrivalWeek: maxArrivalWeek,
+      expectedArrivalDate: getWeekStartDate(maxArrivalWeek),
+      items: poItems,
+      totalQty,
+      totalCost: Math.round(totalCost),
+      totalWeight: totalWeight !== null ? Math.round(totalWeight) : null,
+      estimatedContainers: hasContainerData ? Math.ceil(totalContainers) : null,
+      skuCount: items.length,
+      criticalCount,
+    })
+  }
+
+  // Sort by total cost descending
+  return pos.sort((a, b) => b.totalCost - a.totalCost)
 }
 
 // ─── Summary Generator ───────────────────────────────────────────────────────
@@ -293,6 +435,9 @@ export function computeProjectionSummary(
     }
   }
 
+  // Consolidated POs
+  const consolidatedPOs = consolidateBySupplier(suggestions)
+
   return {
     totalSkus: projections.length,
     criticalCount,
@@ -301,5 +446,6 @@ export function computeProjectionSummary(
     totalSuggestedOrders: suggestions.length,
     totalSuggestedValue,
     bySupplier,
+    consolidatedPOs,
   }
 }

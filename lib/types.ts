@@ -322,7 +322,13 @@ export interface SKUClassificationExtended extends SKUClassification {
   review_frequency: 'weekly' | 'biweekly' | 'monthly' | null
 }
 
-/** One week in a 12-week projection */
+/** In-transit arrival entry */
+export interface InTransitEntry {
+  weekNumber: number
+  qty: number
+}
+
+/** One week in a projection */
 export interface ProjectionWeek {
   weekNumber: number
   weekStartDate: string
@@ -335,7 +341,7 @@ export interface ProjectionWeek {
   status: 'OK' | 'WARNING' | 'CRITICAL' | 'STOCKOUT'
 }
 
-/** Full 12-week projection for a single SKU */
+/** Full projection for a single SKU (default 20 weeks) */
 export interface SKUProjection {
   skuId: string
   skuCode: string
@@ -350,7 +356,7 @@ export interface SKUProjection {
   safetyStock: number          // in units
   safetyStockWeeks: number     // in weeks of demand
   reorderPoint: number         // in units
-  targetInventory: number      // in units
+  targetInventory: number      // in units (warehouse-only target)
   moq: number
   unitCost: number | null
   replenishmentMethod: string
@@ -358,6 +364,10 @@ export interface SKUProjection {
   stockoutWeek: number | null
   reorderTriggerWeek: number | null
   urgency: 'CRITICAL' | 'WARNING' | 'OK'
+  // Inventory Position (on-hand + in-transit pipeline)
+  inventoryPosition: number
+  totalInTransit: number
+  inTransitSchedule: InTransitEntry[]
 }
 
 /** Actionable replenishment suggestion */
@@ -382,6 +392,46 @@ export interface ReplenishmentSuggestion {
   leadTimeWeeks: number
   weeksOfCover: number
   estimatedCost: number | null
+  // Inventory position context
+  inventoryPosition: number
+  totalInTransit: number
+  inTransitSchedule: InTransitEntry[]
+  // Days of supply
+  daysOfSupply: number
+  // Risk context
+  stockoutWeek: number | null
+  weeksUntilStockout: number | null
+  // Container utilization
+  qtyPerContainer: number | null
+  estimatedContainers: number | null
+  // Cost & weight context
+  annualConsumptionValue: number | null
+  unitWeight: number | null
+  totalWeight: number | null
+}
+
+/** Consolidated PO for a single supplier */
+export interface ConsolidatedPO {
+  supplierCode: string
+  orderDate: string
+  expectedArrivalWeek: number
+  expectedArrivalDate: string
+  items: Array<{
+    skuCode: string
+    partModel: string | null
+    matrixCell: string
+    urgency: 'CRITICAL' | 'WARNING' | 'OK'
+    suggestedOrderQty: number
+    estimatedCost: number | null
+    weeksOfCover: number
+    containerHint: string | null
+  }>
+  totalQty: number
+  totalCost: number
+  totalWeight: number | null
+  estimatedContainers: number | null
+  skuCount: number
+  criticalCount: number
 }
 
 /** Dashboard summary for projection/suggestions */
@@ -397,4 +447,5 @@ export interface ProjectionSummary {
     criticalCount: number
     suggestedValue: number
   }>
+  consolidatedPOs: ConsolidatedPO[]
 }

@@ -8,14 +8,14 @@ interface DetailChartProps {
 }
 
 /**
- * Expanded detail chart for a single SKU's 12-week projection.
+ * Expanded detail chart for a single SKU's projection (up to 20 weeks).
  * Pure SVG — no recharts dependency for better performance.
  */
 export function ProjectionDetailChart({ projection, currentWeek }: DetailChartProps) {
   const weeks = projection.weeks
   if (!weeks.length) return null
 
-  const W = 800
+  const W = 960
   const H = 260
   const MARGIN = { top: 20, right: 20, bottom: 40, left: 60 }
   const chartW = W - MARGIN.left - MARGIN.right
@@ -28,6 +28,7 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
     projection.safetyStock,
     projection.reorderPoint,
     projection.targetInventory,
+    projection.inventoryPosition,
     0,
   ]
   const maxVal = Math.max(...allValues) * 1.1
@@ -68,6 +69,9 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
           <span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed #10b981' }}></span> Target ({projection.targetInventory})
         </span>
         <span className="flex items-center gap-1">
+          <span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed #3b82f6' }}></span> Inv. Position ({Math.round(projection.inventoryPosition)})
+        </span>
+        <span className="flex items-center gap-1">
           <span className="w-3 h-3 bg-emerald-200 border border-emerald-400 inline-block rounded-sm"></span> In-Transit Arrival
         </span>
         <span className="ml-auto text-slate-400">
@@ -104,6 +108,12 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
         ))}
 
         {/* Reference lines */}
+        {/* Inventory Position */}
+        <line
+          x1={MARGIN.left} y1={yScale(projection.inventoryPosition)}
+          x2={W - MARGIN.right} y2={yScale(projection.inventoryPosition)}
+          stroke="#3b82f6" strokeWidth={1} strokeDasharray="4,3" opacity={0.5}
+        />
         {/* Target */}
         <line
           x1={MARGIN.left} y1={yScale(projection.targetInventory)}
@@ -171,8 +181,8 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
           </text>
         ))}
 
-        {/* X-axis dates (every other) */}
-        {weeks.map((w, i) => i % 2 === 0 && (
+        {/* X-axis dates (every 3rd) */}
+        {weeks.map((w, i) => i % 3 === 0 && (
           <text
             key={`xd-${i}`}
             x={xScale(i)} y={H - 20}
@@ -185,16 +195,25 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
       </svg>
 
       {/* Detail stats */}
-      <div className="grid grid-cols-4 gap-3 text-xs">
+      <div className="grid grid-cols-5 gap-3 text-xs">
         <div className="bg-slate-50 rounded p-2">
-          <div className="text-slate-500">Current Inventory</div>
+          <div className="text-slate-500">On-Hand</div>
           <div className="font-semibold">{Math.round(projection.currentInventory).toLocaleString()} units</div>
+        </div>
+        <div className="bg-blue-50 rounded p-2">
+          <div className="text-blue-600">Inv. Position</div>
+          <div className="font-semibold text-blue-800">
+            {Math.round(projection.inventoryPosition).toLocaleString()} units
+            {projection.totalInTransit > 0 && (
+              <span className="text-blue-500 font-normal ml-1">(+{Math.round(projection.totalInTransit)} transit)</span>
+            )}
+          </div>
         </div>
         <div className="bg-slate-50 rounded p-2">
           <div className="text-slate-500">Weeks of Cover</div>
           <div className="font-semibold">
             {projection.avgWeeklyDemand > 0
-              ? `${(projection.currentInventory / projection.avgWeeklyDemand).toFixed(1)} weeks`
+              ? `${(projection.currentInventory / projection.avgWeeklyDemand).toFixed(1)} wks (on-hand)`
               : 'N/A'}
           </div>
         </div>
@@ -207,10 +226,20 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
           <div className="font-semibold">
             {projection.stockoutWeek
               ? <span className="text-red-600">Week {projection.stockoutWeek}</span>
-              : <span className="text-emerald-600">None in 12-wk window</span>}
+              : <span className="text-emerald-600">None in window</span>}
           </div>
         </div>
       </div>
+
+      {/* Target < ROP explanation for long-LT items */}
+      {projection.targetInventory < projection.reorderPoint && (
+        <div className="bg-blue-50 border border-blue-200 rounded p-2 text-xs text-blue-700">
+          <strong>Note:</strong> Target ({projection.targetInventory}) &lt; ROP ({projection.reorderPoint}) is expected.
+          Target represents warehouse stock only ({Math.round(projection.targetInventory / Math.max(projection.avgWeeklyDemand, 0.01))} wks),
+          while ROP covers the full {projection.leadTimeWeeks}-week lead time + safety buffer.
+          Check <strong>Inventory Position</strong> ({Math.round(projection.inventoryPosition)}) for the complete pipeline view.
+        </div>
+      )}
     </div>
   )
 }

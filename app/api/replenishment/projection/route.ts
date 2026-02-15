@@ -8,7 +8,7 @@ import {
 } from '@/lib/replenishment-engine'
 import type { SKUClassificationExtended } from '@/lib/types'
 
-// GET: Compute 12-week inventory projection for all classified SKUs
+// GET: Compute 20-week inventory projection for all classified SKUs
 export async function GET() {
   try {
     const supabase = await createClient()
@@ -66,18 +66,24 @@ export async function GET() {
       weekMap.set(weekNum, (weekMap.get(weekNum) || 0) + (row.in_transit_qty || 0))
     }
 
-    // 4. Compute projections for each SKU
+    // 4. Build SKU master data map for suggestion enrichment
+    const skuMap = new Map<string, SKUClassificationExtended>()
+    for (const sku of skus || []) {
+      skuMap.set(sku.sku_code, sku as SKUClassificationExtended)
+    }
+
+    // 5. Compute 20-week projections for each SKU
     const projections = (skus || []).map((sku: SKUClassificationExtended) => {
       const currentInventory = inventoryMap.get(sku.id) ?? 0
       const skuInTransit = inTransitMap.get(sku.sku_code) ?? new Map<number, number>()
 
-      return computeProjection(sku, currentInventory, currentWeek, skuInTransit)
+      return computeProjection(sku, currentInventory, currentWeek, skuInTransit, 20)
     })
 
-    // 5. Generate suggestions
-    const suggestions = generateSuggestions(projections, currentWeek)
+    // 6. Generate enriched suggestions with SKU master data
+    const suggestions = generateSuggestions(projections, currentWeek, skuMap)
 
-    // 6. Compute summary
+    // 7. Compute summary (includes consolidated POs)
     const summary = computeProjectionSummary(projections, suggestions)
 
     return NextResponse.json({

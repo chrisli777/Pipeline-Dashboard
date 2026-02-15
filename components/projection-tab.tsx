@@ -118,11 +118,13 @@ export function ProjectionTab({ projections, summary, currentWeek }: ProjectionT
               <th className="px-3 py-2 text-left">SKU</th>
               <th className="px-3 py-2 text-left">Supplier</th>
               <th className="px-2 py-2 text-center">Class</th>
-              <th className="px-3 py-2 text-right">Current Inv.</th>
+              <th className="px-3 py-2 text-right">On-Hand</th>
+              <th className="px-3 py-2 text-right">In-Transit</th>
+              <th className="px-3 py-2 text-right">Inv. Position</th>
               <th className="px-3 py-2 text-right">Avg/Wk</th>
-              <th className="px-3 py-2 text-right">SS (units)</th>
+              <th className="px-3 py-2 text-right">SS</th>
               <th className="px-3 py-2 text-right">ROP</th>
-              <th className="px-3 py-2 text-center" style={{ width: 210 }}>12-Week Projection</th>
+              <th className="px-3 py-2 text-center" style={{ width: 280 }}>20-Week Projection</th>
               <th className="px-3 py-2 text-center">Status</th>
             </tr>
           </thead>
@@ -152,6 +154,12 @@ export function ProjectionTab({ projections, summary, currentWeek }: ProjectionT
                     <td className="px-3 py-2 text-right font-mono text-xs">
                       {proj.currentInventory > 0 ? Math.round(proj.currentInventory).toLocaleString() : '-'}
                     </td>
+                    <td className="px-3 py-2 text-right font-mono text-xs text-blue-600">
+                      {proj.totalInTransit > 0 ? Math.round(proj.totalInTransit).toLocaleString() : '-'}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-xs font-medium">
+                      {proj.inventoryPosition > 0 ? Math.round(proj.inventoryPosition).toLocaleString() : '-'}
+                    </td>
                     <td className="px-3 py-2 text-right font-mono text-xs">{proj.avgWeeklyDemand.toFixed(1)}</td>
                     <td className="px-3 py-2 text-right font-mono text-xs">{Math.round(proj.safetyStock).toLocaleString()}</td>
                     <td className="px-3 py-2 text-right font-mono text-xs">{proj.reorderPoint.toLocaleString()}</td>
@@ -167,7 +175,7 @@ export function ProjectionTab({ projections, summary, currentWeek }: ProjectionT
                   </tr>
                   {isExpanded && (
                     <tr>
-                      <td colSpan={10} className="px-4 py-4 bg-slate-50 border-b border-slate-200">
+                      <td colSpan={12} className="px-4 py-4 bg-slate-50 border-b border-slate-200">
                         <ProjectionDetailChart projection={proj} currentWeek={currentWeek} />
                       </td>
                     </tr>
@@ -177,7 +185,7 @@ export function ProjectionTab({ projections, summary, currentWeek }: ProjectionT
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">
+                <td colSpan={12} className="px-4 py-8 text-center text-sm text-slate-400">
                   No SKUs match the current filters
                 </td>
               </tr>
