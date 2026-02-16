@@ -32,7 +32,7 @@ export async function GET() {
       if (s.sku_code) skuCodeToId.set(s.sku_code, s.id)
     }
 
-    const inTransitData = (data || []).map((row: any) => ({
+    const inTransitData = (data || []).map((row) => ({
       sku: row.sku,
       sku_id: skuCodeToId.get(row.sku) || null,
       expected_week: row.expected_week,
@@ -52,25 +52,30 @@ export async function GET() {
   }
 }
 
-// POST: Trigger sync_in_transit_to_inventory() to refresh in-transit data in inventory_data
+// POST: Trigger sync_and_rollover_inventory() to refresh ETD + in-transit data
 export async function POST() {
   try {
     const supabase = await createClient()
 
-    const { data, error } = await supabase.rpc('sync_in_transit_to_inventory')
+    const { data, error } = await supabase.rpc('sync_and_rollover_inventory')
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
+    const results = data || []
+    const etdUpdated = results.filter((r: { field_out: string }) => r.field_out === 'etd')
+    const inTransitUpdated = results.filter((r: { field_out: string }) => r.field_out === 'in_transit')
+    const rolledOver = results.filter((r: { status_out: string }) => r.status_out === 'rolled_over')
+
     return NextResponse.json({
       success: true,
-      message: `Synced ${(data || []).length} in-transit records`,
-      details: data,
+      message: `Synced ${etdUpdated.length} ETD + ${inTransitUpdated.length} in-transit records (${rolledOver.length} rolled over)`,
+      details: results,
     })
   } catch (error) {
     return NextResponse.json(
-      { error: 'Failed to sync in-transit data', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to sync inventory data', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }

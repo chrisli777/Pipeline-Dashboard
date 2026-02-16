@@ -17,6 +17,7 @@ export async function POST(request: NextRequest) {
     etd: 'etd',
     eta: 'ata',
     ata: 'ata',
+    inTransit: 'in_transit',
     defect: 'defect',
     actualInventory: 'actual_inventory',
   }
