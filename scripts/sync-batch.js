@@ -1,5 +1,6 @@
-// Fetch ONE file from GitHub main branch and output its content to stdout
-// Usage: set FILE_INDEX env var or defaults to 0
+// Fetch files from GitHub and print as JSON array
+// Each element: { path: "...", content: "..." }
+// The content is double-base64 encoded so it survives output parsing
 
 const REPO = 'chrisli777/Pipeline-Dashboard';
 const BRANCH = 'main';
@@ -29,7 +30,6 @@ const FILES = [
   'app/api/wms/consumption/route.ts',
 ];
 
-// Batch: fetch all and print as ===FILE:path=== delimited
 async function main() {
   for (const filePath of FILES) {
     const url = `https://api.github.com/repos/${REPO}/contents/${filePath}?ref=${BRANCH}`;
@@ -38,18 +38,15 @@ async function main() {
         headers: { 'Accept': 'application/vnd.github.v3+json' }
       });
       if (!res.ok) {
-        console.log(`===SKIP:${filePath}===`);
+        console.error(`[SKIP] ${filePath}`);
         continue;
       }
       const data = await res.json();
-      if (data.encoding === 'base64') {
-        const content = Buffer.from(data.content, 'base64').toString('utf-8');
-        console.log(`===FILE:${filePath}===`);
-        console.log(content);
-        console.log(`===END:${filePath}===`);
-      }
+      // GitHub already gives us base64 content
+      // Print path and raw base64 (no decoding, no JSX stripping)
+      console.log(`###FILE###${filePath}###BASE64###${data.content.replace(/\n/g, '')}###END###`);
     } catch (err) {
-      console.log(`===SKIP:${filePath}===`);
+      console.error(`[ERROR] ${filePath}: ${err.message}`);
     }
     await new Promise(r => setTimeout(r, 80));
   }
