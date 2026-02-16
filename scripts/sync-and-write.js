@@ -30,7 +30,7 @@ const FILES = [
   'app/dispatcher/page.tsx',
 ];
 
-const BASE = '/vercel/share/v0-project';
+const TMP_BASE = '/tmp/github-sync';
 
 async function fetchFile(path) {
   const url = `https://api.github.com/repos/${REPO}/contents/${path}?ref=${BRANCH}`;
@@ -53,7 +53,6 @@ async function fetchFile(path) {
 
 async function main() {
   let written = 0;
-  // Process in batches of 3 to avoid rate limits
   for (let i = 0; i < FILES.length; i += 3) {
     const batch = FILES.slice(i, i + 3);
     const results = await Promise.all(batch.map(async (f) => {
@@ -63,7 +62,7 @@ async function main() {
     
     for (const { path, content } of results) {
       if (content) {
-        const targetPath = `${BASE}/${path}`;
+        const targetPath = `${TMP_BASE}/${path}`;
         const dir = dirname(targetPath);
         try {
           mkdirSync(dir, { recursive: true });
@@ -76,13 +75,12 @@ async function main() {
       }
     }
     
-    // Small delay between batches
     if (i + 3 < FILES.length) {
       await new Promise(r => setTimeout(r, 500));
     }
   }
   
-  console.log(`\nDone: ${written}/${FILES.length} files written`);
+  console.log(`\nDone: ${written}/${FILES.length} files saved to ${TMP_BASE}`);
 }
 
 main().catch(e => console.error(e));
