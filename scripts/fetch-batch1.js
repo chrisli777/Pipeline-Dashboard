@@ -2,7 +2,7 @@ const REPO = 'chrisli777/Pipeline-Dashboard'
 const BRANCH = 'main'
 
 const FILES = [
-  'components/risk-analysis-tab.tsx',
+  'lib/risk-report-generator.ts',
 ]
 
 async function main() {
