@@ -2,7 +2,7 @@ const REPO = 'chrisli777/Pipeline-Dashboard'
 const BRANCH = 'main'
 
 const FILES = [
-  'lib/replenishment-engine.ts',
+  'components/risk-analysis-tab.tsx',
 ]
 
 async function main() {
