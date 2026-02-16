@@ -601,15 +601,6 @@ export function PipelineDashboard() {
             )}
             <Button
               variant="outline"
-              size="sm"
-              onClick={fetchData}
-              disabled={loading || saving}
-            >
-              <RefreshCw className="mr-1 h-4 w-4" />
-              Refresh
-            </Button>
-            <Button
-              variant="outline"
               size="sm" 
               onClick={() => setSyncDialogOpen(true)} 
               disabled={loading || saving || syncing}

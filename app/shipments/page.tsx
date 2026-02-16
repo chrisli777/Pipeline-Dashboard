@@ -92,22 +92,11 @@ export default function ShipmentTrackingPage() {
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Shipment Tracking</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Track shipments from origin to warehouse delivery
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => fetchShipments()}
-          disabled={loading}
-        >
-          {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-          Refresh
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Shipment Tracking</h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Track shipments from origin to warehouse delivery
+        </p>
       </div>
 
       {/* Dashboard Stats Cards — 5-stage model */}
