@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { LayoutDashboard, FileText, Ship, Truck, ChevronLeft, ChevronRight } from 'lucide-react'
+import { LayoutDashboard, FileText, Ship, Truck, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 const menuItems = [
@@ -27,6 +27,11 @@ const menuItems = [
     name: 'Dispatcher',
     href: '/dispatcher',
     icon: Truck,
+  },
+  {
+    name: 'Replenishment',
+    href: '/replenishment',
+    icon: BarChart3,
   },
 ]
 

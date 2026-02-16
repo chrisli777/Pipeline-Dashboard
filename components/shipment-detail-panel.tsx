@@ -48,53 +48,55 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
     : null
 
   return (
-    <div className="border-b last:border-b-0">
-      {/* Header row - clickable to expand */}
+    <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+      {/* Header row */}
       <div
-        className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 cursor-pointer"
+        className="grid grid-cols-[auto_1fr_80px_80px_130px_90px_90px_85px_75px_50px] gap-2 items-center px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors text-sm"
         onClick={() => setExpanded(!expanded)}
       >
-        <div className="shrink-0 text-muted-foreground">
+        <div className="w-5">
           {expanded
-            ? <ChevronDown className="h-4 w-4" />
-            : <ChevronRight className="h-4 w-4" />
+            ? <ChevronDown className="h-4 w-4 text-slate-400" />
+            : <ChevronRight className="h-4 w-4 text-slate-400" />
           }
         </div>
-        <div className="flex-1 grid grid-cols-[1.5fr_1fr_0.5fr_0.5fr_0.5fr_0.8fr_0.8fr_0.8fr_1fr] gap-2 items-center text-sm">
-          <div>
-            <span className="font-semibold">{shipment.invoice_number}</span>
-            <span className="text-muted-foreground ml-2 text-xs">{shipment.bol_number || '-'}</span>
-          </div>
-          <div>
-            <ShipmentStatusBadge status={currentStatus} size="sm" />
-          </div>
-          <div className="text-muted-foreground">
+        <div>
+          <div className="font-medium text-slate-900">{shipment.invoice_number}</div>
+          <div className="text-xs text-slate-500">{shipment.bol_number || '-'}</div>
+        </div>
+        <div>
+          <span className={cn(
+            'text-xs font-medium px-2 py-0.5 rounded',
+            shipment.supplier === 'AMC' && 'bg-blue-50 text-blue-700',
+            shipment.supplier === 'HX' && 'bg-green-50 text-green-700',
+            shipment.supplier === 'TJJSH' && 'bg-orange-50 text-orange-700',
+            shipment.supplier?.includes('CLARK') && 'bg-purple-50 text-purple-700',
+          )}>
             {shipment.supplier}
-          </div>
-          <div className="text-center">{shipment.container_count}</div>
-          <div className="text-center">
-            {shipment.etd ? formatDate(shipment.etd) : '-'}
-          </div>
-          <div className="text-center">{shipment.eta ? formatDate(shipment.eta) : '-'}</div>
-          <div className="text-right">
-            ${(shipment.total_value || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}
-          </div>
-          <div className="text-right">
-            {(shipment.total_weight || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} lbs
-          </div>
-          <div className="text-right text-xs text-muted-foreground">
-            {shipment.po_numbers?.length || 0} PO{(shipment.po_numbers?.length || 0) !== 1 ? 's' : ''}
-          </div>
+          </span>
+        </div>
+        <div className="text-center text-slate-600">{shipment.container_count}</div>
+        <ShipmentStatusBadge status={currentStatus} size="sm" />
+        <div className="text-slate-600 text-xs">{shipment.etd ? formatDate(shipment.etd) : '-'}</div>
+        <div className="text-slate-600 text-xs">{shipment.eta ? formatDate(shipment.eta) : '-'}</div>
+        <div className="text-right text-slate-700 font-medium text-xs">
+          ${(shipment.total_value || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+        </div>
+        <div className="text-right text-slate-600 text-xs">
+          {(shipment.total_weight || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} lbs
+        </div>
+        <div className="text-right text-xs text-slate-500">
+          {shipment.po_numbers?.length || 0} PO{(shipment.po_numbers?.length || 0) !== 1 ? 's' : ''}
         </div>
       </div>
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="px-8 pb-6 space-y-4 bg-muted/10">
-          {/* Status timeline - 5 stages */}
-          <div>
-            <h4 className="text-sm font-semibold mb-2">Status Timeline</h4>
-            <div className="flex items-center gap-2">
+        <div className="border-t border-slate-200 bg-slate-50">
+          {/* Status timeline */}
+          <div className="px-6 py-4 border-b border-slate-200">
+            <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Status Timeline</h4>
+            <div className="flex items-center gap-1">
               {SHIPMENT_STATUS_ORDER.map((s, i) => {
                 const statusIdx = SHIPMENT_STATUS_ORDER.indexOf(currentStatus)
                 const isCompleted = i < statusIdx
@@ -102,28 +104,27 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
                 const isFuture = i > statusIdx
 
                 return (
-                  <div key={s} className="flex items-center gap-2">
-                    <div
-                      className={cn(
-                        'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2',
-                        isCompleted && 'bg-green-500 border-green-500 text-white',
-                        isCurrent && 'bg-blue-500 border-blue-500 text-white',
-                        isFuture && 'bg-muted border-border text-muted-foreground'
-                      )}
-                    >
+                  <div key={s} className="flex items-center gap-1 flex-1">
+                    <div className={cn(
+                      'flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold flex-shrink-0',
+                      isCompleted && 'bg-green-500 text-white',
+                      isCurrent && 'bg-blue-500 text-white ring-2 ring-blue-200',
+                      isFuture && 'bg-slate-200 text-slate-400',
+                    )}>
                       {isCompleted ? '\u2713' : i + 1}
                     </div>
-                    <span className={cn(
-                      'text-xs',
-                      isCurrent && 'font-bold',
-                      isFuture && 'text-muted-foreground'
+                    <div className={cn(
+                      'text-[10px] leading-tight hidden xl:block',
+                      isCompleted && 'text-green-700 font-medium',
+                      isCurrent && 'text-blue-700 font-semibold',
+                      isFuture && 'text-slate-400',
                     )}>
                       {SHIPMENT_STATUS_LABELS[s]}
-                    </span>
+                    </div>
                     {i < SHIPMENT_STATUS_ORDER.length - 1 && (
                       <div className={cn(
-                        'w-8 h-0.5',
-                        i < statusIdx ? 'bg-green-500' : 'bg-border'
+                        'flex-1 h-0.5 mx-1',
+                        i < statusIdx ? 'bg-green-400' : 'bg-slate-200',
                       )} />
                     )}
                   </div>
@@ -134,17 +135,15 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
 
           {/* Container status summary */}
           {ctSummary && (
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <h4 className="text-sm font-semibold">
-                  Container Status ({containerTracking.length} containers)
-                </h4>
-              </div>
-              <div className="flex gap-2">
+            <div className="px-6 py-3 border-b border-slate-200 bg-blue-50/50">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                Container Status ({containerTracking.length} containers)
+              </h4>
+              <div className="flex gap-3">
                 {Object.entries(ctSummary).map(([status, count]) => (
-                  <div key={status} className="flex items-center gap-1">
+                  <div key={status} className="flex items-center gap-1.5">
                     <ShipmentStatusBadge status={status} size="sm" />
-                    <span className="text-xs font-medium">{count}</span>
+                    <span className="text-xs font-bold text-slate-700">{count}</span>
                   </div>
                 ))}
               </div>
@@ -153,32 +152,32 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
 
           {/* Tracking details grid */}
           {tracking && (
-            <div>
-              <h4 className="text-sm font-semibold mb-2">Tracking Details</h4>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <div className="px-6 py-4 border-b border-slate-200">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Tracking Details</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 {tracking.cleared_date && (
-                  <DetailItem icon={Clock} label="Cleared Date" value={formatDate(tracking.cleared_date)} />
+                  <DetailItem icon={DollarSign} label="Cleared" value={formatDate(tracking.cleared_date)} />
                 )}
                 {tracking.delivered_date && (
-                  <DetailItem icon={Package} label="Delivered Date" value={formatDate(tracking.delivered_date)} />
+                  <DetailItem icon={Truck} label="Delivered" value={formatDate(tracking.delivered_date)} />
                 )}
                 {tracking.estimated_warehouse_date && (
-                  <DetailItem icon={MapPin} label="Est. Warehouse Date" value={formatDate(tracking.estimated_warehouse_date)} />
+                  <DetailItem icon={Clock} label="Est. Warehouse" value={formatDate(tracking.estimated_warehouse_date)} />
                 )}
                 {tracking.lfd && (
-                  <DetailItem icon={Clock} label="Last Free Day" value={formatDate(tracking.lfd)} highlight />
+                  <DetailItem label="LFD" value={formatDate(tracking.lfd)} highlight={true} />
                 )}
                 {tracking.duty_amount !== null && tracking.duty_amount !== undefined && (
-                  <DetailItem icon={DollarSign} label="Duty Amount" value={`$${tracking.duty_amount.toLocaleString()}`} />
+                  <DetailItem label="Duty" value={`$${tracking.duty_amount.toLocaleString()}`} />
                 )}
                 {tracking.entry_number && (
-                  <DetailItem label="Entry Number" value={tracking.entry_number} />
+                  <DetailItem label="Entry #" value={tracking.entry_number} />
                 )}
                 {tracking.carrier && (
-                  <DetailItem icon={Truck} label="Carrier" value={tracking.carrier} />
+                  <DetailItem label="Carrier" value={tracking.carrier} />
                 )}
                 {tracking.warehouse && (
-                  <DetailItem icon={MapPin} label="Warehouse" value={tracking.warehouse} />
+                  <DetailItem label="Warehouse" value={tracking.warehouse} />
                 )}
                 {tracking.notes && (
                   <div className="col-span-full">
@@ -190,76 +189,73 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
           )}
 
           {/* Container details with per-container status */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-semibold">Containers & SKUs ({containers.length} items)</h4>
-            </div>
+          <div className="px-6 py-4">
+            <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+              {'Containers & SKUs ('}{containers.length}{' items)'}
+            </h4>
             <div className="space-y-3">
               {Object.entries(containerGroups).map(([containerNum, items]) => {
-                // Find container-level tracking for this container
                 const ctTrack = containerTracking.find(ct => ct.container_number === containerNum)
 
                 return (
-                  <div key={containerNum} className="border rounded-lg p-3 bg-background">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Package className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-semibold text-sm">{containerNum}</span>
-                      <span className="text-xs text-muted-foreground">({items[0]?.container_type || '-'})</span>
+                  <div key={containerNum} className="bg-white rounded-md border border-slate-200 overflow-hidden">
+                    <div className="bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 flex items-center gap-2">
+                      <Package className="h-3.5 w-3.5" />
+                      {containerNum}
+                      <span className="text-slate-400">({items[0]?.container_type || '-'})</span>
                       {ctTrack && (
                         <ShipmentStatusBadge status={ctTrack.status} size="sm" />
                       )}
                       {ctTrack?.carrier && (
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Truck className="h-3 w-3" />
-                          {ctTrack.carrier}
+                        <span className="text-slate-500 ml-1">
+                          <Truck className="h-3 w-3 inline mr-0.5" />{ctTrack.carrier}
                         </span>
                       )}
                       {ctTrack?.warehouse && (
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {ctTrack.warehouse}
+                        <span className="text-slate-500 ml-1">
+                          <MapPin className="h-3 w-3 inline mr-0.5" />{ctTrack.warehouse}
                         </span>
                       )}
-                      <span className="text-xs text-muted-foreground ml-auto">{items.length} SKU{items.length !== 1 ? 's' : ''}</span>
+                      <span className="ml-auto text-slate-500">{items.length} SKU{items.length !== 1 ? 's' : ''}</span>
                     </div>
                     {/* Container-level delivery info */}
                     {ctTrack && (ctTrack.scheduled_delivery_date || ctTrack.delivered_date || ctTrack.picked_up_date) && (
-                      <div className="flex gap-4 mb-2 text-xs text-muted-foreground">
+                      <div className="px-3 py-1.5 bg-blue-50 text-xs flex gap-4 border-b border-slate-100">
                         {ctTrack.picked_up_date && (
-                          <span>Picked up: {formatDate(ctTrack.picked_up_date)}</span>
+                          <span className="text-slate-600">Picked up: {formatDate(ctTrack.picked_up_date)}</span>
                         )}
                         {ctTrack.scheduled_delivery_date && (
-                          <span>Scheduled: {formatDate(ctTrack.scheduled_delivery_date)}</span>
+                          <span className="text-slate-600">Scheduled: {formatDate(ctTrack.scheduled_delivery_date)}</span>
                         )}
                         {ctTrack.delivered_date && (
-                          <span>Delivered: {formatDate(ctTrack.delivered_date)}</span>
+                          <span className="text-green-700 font-medium">Delivered: {formatDate(ctTrack.delivered_date)}</span>
                         )}
                       </div>
                     )}
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-1 px-2">SKU</th>
-                          <th className="text-left py-1 px-2">PO</th>
-                          <th className="text-right py-1 px-2">Qty</th>
-                          <th className="text-right py-1 px-2">Unit Price</th>
-                          <th className="text-right py-1 px-2">Total</th>
-                          <th className="text-right py-1 px-2">Weight</th>
+                        <tr className="border-b border-slate-100">
+                          <th className="text-left px-3 py-1.5 text-slate-500 font-medium">SKU</th>
+                          <th className="text-left px-3 py-1.5 text-slate-500 font-medium">PO</th>
+                          <th className="text-right px-3 py-1.5 text-slate-500 font-medium">Qty</th>
+                          <th className="text-right px-3 py-1.5 text-slate-500 font-medium">Unit Price</th>
+                          <th className="text-right px-3 py-1.5 text-slate-500 font-medium">Total</th>
+                          <th className="text-right px-3 py-1.5 text-slate-500 font-medium">Weight</th>
                         </tr>
                       </thead>
                       <tbody>
                         {items.map((item) => (
-                          <tr key={item.id} className="border-b last:border-b-0">
-                            <td className="py-1 px-2 font-medium">{item.sku}</td>
-                            <td className="py-1 px-2">{item.po_number || '-'}</td>
-                            <td className="py-1 px-2 text-right">{item.quantity}</td>
-                            <td className="py-1 px-2 text-right">
+                          <tr key={item.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
+                            <td className="px-3 py-1.5 font-medium text-slate-700">{item.sku}</td>
+                            <td className="px-3 py-1.5 text-slate-600">{item.po_number || '-'}</td>
+                            <td className="px-3 py-1.5 text-right text-slate-700">{item.quantity}</td>
+                            <td className="px-3 py-1.5 text-right text-slate-600">
                               {item.unit_price ? `$${item.unit_price.toFixed(2)}` : '-'}
                             </td>
-                            <td className="py-1 px-2 text-right">
+                            <td className="px-3 py-1.5 text-right font-medium text-slate-700">
                               {item.total_amount ? `$${item.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '-'}
                             </td>
-                            <td className="py-1 px-2 text-right">
+                            <td className="px-3 py-1.5 text-right text-slate-600">
                               {item.gross_weight ? `${item.gross_weight.toLocaleString()} lbs` : '-'}
                             </td>
                           </tr>
@@ -274,26 +270,26 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
 
           {/* Status history (audit trail) */}
           {tracking?.status_history && tracking.status_history.length > 0 && (
-            <div>
-              <h4 className="text-sm font-semibold mb-2">
+            <div className="px-6 py-4 border-t border-slate-200">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
                 Status History
               </h4>
               <div className="space-y-2">
                 {[...tracking.status_history].reverse().map((entry, i) => (
                   <div key={i} className="flex items-start gap-2 text-xs">
-                    <div className="w-2 h-2 rounded-full bg-blue-500 mt-1 shrink-0" />
+                    <div className="w-2 h-2 rounded-full bg-slate-400 mt-1.5 flex-shrink-0" />
                     <div>
-                      <span className="font-medium">
-                        {entry.from_status ? `${entry.from_status} → ${entry.to_status}` : entry.to_status}
+                      <span className="font-medium text-slate-700">
+                        {entry.from_status ? `${entry.from_status} \u2192 ${entry.to_status}` : entry.to_status}
                       </span>
-                      <span className="text-muted-foreground ml-2">
+                      <span className="text-slate-400 ml-2">
                         {entry.changed_at ? formatDateTime(entry.changed_at) : ''}
                       </span>
                       {entry.changed_by && (
-                        <span className="text-muted-foreground ml-1">by {entry.changed_by}</span>
+                        <span className="text-slate-400 ml-1">by {entry.changed_by}</span>
                       )}
                       {entry.notes && (
-                        <p className="text-muted-foreground mt-0.5">{entry.notes}</p>
+                        <div className="text-slate-500 mt-0.5">{entry.notes}</div>
                       )}
                     </div>
                   </div>
@@ -315,13 +311,16 @@ function DetailItem({ icon: Icon, label, value, highlight }: {
   highlight?: boolean
 }) {
   return (
-    <div className="flex items-start gap-2 p-2 rounded-md bg-muted/30">
-      {Icon && <Icon className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />}
+    <div className="flex items-start gap-2">
+      {Icon && <Icon className="h-4 w-4 text-slate-400 mt-0.5" />}
       <div>
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className={cn('text-sm font-medium', highlight && 'text-amber-600')}>
+        <div className="text-[10px] text-slate-500 uppercase tracking-wider">{label}</div>
+        <div className={cn(
+          'text-sm font-medium',
+          highlight ? 'text-red-700' : 'text-slate-700'
+        )}>
           {value}
-        </p>
+        </div>
       </div>
     </div>
   )

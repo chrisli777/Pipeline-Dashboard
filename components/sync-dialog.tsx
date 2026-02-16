@@ -52,12 +52,6 @@ function getLastFridayWeek(): number {
   const today = new Date()
   const dayOfWeek = today.getDay() // 0=Sunday, 1=Monday, ..., 5=Friday, 6=Saturday
   
-  // Calculate days to subtract to get to last Friday
-  // If today is Friday (5), last Friday is 7 days ago
-  // If today is Saturday (6), last Friday is 1 day ago
-  // If today is Sunday (0), last Friday is 2 days ago
-  // If today is Monday (1), last Friday is 3 days ago
-  // etc.
   let daysToLastFriday: number
   if (dayOfWeek === 5) {
     daysToLastFriday = 7 // Last week's Friday
@@ -139,7 +133,7 @@ export function SyncDialog({ open, onOpenChange, skus, onSync, syncing }: SyncDi
         <DialogHeader>
           <DialogTitle>Sync Data</DialogTitle>
           <DialogDescription>
-            Select which data to sync. Default syncs all SKUs for last Friday's week only.
+            {"Select which data to sync. Default syncs all SKUs for last Friday's week only."}
           </DialogDescription>
         </DialogHeader>
         

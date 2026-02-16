@@ -40,28 +40,27 @@ export function ShipmentStatusBadge({ status, size = 'md', showIcon = true }: Sh
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full border font-semibold whitespace-nowrap',
+        'inline-flex items-center gap-1 rounded-full border font-medium whitespace-nowrap',
         colorClass,
         sizeClasses[size]
       )}
     >
-      {showIcon && <span>{icon}</span>}
+      {showIcon && <span className="text-xs">{icon}</span>}
       {label}
     </span>
   )
 }
 
-// LFD Status Badge
 interface LfdBadgeProps {
   lfd: string | null
   status: ShipmentStatus | string | null
 }
 
 export function LfdStatusBadge({ lfd, status }: LfdBadgeProps) {
-  if (!lfd || !status) return <span className="text-muted-foreground">-</span>
+  if (!lfd || !status) return <span className="text-gray-400 text-xs">-</span>
 
   if (['DELIVERED', 'CLOSED'].includes(status)) {
-    return <span className="text-xs text-green-600 font-medium">Resolved</span>
+    return <span className="text-gray-400 text-xs">Resolved</span>
   }
 
   const lfdDate = new Date(lfd)
@@ -84,8 +83,8 @@ export function LfdStatusBadge({ lfd, status }: LfdBadgeProps) {
   }
 
   return (
-    <span className={cn('inline-flex items-center gap-1 rounded-full text-xs px-2 py-0.5 font-semibold', colorClass)}>
-      LFD: {label}
+    <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', colorClass)}>
+      {'LFD: '}{label}
     </span>
   )
 }

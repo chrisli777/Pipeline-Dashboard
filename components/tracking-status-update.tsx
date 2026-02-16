@@ -24,7 +24,6 @@ import {
 } from '@/components/ui/dialog'
 import { ArrowRight, Loader2, Package, AlertCircle } from 'lucide-react'
 
-// Fields to show for each target status
 const STATUS_FIELDS: Record<ShipmentStatus, string[]> = {
   ON_WATER: [],
   CLEARED: ['cleared_date', 'duty_amount', 'entry_number', 'broker', 'lfd'],
@@ -65,7 +64,6 @@ export function TrackingStatusUpdate({
   const allowedTransitions = SHIPMENT_TRANSITIONS[currentStatus] || []
   const nextStatus = allowedTransitions.length > 0 ? allowedTransitions[0] : null
 
-  // Container-level operations: CLEARED->DELIVERING or DELIVERING->DELIVERED
   const isContainerLevel = nextStatus === 'DELIVERING' || nextStatus === 'DELIVERED'
 
   const [loading, setLoading] = useState(false)
@@ -76,7 +74,6 @@ export function TrackingStatusUpdate({
   const [selectedContainers, setSelectedContainers] = useState<Set<string>>(new Set())
   const [loadingContainers, setLoadingContainers] = useState(false)
 
-  // Fetch containers when dialog opens for container-level operations
   useEffect(() => {
     if (open && isContainerLevel) {
       setLoadingContainers(true)
@@ -84,14 +81,12 @@ export function TrackingStatusUpdate({
         .then(res => res.json())
         .then(data => {
           if (data.containers) {
-            // Only show containers that can transition
             const eligible = (data.containers as ContainerTracking[]).filter(ct => {
               if (nextStatus === 'DELIVERING') return ct.status === 'CLEARED'
               if (nextStatus === 'DELIVERED') return ct.status === 'DELIVERING'
               return false
             })
             setContainerList(eligible)
-            // Select all by default
             setSelectedContainers(new Set(eligible.map(ct => ct.container_number)))
           }
         })
@@ -100,7 +95,6 @@ export function TrackingStatusUpdate({
     }
   }, [open, isContainerLevel, shipment.id, nextStatus])
 
-  // Reset form when dialog opens/closes
   useEffect(() => {
     if (open) {
       setFormData({})
@@ -138,14 +132,13 @@ export function TrackingStatusUpdate({
 
     try {
       if (isContainerLevel) {
-        // Container-level: batch update selected containers
         if (selectedContainers.size === 0) {
           setError('Please select at least one container')
           setLoading(false)
           return
         }
 
-        const updates: Record<string, any> = {
+        const updates: Record<string, unknown> = {
           status: nextStatus,
         }
         for (const field of fields) {
@@ -177,11 +170,9 @@ export function TrackingStatusUpdate({
           return
         }
 
-        // Show success info
         const msg = result.message || `Updated ${result.updatedCount} containers`
         if (result.errors?.length) {
           setError(`${msg}. Some skipped: ${result.errors.join('; ')}`)
-          // Still close after a delay since partial success
           setTimeout(() => {
             onOpenChange(false)
             onStatusUpdated()
@@ -189,8 +180,7 @@ export function TrackingStatusUpdate({
           return
         }
       } else {
-        // Shipment-level: ON_WATER->CLEARED or DELIVERED->CLOSED
-        const payload: Record<string, any> = {
+        const payload: Record<string, unknown> = {
           status: nextStatus,
           notes: notes || undefined,
         }
@@ -221,7 +211,6 @@ export function TrackingStatusUpdate({
         }
       }
 
-      // Success
       onOpenChange(false)
       setFormData({})
       setNotes('')
@@ -236,66 +225,68 @@ export function TrackingStatusUpdate({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[520px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>
+          <DialogTitle className="flex items-center gap-2 text-lg">
             {isContainerLevel ? 'Update Container Status' : 'Update Shipment Status'}
           </DialogTitle>
           <DialogDescription>
-            <span className="font-medium">{shipment.invoice_number}</span>
-            {' | '}
-            <span>{shipment.supplier}</span>
+            <span className="flex items-center gap-2 mt-2">
+              <span className="font-medium text-slate-700">{shipment.invoice_number}</span>
+              <span className="text-slate-400">|</span>
+              <span className="text-slate-600">{shipment.supplier}</span>
+            </span>
           </DialogDescription>
         </DialogHeader>
 
-        {/* Status transition indicator */}
-        <div className="flex items-center justify-center gap-3 py-3">
-          <ShipmentStatusBadge status={currentStatus} size="lg" />
-          <ArrowRight className="h-5 w-5 text-muted-foreground" />
-          <ShipmentStatusBadge status={nextStatus} size="lg" />
+        <div className="flex items-center justify-center gap-3 py-3 bg-slate-50 rounded-lg">
+          <ShipmentStatusBadge status={currentStatus} size="md" />
+          <ArrowRight className="h-4 w-4 text-slate-400" />
+          <ShipmentStatusBadge status={nextStatus} size="md" />
         </div>
 
-        {/* Container selection for container-level operations */}
         {isContainerLevel && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-sm font-medium">
                 Select Containers
                 {nextStatus === 'DELIVERING' && (
-                  <span className="text-xs text-muted-foreground ml-1">(CLEARED → DELIVERING)</span>
+                  <span className="text-slate-400 font-normal ml-1">{'(CLEARED \u2192 DELIVERING)'}</span>
                 )}
                 {nextStatus === 'DELIVERED' && (
-                  <span className="text-xs text-muted-foreground ml-1">(DELIVERING → DELIVERED)</span>
+                  <span className="text-slate-400 font-normal ml-1">{'(DELIVERING \u2192 DELIVERED)'}</span>
                 )}
               </Label>
-              <Button variant="ghost" size="sm" onClick={toggleAll}>
+              <Button variant="ghost" size="sm" className="text-xs h-6" onClick={toggleAll}>
                 {selectedContainers.size === containerList.length ? 'Deselect All' : 'Select All'}
               </Button>
             </div>
 
             {loadingContainers ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="flex items-center justify-center py-4 text-slate-400">
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 Loading containers...
               </div>
             ) : containerList.length === 0 ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                <AlertCircle className="h-4 w-4" />
+              <div className="flex items-center gap-2 py-3 px-3 bg-amber-50 text-amber-700 rounded-md text-sm">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
                 No containers eligible for this transition
               </div>
             ) : (
-              <div className="space-y-1 max-h-40 overflow-y-auto border rounded-md p-2">
+              <div className="border border-slate-200 rounded-md divide-y divide-slate-100 max-h-[200px] overflow-y-auto">
                 {containerList.map((ct) => (
-                  <label key={ct.container_number} className="flex items-center gap-2 p-1.5 rounded hover:bg-muted/50 cursor-pointer">
+                  <label
+                    key={ct.container_number}
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 cursor-pointer"
+                  >
                     <Checkbox
                       checked={selectedContainers.has(ct.container_number)}
                       onCheckedChange={() => toggleContainer(ct.container_number)}
                     />
-                    <div className="flex items-center gap-2">
-                      <Package className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-sm font-medium">{ct.container_number}</span>
-                      <span className="text-xs text-muted-foreground">{ct.container_type || ''}</span>
-                    </div>
+                    <Package className="h-3.5 w-3.5 text-slate-400" />
+                    <span className="text-sm font-medium text-slate-700">{ct.container_number}</span>
+                    <span className="text-xs text-slate-400">{ct.container_type || ''}</span>
+                    <ShipmentStatusBadge status={ct.status} size="sm" />
                   </label>
                 ))}
               </div>
@@ -303,14 +294,13 @@ export function TrackingStatusUpdate({
           </div>
         )}
 
-        {/* Dynamic form fields */}
-        <div className="space-y-3">
+        <div className="space-y-4 mt-2">
           {fields.map((field) => {
             const config = FIELD_LABELS[field]
             if (!config) return null
 
             return (
-              <div key={field} className="space-y-1">
+              <div key={field} className="space-y-1.5">
                 <Label htmlFor={field} className="text-sm">
                   {config.label}
                 </Label>
@@ -326,9 +316,11 @@ export function TrackingStatusUpdate({
             )
           })}
 
-          <div className="space-y-1">
-            <Label className="text-sm">Notes (optional)</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="notes" className="text-sm">Notes (optional)</Label>
             <Textarea
+              id="notes"
+              placeholder="Add any relevant notes..."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
@@ -337,18 +329,20 @@ export function TrackingStatusUpdate({
         </div>
 
         {error && (
-          <p className="text-sm text-destructive flex items-center gap-1">
-            <AlertCircle className="h-4 w-4" />
+          <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">
             {error}
-          </p>
+          </div>
         )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
-            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button
+            onClick={handleSubmit}
+            disabled={loading || (isContainerLevel && selectedContainers.size === 0)}
+          >
+            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {isContainerLevel
               ? `Update ${selectedContainers.size} Container${selectedContainers.size !== 1 ? 's' : ''}`
               : `Update to ${SHIPMENT_STATUS_LABELS[nextStatus]}`

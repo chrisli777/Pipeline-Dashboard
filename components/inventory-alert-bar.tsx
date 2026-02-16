@@ -71,7 +71,7 @@ export function InventoryAlertBar({ alerts }: InventoryAlertBarProps) {
 
   return (
     <>
-      <div className="mb-4 space-y-2">
+      <div className="mb-4 flex flex-col gap-2">
         {criticalAlerts.length > 0 && (
           <button
             type="button"
@@ -81,7 +81,7 @@ export function InventoryAlertBar({ alerts }: InventoryAlertBarProps) {
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
               <span className="font-semibold text-red-800">
-                Critical: {criticalAlerts.length} SKU(s) out of stock or negative inventory
+                {'Critical: '}{criticalAlerts.length}{' SKU(s) out of stock or negative inventory'}
               </span>
             </div>
           </button>
@@ -96,7 +96,7 @@ export function InventoryAlertBar({ alerts }: InventoryAlertBarProps) {
             <div className="flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
               <span className="font-semibold text-amber-800">
-                Warning: {warningAlerts.length} SKU(s) with low inventory (less than 2 weeks)
+                {'Warning: '}{warningAlerts.length}{' SKU(s) with low inventory (less than 2 weeks)'}
               </span>
             </div>
           </button>
@@ -111,20 +111,25 @@ export function InventoryAlertBar({ alerts }: InventoryAlertBarProps) {
             <div className="flex items-center gap-2">
               <Info className="h-5 w-5 text-yellow-600 shrink-0" />
               <span className="font-semibold text-yellow-800">
-                Low Stock: {lowAlerts.length} SKU(s) with inventory below 4 weeks
+                {'Low Stock: '}{lowAlerts.length}{' SKU(s) with inventory below 4 weeks'}
               </span>
             </div>
           </button>
         )}
       </div>
 
-      <Dialog open={!!selectedSeverity} onOpenChange={(open) => !open && setSelectedSeverity(null)}>
+      <Dialog open={selectedSeverity !== null} onOpenChange={(open) => !open && setSelectedSeverity(null)}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {selectedSeverity === 'critical' && <AlertTriangle className="h-5 w-5 text-red-600" />}
-              {selectedSeverity === 'warning' && <AlertCircle className="h-5 w-5 text-amber-600" />}
-              {selectedSeverity === 'low' && <Info className="h-5 w-5 text-yellow-600" />}
+            <DialogTitle className={cn(
+              'flex items-center gap-2',
+              selectedSeverity === 'critical' && 'text-red-700',
+              selectedSeverity === 'warning' && 'text-amber-700',
+              selectedSeverity === 'low' && 'text-yellow-700',
+            )}>
+              {selectedSeverity === 'critical' && <AlertTriangle className="h-5 w-5" />}
+              {selectedSeverity === 'warning' && <AlertCircle className="h-5 w-5" />}
+              {selectedSeverity === 'low' && <Info className="h-5 w-5" />}
               {getDialogTitle()}
             </DialogTitle>
           </DialogHeader>
@@ -135,18 +140,18 @@ export function InventoryAlertBar({ alerts }: InventoryAlertBarProps) {
                   <TableHead>Part/Model #</TableHead>
                   <TableHead>Week #</TableHead>
                   <TableHead>Week Of</TableHead>
-                  <TableHead>Weeks on Hand</TableHead>
+                  <TableHead className="text-right">Weeks on Hand</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {getSelectedAlerts().map((alert, idx) => (
-                  <TableRow key={`${alert.skuId}-${idx}`}>
+                  <TableRow key={`${alert.skuId}-${alert.weekNumber}-${idx}`}>
                     <TableCell className="font-medium">{alert.partModelNumber}</TableCell>
                     <TableCell>{alert.weekNumber}</TableCell>
                     <TableCell>{alert.weekOf}</TableCell>
                     <TableCell className={cn(
-                      'font-mono font-bold',
-                      alert.weeksOnHand < 0 && 'text-red-700',
+                      'text-right font-mono',
+                      alert.weeksOnHand < 0 && 'text-red-600 font-bold',
                       alert.weeksOnHand >= 0 && alert.weeksOnHand < 1 && 'text-red-500',
                       alert.weeksOnHand >= 1 && alert.weeksOnHand < 2 && 'text-amber-600',
                       alert.weeksOnHand >= 2 && alert.weeksOnHand < 4 && 'text-yellow-600',
