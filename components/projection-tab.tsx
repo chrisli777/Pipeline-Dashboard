@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { AlertTriangle, AlertCircle, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SKUProjection, ProjectionSummary } from '@/lib/types'
@@ -134,7 +134,7 @@ export function ProjectionTab({ projections, summary, currentWeek }: ProjectionT
               const UrgIcon = urgStyle.icon
 
               return (
-                <tbody key={proj.skuCode}>
+                <Fragment key={proj.skuCode}>
                   <tr
                     className={cn(
                       'border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors',
@@ -179,7 +179,7 @@ export function ProjectionTab({ projections, summary, currentWeek }: ProjectionT
                       </td>
                     </tr>
                   )}
-                </tbody>
+                </Fragment>
               )
             })}
             {filtered.length === 0 && (

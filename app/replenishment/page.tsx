@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { BarChart3, Package, TrendingUp, Loader2, RefreshCw, AlertTriangle, ShoppingCart, Shield } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ClassificationMatrix } from '@/components/classification-matrix'
 import { ClassificationTable } from '@/components/classification-table'
@@ -115,26 +114,14 @@ export default function ReplenishmentPage() {
   return (
     <div className="p-6 space-y-6 max-w-[1400px]">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <BarChart3 className="h-6 w-6" />
-            Replenishment Engine
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            {'ABC/XYZ Classification \u2022 Inventory Projection \u2022 Risk Analysis \u2022 Suggestions'}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            fetchClassification()
-            fetchProjection()
-          }}
-        >
-          <RefreshCw className="h-4 w-4 mr-1" /> Refresh
-        </Button>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+          <BarChart3 className="h-6 w-6" />
+          Replenishment Engine
+        </h1>
+        <p className="text-sm text-slate-500 mt-1">
+          {'ABC/XYZ Classification \u2022 Inventory Projection \u2022 Risk Analysis \u2022 Suggestions'}
+        </p>
       </div>
 
       {/* Tabs */}
