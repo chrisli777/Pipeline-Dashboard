@@ -58,6 +58,7 @@ function transformDatabaseData(inventoryData: any[]): SKUData[] {
         partModelNumber: row.part_model,
         description: row.description || '',
         category: row.category || 'COUNTERWEIGHT',
+        supplierCode: row.supplier_code || null,
         weeks: [],
         allWeeks: [], // Include historical weeks for calculation
       })
@@ -142,6 +143,7 @@ export function PipelineDashboard() {
   const [syncing, setSyncing] = useState(false)
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<string>('all')
   const [selectedSku, setSelectedSku] = useState<string>('all')
   const [weekRange, setWeekRange] = useState({ start: 1, end: 53 })
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([])
@@ -285,11 +287,35 @@ export function PipelineDashboard() {
     return alertList
   }, [skus])
 
-  // Filter SKUs based on selection
+  // Derive unique customer (supplier) codes
+  const customers = useMemo(() => {
+    const codes = new Set<string>()
+    skus.forEach((sku) => {
+      if (sku.supplierCode) codes.add(sku.supplierCode)
+    })
+    return Array.from(codes).sort()
+  }, [skus])
+
+  // SKUs filtered by customer selection (used for SKU dropdown options)
+  const customerFilteredSkus = useMemo(() => {
+    if (selectedCustomer === 'all') return skus
+    return skus.filter((sku) => sku.supplierCode === selectedCustomer)
+  }, [skus, selectedCustomer])
+
+  // Reset SKU selection when customer changes
+  const handleCustomerChange = useCallback((value: string) => {
+    setSelectedCustomer(value)
+    setSelectedSku('all') // reset SKU when customer changes
+  }, [])
+
+  // Filter SKUs based on both customer and SKU selection
   const filteredSkus = useMemo(() => {
-    if (selectedSku === 'all') return skus
-    return skus.filter((sku) => sku.id === selectedSku)
-  }, [skus, selectedSku])
+    let filtered = customerFilteredSkus
+    if (selectedSku !== 'all') {
+      filtered = filtered.filter((sku) => sku.id === selectedSku)
+    }
+    return filtered
+  }, [customerFilteredSkus, selectedSku])
 
   // Handle data changes - update locally and track pending changes
   const handleDataChange = useCallback(
@@ -624,7 +650,10 @@ export function PipelineDashboard() {
 
         {/* Filters */}
         <InventoryFilters
-          skus={skus}
+          skus={customerFilteredSkus}
+          customers={customers}
+          selectedCustomer={selectedCustomer}
+          onCustomerChange={handleCustomerChange}
           selectedSku={selectedSku}
           onSkuChange={setSelectedSku}
           weekRange={weekRange}

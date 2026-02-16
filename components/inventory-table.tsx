@@ -106,10 +106,6 @@ function getCellBackground(rowType: RowType, value: number | null): string {
     return ''
   }
 
-  if (rowType === 'defect' && value > 0) {
-    return 'bg-red-200'
-  }
-
   if (rowType === 'inTransit' && value > 0) {
     return 'bg-blue-50 text-blue-700'
   }
@@ -138,16 +134,16 @@ export function InventoryTable({ skus, weekRange, onDataChange }: InventoryTable
         <thead>
           {/* Week number row */}
           <tr>
-            <th className="sticky left-0 z-10 bg-amber-100 px-2 py-1 text-left font-bold min-w-[180px] shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
+            <th className="sticky left-0 z-10 bg-blue-100 px-2 py-1 text-left font-bold min-w-[180px] shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
               Part/ Model #
             </th>
-            <th className="sticky left-[180px] z-10 bg-amber-100 px-2 py-1 text-left font-bold min-w-[160px] shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
+            <th className="sticky left-[180px] z-10 bg-blue-100 px-2 py-1 text-left font-bold min-w-[160px] shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
               Week of:
             </th>
             {filteredWeeks.map((week) => (
               <th
                 key={week.weekNumber}
-                className="px-2 py-1 text-center font-bold min-w-[60px] bg-amber-100"
+                className="px-2 py-1 text-center font-bold min-w-[60px] bg-blue-100"
               >
                 {week.weekNumber}
               </th>
@@ -155,14 +151,14 @@ export function InventoryTable({ skus, weekRange, onDataChange }: InventoryTable
           </tr>
           {/* Week date row */}
           <tr>
-            <th className="sticky left-0 z-10 bg-amber-50 px-2 py-1 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]"></th>
-            <th className="sticky left-[180px] z-10 bg-amber-50 px-2 py-1 text-left text-xs text-muted-foreground font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
+            <th className="sticky left-0 z-10 bg-blue-50 px-2 py-1 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]"></th>
+            <th className="sticky left-[180px] z-10 bg-blue-50 px-2 py-1 text-left text-xs text-muted-foreground font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
               Week #:
             </th>
             {filteredWeeks.map((week) => (
               <th
                 key={week.weekNumber}
-                className="px-1 py-1 text-center text-xs font-bold min-w-[60px] bg-amber-50"
+                className="px-1 py-1 text-center text-xs font-bold min-w-[60px] bg-blue-50"
               >
                 {week.weekOf}
               </th>
@@ -204,7 +200,7 @@ function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) 
       {/* First row - with merged Part/Model cell */}
       <tr className="hover:bg-muted/30">
         <td 
-          className="sticky left-0 z-10 bg-amber-200 px-2 py-1 align-top shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]"
+          className="sticky left-0 z-10 bg-blue-200 px-2 py-1 align-top shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]"
           rowSpan={totalRows}
         >
           <div className="text-sm font-bold">{sku.partModelNumber}</div>
@@ -255,12 +251,12 @@ function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) 
       ))}
 
       {/* Weeks on Hand Row - Calculated */}
-      <tr className="bg-amber-50">
-        <td className="sticky left-[180px] z-10 bg-amber-50 px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
+      <tr className="bg-blue-50">
+        <td className="sticky left-[180px] z-10 bg-blue-50 px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
           Weeks on hand (actual / runout)
         </td>
         {skuWeeks.map((week) => (
-          <td key={week.weekNumber} className="p-0 bg-amber-50">
+          <td key={week.weekNumber} className="p-0 bg-blue-50">
             <EditableCell
               value={week.weeksOnHand}
               onChange={() => {}}

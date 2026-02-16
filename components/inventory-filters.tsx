@@ -13,6 +13,9 @@ import type { SKUData } from '@/lib/types'
 
 interface InventoryFiltersProps {
   skus: SKUData[]
+  customers: string[]
+  selectedCustomer: string
+  onCustomerChange: (value: string) => void
   selectedSku: string
   onSkuChange: (value: string) => void
   weekRange: { start: number; end: number }
@@ -22,6 +25,9 @@ interface InventoryFiltersProps {
 
 export function InventoryFilters({
   skus,
+  customers,
+  selectedCustomer,
+  onCustomerChange,
   selectedSku,
   onSkuChange,
   weekRange,
@@ -31,6 +37,7 @@ export function InventoryFilters({
   const weekOptions = Array.from({ length: totalWeeks }, (_, i) => i + 1)
 
   const handleReset = () => {
+    onCustomerChange('all')
     onSkuChange('all')
     onWeekRangeChange({ start: 1, end: totalWeeks })
   }
@@ -40,6 +47,23 @@ export function InventoryFilters({
       <div className="flex items-center gap-2">
         <Filter className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium text-foreground">Filters:</span>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-muted-foreground">Customer:</label>
+        <Select value={selectedCustomer} onValueChange={onCustomerChange}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Select Customer" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Customers</SelectItem>
+            {customers.map((code) => (
+              <SelectItem key={code} value={code}>
+                {code}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex items-center gap-2">
