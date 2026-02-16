@@ -18,7 +18,7 @@ import type {
 } from '@/lib/types'
 
 export default function ReplenishmentPage() {
-  const [activeTab, setActiveTab] = useState('classification')
+  const [activeTab, setActiveTab] = useState('projection')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -72,14 +72,8 @@ export default function ReplenishmentPage() {
 
   useEffect(() => {
     fetchClassification()
+    fetchProjection()
   }, [])
-
-  // Lazy-load projection when tab is first clicked
-  useEffect(() => {
-    if ((activeTab === 'projection' || activeTab === 'suggestions' || activeTab === 'risk') && projections.length === 0 && !projLoading) {
-      fetchProjection()
-    }
-  }, [activeTab])
 
   const handleCellClick = (cell: string) => {
     setSelectedCell(prev => prev === cell ? null : cell)
