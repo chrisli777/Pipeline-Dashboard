@@ -207,7 +207,7 @@ function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) 
           <div className="text-xs text-muted-foreground">{sku.description}</div>
           <div className="text-xs font-bold">{sku.category}</div>
         </td>
-        <td className="sticky left-[180px] z-10 bg-white px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
+        <td className="sticky left-[180px] z-10 bg-[#f8fafc] px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
           {ROW_LABELS.customerForecast}
         </td>
         {skuWeeks.map((week) => (
@@ -223,7 +223,7 @@ function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) 
       {/* Remaining data rows */}
       {ROW_TYPE_ORDER.slice(1).map((rowType) => (
         <tr key={`${sku.id}-${rowType}`} className="hover:bg-muted/30">
-          <td className="sticky left-[180px] z-10 bg-white px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
+          <td className="sticky left-[180px] z-10 bg-[#f8fafc] px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
             {ROW_LABELS[rowType]}
           </td>
           {skuWeeks.map((week) => {
