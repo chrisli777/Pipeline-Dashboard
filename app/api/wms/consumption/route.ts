@@ -68,30 +68,58 @@ export async function POST(request: NextRequest) {
     const rqlRaw = `ReadOnly.IsClosed==true;ReadOnly.ProcessDate=ge=${start};ReadOnly.ProcessDate=lt=${end}`
     const rqlEncoded = encodeURIComponent(rqlRaw)
 
-    // Build WMS API URL
-    const wmsUrl = `https://secure-wms.com/orders?pgsiz=100&pgnum=1&skucontains=${skuId}&rql=${rqlEncoded}`
+    // Build WMS API URL with detail=All to get order line items
+    const wmsUrl = `https://secure-wms.com/orders?pgsiz=100&pgnum=1&skucontains=${skuId}&rql=${rqlEncoded}&detail=All`
 
-    // Call WMS API with Bearer token authentication
-    const wmsResponse = await fetch(wmsUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${wmsToken}`,
-        'Accept': 'application/json',
-      },
-    })
+    // Paginate through all results and sum qty
+    let totalConsumption = 0
+    let currentPage = 1
+    let totalPages = 1
 
-    if (!wmsResponse.ok) {
-      const errorText = await wmsResponse.text()
-      return NextResponse.json({ 
-        error: `WMS API error: ${wmsResponse.status}`,
-        details: errorText 
-      }, { status: wmsResponse.status })
+    while (currentPage <= totalPages) {
+      const pageUrl = currentPage === 1 
+        ? wmsUrl 
+        : `https://secure-wms.com/orders?pgsiz=100&pgnum=${currentPage}&skucontains=${skuId}&rql=${rqlEncoded}&detail=All`
+
+      const wmsResponse = await fetch(pageUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${wmsToken}`,
+          'Accept': 'application/json',
+        },
+      })
+
+      if (!wmsResponse.ok) {
+        const errorText = await wmsResponse.text()
+        return NextResponse.json({ 
+          error: `WMS API error: ${wmsResponse.status}`,
+          details: errorText 
+        }, { status: wmsResponse.status })
+      }
+
+      const wmsData = await wmsResponse.json()
+
+      // Calculate total pages from TotalResults on first page
+      if (currentPage === 1) {
+        const totalResults = wmsData.TotalResults || 0
+        totalPages = Math.ceil(totalResults / 100)
+      }
+
+      // Iterate through orders and sum qty from order line items
+      const orders = wmsData.ResourceList || []
+      for (const order of orders) {
+        const orderItems = order.OrderItems?.ResourceList || order.OrderItems || []
+        for (const item of orderItems) {
+          // Only count items matching our SKU
+          const itemSku = item.Sku || item.ItemIdentifier?.Sku || ''
+          if (itemSku.includes(skuId)) {
+            totalConsumption += item.Qty || item.QtyOrdered || item.QtyShipped || 0
+          }
+        }
+      }
+
+      currentPage++
     }
-
-    const wmsData = await wmsResponse.json()
-
-    // TotalResults is the actual consumption
-    const totalConsumption = wmsData.TotalResults || 0
 
     // Update the actual_consumption in database
     const supabase = await createClient()
