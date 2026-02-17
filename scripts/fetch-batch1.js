@@ -2,7 +2,9 @@ const REPO = 'chrisli777/Pipeline-Dashboard'
 const BRANCH = 'main'
 
 const FILES = [
-  'lib/risk-report-generator.ts',
+  'scripts/014_create_container_tracking.sql',
+  'scripts/015_create_dispatch_view.sql',
+  'app/api/dispatcher/containers/route.ts',
 ]
 
 async function main() {
