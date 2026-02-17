@@ -48,7 +48,7 @@ export async function GET() {
 // Iterates all receivers, filters ReceiveItems by SKU, sums Qty
 export async function POST(request: Request) {
   try {
-    const { skuId, weekNumber, token } = await request.json()
+    const { skuId, weekNumber } = await request.json()
   
     if (!skuId || !weekNumber) {
       return NextResponse.json(
@@ -65,11 +65,24 @@ export async function POST(request: Request) {
       )
     }
 
-    // Use provided token (for Kent warehouse SKUs) or fall back to env token (Moses Lake)
-    const wmsToken = token || process.env.WMS_API_TOKEN
+    // Moses Lake HX SKUs use default token
+    const MOSES_LAKE_SKUS = ['1272762', '1272913', '61415', '824433']
+    // Kent HX SKU uses Kent HX token
+    const KENT_HX_SKUS = ['1282199']
+
+    let wmsToken: string | undefined
+    if (KENT_HX_SKUS.includes(skuId)) {
+      wmsToken = process.env.WMS_API_TOKEN_KENT_HX
+    } else if (MOSES_LAKE_SKUS.includes(skuId)) {
+      wmsToken = process.env.WMS_API_TOKEN
+    } else {
+      // All other SKUs (AMC) use Kent AMC token
+      wmsToken = process.env.WMS_API_TOKEN_KENT_AMC
+    }
+
     if (!wmsToken) {
       return NextResponse.json(
-        { error: 'WMS API token not provided' },
+        { error: 'WMS API token not configured for this SKU' },
         { status: 500 }
       )
     }

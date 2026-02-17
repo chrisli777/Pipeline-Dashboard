@@ -8,32 +8,9 @@ import { InventoryFilters } from '@/components/inventory-filters'
 import { InventoryTable } from '@/components/inventory-table'
 import { AIChat } from '@/components/ai-chat'
 import { SyncDialog, SyncConfig } from '@/components/sync-dialog'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import type { SKUData, InventoryAlert, WeekData } from '@/lib/types'
 
 const TOTAL_WEEKS = 53 // Full year (Week 1: Jan 4 to Week 53: Jan 3)
-
-// Moses Lake warehouse SKUs (HX) - use env token
-const MOSES_LAKE_HX_SKUS = ['1272762', '1272913', '61415', '824433']
-
-// Kent warehouse SKU (HX) - needs separate token
-const KENT_HX_SKUS = ['1282199']
-
-// Determine which warehouse token a SKU needs
-function getSkuWarehouse(skuId: string, supplierCode: string | null): 'moses_lake' | 'kent_hx' | 'kent_amc' {
-  if (KENT_HX_SKUS.includes(skuId)) return 'kent_hx'
-  if (supplierCode === 'AMC') return 'kent_amc'
-  return 'moses_lake' // default: Moses Lake HX, uses env token
-}
 
 // Track pending changes
 interface PendingChange {
@@ -171,14 +148,6 @@ export function PipelineDashboard() {
   const [weekRange, setWeekRange] = useState({ start: 1, end: 53 })
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([])
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
-
-  // Kent warehouse token states
-  const [tokenDialogOpen, setTokenDialogOpen] = useState(false)
-  const [kentHxToken, setKentHxToken] = useState('')
-  const [kentAmcToken, setKentAmcToken] = useState('')
-  const [needsKentHx, setNeedsKentHx] = useState(false)
-  const [needsKentAmc, setNeedsKentAmc] = useState(false)
-  const pendingSyncConfigRef = useRef<SyncConfig | null>(null)
 
   // Fetch data from Supabase with automatic retry on failure
   const fetchData = useCallback(async (retryCount = 0): Promise<void> => {
@@ -456,48 +425,11 @@ export function PipelineDashboard() {
     }
   }, [pendingChanges, fetchData])
 
-  // Get the correct WMS token for a SKU based on its warehouse
-  const getTokenForSku = useCallback((skuId: string): string | undefined => {
-    const sku = skus.find(s => s.id === skuId)
-    const warehouse = getSkuWarehouse(skuId, sku?.supplierCode || null)
-    if (warehouse === 'kent_hx') return kentHxToken || undefined
-    if (warehouse === 'kent_amc') return kentAmcToken || undefined
-    return undefined // Moses Lake uses env token (server-side)
-  }, [skus, kentHxToken, kentAmcToken])
-
-  // Check if Kent tokens are needed before syncing
+  // Sync data based on configuration from dialog
+  // Token routing is handled server-side based on SKU
   const handleSync = useCallback(async (config: SyncConfig) => {
-    // Check if any consumption sync requires Kent warehouse tokens
-    const hasConsumption = config.fields.includes('actualConsumption')
-    const hasAta = config.fields.includes('ata')
-    if (hasConsumption || hasAta) {
-      let needsHx = false
-      let needsAmc = false
-      for (const skuId of config.skuIds) {
-        const sku = skus.find(s => s.id === skuId)
-        const warehouse = getSkuWarehouse(skuId, sku?.supplierCode || null)
-        if (warehouse === 'kent_hx') needsHx = true
-        if (warehouse === 'kent_amc') needsAmc = true
-      }
-      // If Kent tokens are needed and not yet provided, show the token dialog
-      if ((needsHx && !kentHxToken) || (needsAmc && !kentAmcToken)) {
-        setNeedsKentHx(needsHx && !kentHxToken)
-        setNeedsKentAmc(needsAmc && !kentAmcToken)
-        pendingSyncConfigRef.current = config
-        setSyncDialogOpen(false)
-        setTokenDialogOpen(true)
-        return
-      }
-    }
-
-    await executeSync(config)
-  }, [skus, kentHxToken, kentAmcToken])
-
-  // Execute the actual sync after tokens are confirmed
-  const executeSync = useCallback(async (config: SyncConfig) => {
     setSyncing(true)
     setSyncDialogOpen(false)
-    setTokenDialogOpen(false)
     setError(null)
     
     try {
@@ -509,14 +441,14 @@ export function PipelineDashboard() {
       for (const field of fields) {
         if (field === 'actualConsumption') {
           // Sync from WMS API for actualConsumption
+          // Server determines correct token per SKU (Moses Lake / Kent HX / Kent AMC)
           for (const skuId of skuIds) {
-            const token = getTokenForSku(skuId)
             for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
               try {
                 const res = await fetch('/api/wms/consumption', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ skuId, weekNumber, ...(token ? { token } : {}) }),
+                  body: JSON.stringify({ skuId, weekNumber }),
                 })
                 const data = await res.json()
                 results.push(data)
@@ -529,14 +461,14 @@ export function PipelineDashboard() {
           }
         } else if (field === 'ata') {
           // Sync from WMS inventory API for ATA
+          // Server determines correct token per SKU
           for (const skuId of skuIds) {
-            const token = getTokenForSku(skuId)
             for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
               try {
                 const res = await fetch('/api/wms/ata', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ skuId, weekNumber, ...(token ? { token } : {}) }),
+                  body: JSON.stringify({ skuId, weekNumber }),
                 })
                 const data = await res.json()
                 results.push(data)
@@ -584,11 +516,7 @@ export function PipelineDashboard() {
     }
   }, [fetchData])
 
-  // Export to CSV
-  const handleExport = () => {
-    const headers = ['SKU', 'Row Type', ...Array.from({ length: weekRange.end - weekRange.start + 1 }, (_, i) => `Week ${weekRange.start + i}`)]
-    const rows: string[][] = []
-    
+
     filteredSkus.forEach((sku) => {
       const weekData = sku.weeks.filter(
         (w) => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
@@ -793,59 +721,6 @@ export function PipelineDashboard() {
         syncing={syncing}
       />
 
-      {/* Kent Warehouse Token Dialog */}
-      <Dialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle>Kent Warehouse API Tokens</DialogTitle>
-            <DialogDescription>
-              Some selected SKUs belong to the Kent warehouse and require separate WMS tokens.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            {needsKentHx && (
-              <div className="space-y-2">
-                <Label htmlFor="kent-hx-token" className="text-sm font-medium">
-                  HX Kent Token <span className="text-muted-foreground">(SKU: 1282199)</span>
-                </Label>
-                <Input
-                  id="kent-hx-token"
-                  type="password"
-                  placeholder="Enter HX Kent warehouse token..."
-                  value={kentHxToken}
-                  onChange={(e) => setKentHxToken(e.target.value)}
-                />
-              </div>
-            )}
-            {needsKentAmc && (
-              <div className="space-y-2">
-                <Label htmlFor="kent-amc-token" className="text-sm font-medium">
-                  AMC Kent Token <span className="text-muted-foreground">(All AMC SKUs)</span>
-                </Label>
-                <Input
-                  id="kent-amc-token"
-                  type="password"
-                  placeholder="Enter AMC Kent warehouse token..."
-                  value={kentAmcToken}
-                  onChange={(e) => setKentAmcToken(e.target.value)}
-                />
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTokenDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleTokenConfirm}
-              disabled={(needsKentHx && !kentHxToken) || (needsKentAmc && !kentAmcToken)}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              Confirm & Sync
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

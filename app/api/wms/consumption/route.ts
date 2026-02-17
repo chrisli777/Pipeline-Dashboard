@@ -50,16 +50,29 @@ export async function GET() {
 // POST: Fetch consumption data from WMS for a specific SKU and week
 export async function POST(request: NextRequest) {
   try {
-    const { skuId, weekNumber, token } = await request.json()
+    const { skuId, weekNumber } = await request.json()
 
     if (!skuId || weekNumber === undefined) {
       return NextResponse.json({ error: 'Missing skuId or weekNumber' }, { status: 400 })
     }
 
-    // Use provided token (for Kent warehouse SKUs) or fall back to env token (Moses Lake)
-    const wmsToken = token || process.env.WMS_API_TOKEN
+    // Moses Lake HX SKUs use default token
+    const MOSES_LAKE_SKUS = ['1272762', '1272913', '61415', '824433']
+    // Kent HX SKU uses Kent HX token
+    const KENT_HX_SKUS = ['1282199']
+
+    let wmsToken: string | undefined
+    if (KENT_HX_SKUS.includes(skuId)) {
+      wmsToken = process.env.WMS_API_TOKEN_KENT_HX
+    } else if (MOSES_LAKE_SKUS.includes(skuId)) {
+      wmsToken = process.env.WMS_API_TOKEN
+    } else {
+      // All other SKUs (AMC) use Kent AMC token
+      wmsToken = process.env.WMS_API_TOKEN_KENT_AMC
+    }
+
     if (!wmsToken) {
-      return NextResponse.json({ error: 'WMS API token not provided' }, { status: 500 })
+      return NextResponse.json({ error: 'WMS API token not configured for this SKU' }, { status: 500 })
     }
 
     // Calculate date range for the week (Monday to Friday)
