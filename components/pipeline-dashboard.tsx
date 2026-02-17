@@ -231,6 +231,9 @@ export function PipelineDashboard() {
     fetchData()
   }, [fetchData])
 
+  // Derive inventory alerts from SKU data
+  const alerts: InventoryAlert[] = useMemo(() => {
+    const alertList: InventoryAlert[] = []
     skus.forEach((sku) => {
       // Track if we've already found the first problem for each severity
       let foundCritical = false
