@@ -1,18 +1,21 @@
-const OWNER = 'chrisli777'
-const REPO = 'Pipeline-Dashboard'
-const BRANCH = 'main'
+import { readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { dirname, resolve } from 'path'
 
-async function listTree() {
-  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/git/trees/${BRANCH}?recursive=1`)
-  const data = await res.json()
-  const files = data.tree
-    .filter(f => f.type === 'blob')
-    .map(f => ({ path: f.path, sha: f.sha.substring(0, 8) }))
-    .sort((a, b) => a.path.localeCompare(b.path))
-  
-  for (const f of files) {
-    console.log(`${f.sha}  ${f.path}`)
-  }
-  console.log(`\nTotal: ${files.length} files`)
+const PROJECT_ROOT = '/vercel/share/v0-project'
+const RAW_FILE = resolve(PROJECT_ROOT, 'scripts/_raw_github_batch1.txt')
+
+const raw = readFileSync(RAW_FILE, 'utf-8')
+const regex = /===FILE:(.+?)===\n([\s\S]*?)\n===END:\1===/g
+
+let match
+let count = 0
+while ((match = regex.exec(raw)) !== null) {
+  const filePath = match[1]
+  const content = match[2]
+  const fullPath = resolve(PROJECT_ROOT, filePath)
+  mkdirSync(dirname(fullPath), { recursive: true })
+  writeFileSync(fullPath, content, 'utf-8')
+  console.log(`Wrote: ${filePath} (${content.length} bytes)`)
+  count++
 }
-listTree()
+console.log(`\nDone: ${count} files written`)

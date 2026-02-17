@@ -1,0 +1,1386 @@
+===FILE:scripts/016_shipment_data_completeness.sql===
+
+-- Migration 016: Add data_completeness column to shipments table
+-- Supports partial shipment processing (Phase 3.9C)
+-- "completed" = all required files present and parsed
+-- "partial" = some files missing, partial data extracted
+
+ALTER TABLE shipments ADD COLUMN IF NOT EXISTS data_completeness TEXT DEFAULT 'completed';
+
+-- Set all existing records to completed (they were fully processed)
+UPDATE shipments SET data_completeness = 'completed' WHERE data_completeness IS NULL;
+
+-- Add comment for documentation
+COMMENT ON COLUMN shipments.data_completeness IS 'Data completeness status: completed or partial. Partial means some source files were missing during processing.';
+
+===END:scripts/016_shipment_data_completeness.sql===
+
+===FILE:vercel.json===
+
+{
+  "crons": [
+    {
+      "path": "/api/reports/weekly-risk",
+      "schedule": "0 13 * * 6"
+    }
+  ]
+}
+
+===END:vercel.json===
+
+===FILE:lib/replenishment-data.ts===
+
+/**
+ * Phase 3F — Shared Replenishment Data Layer
+ *
+ * Extracts Supabase queries + computation logic from the projection API route.
+ * Shared by: /api/replenishment/projection (page) and /api/reports/weekly-risk (email).
+ *
+ * Key addition: fetches customer forecast from inventory_data.customer_forecast
+ * and passes it to the projection engine as the preferred demand source.
+ */
+
+import { createClient } from '@/lib/supabase/server'
+import {
+  computeProjection,
+  generateSuggestions,
+  computeProjectionSummary,
+  getCurrentWeekNumber,
+} from '@/lib/replenishment-engine'
+import type {
+  SKUClassificationExtended,
+  SKUProjection,
+  ReplenishmentSuggestion,
+  ProjectionSummary,
+} from '@/lib/types'
+
+export interface ProjectionResult {
+  currentWeek: number
+  projections: SKUProjection[]
+  suggestions: ReplenishmentSuggestion[]
+  summary: ProjectionSummary
+  dataAsOf: string
+}
+
+/**
+ * Fetch all data from Supabase and compute 20-week projections for all classified SKUs.
+ * Includes customer forecast as the preferred demand source (falls back to historical avg).
+ */
+export async function fetchAndComputeProjections(): Promise<ProjectionResult> {
+  const supabase = await createClient()
+  const currentWeek = getCurrentWeekNumber()
+
+  // 1. Fetch classified SKUs (with policy fields from enhanced view)
+  const { data: skus, error: skuError } = await supabase
+    .from('v_sku_classification')
+    .select('*')
+
+  if (skuError) {
+    throw new Error(`Failed to fetch SKU classification: ${skuError.message}`)
+  }
+
+  // 2. Fetch current inventory for each SKU
+  //    Primary: query current week's actual_inventory (WMS syncs weekly)
+  //    Fallback: if current week missing, find most recent historical record
+  const { data: inventoryRows, error: invError } = await supabase
+    .from('inventory_data')
+    .select('sku_id, actual_inventory, week_number')
+    .eq('week_number', currentWeek)
+    .not('actual_inventory', 'is', null)
+
+  if (invError) {
+    throw new Error(`Failed to fetch inventory data: ${invError.message}`)
+  }
+
+  // Build map: sku_id → current week's actual_inventory
+  const inventoryMap = new Map<string, number>()
+  for (const row of inventoryRows || []) {
+    inventoryMap.set(row.sku_id, row.actual_inventory || 0)
+  }
+
+  // Fallback: for SKUs without current week data, query most recent historical record
+  // (Transition period until WMS weekly sync is fully operational)
+  const classifiedSkuIds = (skus || []).map((s: SKUClassificationExtended) => s.id)
+  const missingSkuIds = classifiedSkuIds.filter((id: string) => !inventoryMap.has(id))
+
+  if (missingSkuIds.length > 0) {
+    const { data: fallbackRows } = await supabase
+      .from('inventory_data')
+      .select('sku_id, actual_inventory, week_number')
+      .in('sku_id', missingSkuIds)
+      .lt('week_number', currentWeek)
+      .not('actual_inventory', 'is', null)
+      .order('week_number', { ascending: false })
+
+    for (const row of fallbackRows || []) {
+      if (!inventoryMap.has(row.sku_id)) {
+        inventoryMap.set(row.sku_id, row.actual_inventory || 0)
+      }
+    }
+  }
+
+  // 3. Fetch in-transit data by SKU and week
+  const { data: inTransitRows, error: itError } = await supabase
+    .from('in_transit_by_sku_week')
+    .select('*')
+
+  if (itError) {
+    throw new Error(`Failed to fetch in-transit data: ${itError.message}`)
+  }
+
+  // Build map: sku_code → Map<weekNumber, qty>
+  const inTransitMap = new Map<string, Map<number, number>>()
+  for (const row of inTransitRows || []) {
+    const sku = row.sku as string
+    if (!inTransitMap.has(sku)) {
+      inTransitMap.set(sku, new Map())
+    }
+    const weekMap = inTransitMap.get(sku)!
+    const weekNum = row.expected_week as number
+    weekMap.set(weekNum, (weekMap.get(weekNum) || 0) + (row.in_transit_qty || 0))
+  }
+
+  // ★ 4. Fetch customer forecast for the projection window
+  //    Query inventory_data for future weeks with non-zero customer_forecast
+  const { data: forecastRows, error: fcError } = await supabase
+    .from('inventory_data')
+    .select('sku_id, week_number, customer_forecast')
+    .gte('week_number', currentWeek + 1)
+    .lte('week_number', currentWeek + 20)
+    .not('customer_forecast', 'is', null)
+    .gt('customer_forecast', 0)
+
+  if (fcError) {
+    console.error('Warning: Could not fetch forecast data:', fcError.message)
+    // Non-fatal — engine will fall back to historical demand
+  }
+
+  // Build map: sku_id → Map<weekNumber, forecastQty>
+  const forecastMap = new Map<string, Map<number, number>>()
+  for (const row of forecastRows || []) {
+    if (!forecastMap.has(row.sku_id)) {
+      forecastMap.set(row.sku_id, new Map())
+    }
+    forecastMap.get(row.sku_id)!.set(row.week_number, row.customer_forecast)
+  }
+
+  // 5. Build SKU master data map for suggestion enrichment
+  const skuMap = new Map<string, SKUClassificationExtended>()
+  for (const sku of skus || []) {
+    skuMap.set(sku.sku_code, sku as SKUClassificationExtended)
+  }
+
+  // 6. Compute 20-week projections for each SKU (with forecast)
+  const projections = (skus || []).map((sku: SKUClassificationExtended) => {
+    const currentInventory = inventoryMap.get(sku.id) ?? 0
+    const skuInTransit = inTransitMap.get(sku.sku_code) ?? new Map<number, number>()
+    const skuForecast = forecastMap.get(sku.id) ?? undefined
+
+    return computeProjection(sku, currentInventory, currentWeek, skuInTransit, 20, skuForecast)
+  })
+
+  // 7. Generate enriched suggestions with SKU master data
+  const suggestions = generateSuggestions(projections, currentWeek, skuMap)
+
+  // 8. Compute summary (includes consolidated POs)
+  const summary = computeProjectionSummary(projections, suggestions)
+
+  return {
+    currentWeek,
+    projections,
+    suggestions,
+    summary,
+    dataAsOf: new Date().toISOString(),
+  }
+}
+
+
+===END:lib/replenishment-data.ts===
+
+===FILE:lib/replenishment-engine.ts===
+
+/**
+ * Phase 3B/3C/3D/3E/3F — Replenishment Computation Engine
+ *
+ * Pure computation module — no React, no Supabase, no side effects.
+ * All functions are deterministic given their inputs.
+ *
+ * Key design notes:
+ * - target_woh = warehouse stock only (does NOT include in-transit)
+ * - lead_time = production + shipping (11-16 weeks)
+ * - Target < ROP is EXPECTED for long-LT supply chains
+ * - Inventory Position = on-hand + in-transit (full pipeline view)
+ * - Safety stock capped by target_woh (customer requires 4-6 wks max)
+ * - Demand source: customer forecast preferred over historical average
+ * - review_frequency: biweekly/monthly SKUs only reviewed on schedule
+ * - on_demand (CZ class): no auto-suggestions unless CRITICAL
+ */
+
+import type {
+  InTransitEntry,
+  ProjectionWeek,
+  SKUProjection,
+  ReplenishmentSuggestion,
+  ProjectionSummary,
+  ConsolidatedPO,
+  SKUClassificationExtended,
+} from './types'
+
+// ─── Z-Score Lookup ──────────────────────────────────────────────────────────
+
+const Z_SCORE_TABLE: [number, number][] = [
+  [0.99, 2.33],
+  [0.98, 2.05],
+  [0.97, 1.88],
+  [0.96, 1.75],
+  [0.95, 1.65],
+  [0.94, 1.55],
+  [0.93, 1.48],
+  [0.92, 1.41],
+  [0.91, 1.34],
+  [0.90, 1.28],
+  [0.85, 1.04],
+  [0.80, 0.84],
+]
+
+export function getZScore(serviceLevel: number): number {
+  for (const [sl, z] of Z_SCORE_TABLE) {
+    if (serviceLevel >= sl) return z
+  }
+  return 0.67
+}
+
+// ─── Safety Stock & Inventory Targets ────────────────────────────────────────
+
+/** Safety stock in UNITS — capped by target_woh to meet customer requirements */
+export function computeSafetyStockUnits(
+  avgWeeklyDemand: number,
+  cvDemand: number,
+  leadTimeWeeks: number,
+  serviceLevel: number,
+  multiplier: number = 1.0,
+  targetWoh?: number  // cap SS at target_woh weeks of demand
+): number {
+  if (avgWeeklyDemand <= 0 || leadTimeWeeks <= 0) return 0
+  const z = getZScore(serviceLevel)
+  const sigmaDemand = avgWeeklyDemand * (cvDemand || 0.5)
+  let ss = z * sigmaDemand * Math.sqrt(leadTimeWeeks) * multiplier
+
+  // Cap safety stock: SS(weeks) must not exceed target_woh
+  // Customer (Genie) requires warehouse safety stock of 4-6 weeks only
+  if (targetWoh && targetWoh > 0) {
+    const maxSS = avgWeeklyDemand * targetWoh
+    ss = Math.min(ss, maxSS)
+  }
+
+  return ss
+}
+
+/** Safety stock in WEEKS of demand */
+export function computeSafetyStockWeeks(
+  avgWeeklyDemand: number,
+  cvDemand: number,
+  leadTimeWeeks: number,
+  serviceLevel: number,
+  multiplier: number = 1.0,
+  targetWoh?: number
+): number {
+  if (avgWeeklyDemand <= 0) return 0
+  const ssUnits = computeSafetyStockUnits(avgWeeklyDemand, cvDemand, leadTimeWeeks, serviceLevel, multiplier, targetWoh)
+  return ssUnits / avgWeeklyDemand
+}
+
+/** Reorder point in UNITS = demand during lead time + safety stock */
+export function computeReorderPoint(
+  avgWeeklyDemand: number,
+  leadTimeWeeks: number,
+  safetyStockUnits: number
+): number {
+  if (avgWeeklyDemand <= 0 || leadTimeWeeks <= 0) return 0
+  return avgWeeklyDemand * leadTimeWeeks + safetyStockUnits
+}
+
+/** Target inventory in UNITS = avg_weekly_demand × target_woh (warehouse only) */
+export function computeTargetInventory(
+  avgWeeklyDemand: number,
+  targetWoh: number
+): number {
+  return avgWeeklyDemand * targetWoh
+}
+
+// ─── Inventory Position ─────────────────────────────────────────────────────
+
+/** Compute inventory position = on-hand + total in-transit pipeline */
+export function computeInventoryPosition(
+  currentInventory: number,
+  inTransitByWeek: Map<number, number>
+): { inventoryPosition: number; totalInTransit: number; schedule: InTransitEntry[] } {
+  let totalInTransit = 0
+  const schedule: InTransitEntry[] = []
+  for (const [weekNumber, qty] of inTransitByWeek.entries()) {
+    if (qty > 0) {
+      totalInTransit += qty
+      schedule.push({ weekNumber, qty })
+    }
+  }
+  schedule.sort((a, b) => a.weekNumber - b.weekNumber)
+  return {
+    inventoryPosition: currentInventory + totalInTransit,
+    totalInTransit,
+    schedule,
+  }
+}
+
+// ─── Week Utilities ──────────────────────────────────────────────────────────
+
+/** Week 1 of 2026 starts on 2025-12-29 (Monday) */
+const WEEK1_START = new Date('2025-12-29T00:00:00Z')
+
+export function getWeekStartDate(weekNumber: number): string {
+  const d = new Date(WEEK1_START)
+  d.setUTCDate(d.getUTCDate() + (weekNumber - 1) * 7)
+  return d.toISOString().split('T')[0]
+}
+
+export function getCurrentWeekNumber(): number {
+  const now = new Date()
+  const diffMs = now.getTime() - WEEK1_START.getTime()
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  return Math.max(1, Math.floor(diffDays / 7) + 1)
+}
+
+// ─── Inventory Projection (default 20 weeks) ────────────────────────────────
+
+export function computeProjection(
+  sku: SKUClassificationExtended,
+  currentInventory: number,
+  currentWeek: number,
+  inTransitByWeek: Map<number, number>,  // weekNumber → qty arriving
+  projectionHorizon: number = 20,
+  weeklyForecast?: Map<number, number>   // weekNum → customer forecast qty
+): SKUProjection {
+  const historicalDemand = sku.avg_weekly_demand || 0
+  const cv = sku.cv_demand || 0.5
+  const lt = sku.lead_time_weeks || 11
+  const sl = sku.service_level || 0.90
+  const multiplier = sku.safety_stock_multiplier || 1.0
+  const targetWoh = sku.target_woh || 8
+
+  // ★ Demand source: prefer customer forecast, fallback to historical average
+  const hasForecast = weeklyForecast !== undefined && weeklyForecast.size > 0
+  let effectiveDemand = historicalDemand
+  if (hasForecast) {
+    const forecastValues = [...weeklyForecast!.values()].filter(v => v > 0)
+    if (forecastValues.length > 0) {
+      effectiveDemand = forecastValues.reduce((a, b) => a + b, 0) / forecastValues.length
+    }
+  }
+  const avgWk = effectiveDemand
+
+  // ★ Pass targetWoh to cap safety stock at customer-required levels
+  const ssUnits = computeSafetyStockUnits(avgWk, cv, lt, sl, multiplier, targetWoh)
+  const ssWeeks = avgWk > 0 ? ssUnits / avgWk : 0
+  const rop = computeReorderPoint(avgWk, lt, ssUnits)
+  const target = computeTargetInventory(avgWk, targetWoh)
+  const moq = sku.moq || 1
+
+  // Compute inventory position (on-hand + pipeline)
+  const invPos = computeInventoryPosition(currentInventory, inTransitByWeek)
+
+  const weeks: ProjectionWeek[] = []
+  let projected = currentInventory
+  let stockoutWeek: number | null = null
+  let reorderTriggerWeek: number | null = null
+
+  for (let i = 0; i < projectionHorizon; i++) {
+    const weekNum = currentWeek + i + 1
+    // ★ Per-week demand: use forecast for that specific week if available
+    const demand = weeklyForecast?.get(weekNum) ?? effectiveDemand
+    const arriving = inTransitByWeek.get(weekNum) || 0
+
+    projected = projected - demand + arriving
+
+    const status: ProjectionWeek['status'] =
+      projected <= 0 ? 'STOCKOUT'
+        : projected < ssUnits ? 'CRITICAL'
+          : projected < rop ? 'WARNING'
+            : 'OK'
+
+    if (projected <= 0 && stockoutWeek === null) stockoutWeek = weekNum
+    if (projected < rop && reorderTriggerWeek === null) reorderTriggerWeek = weekNum
+
+    weeks.push({
+      weekNumber: weekNum,
+      weekStartDate: getWeekStartDate(weekNum),
+      projectedInventory: Math.round(projected * 10) / 10,
+      demand: Math.round(demand * 10) / 10,
+      inTransitArrival: Math.round(arriving * 10) / 10,
+      safetyStock: Math.round(ssUnits * 10) / 10,
+      reorderPoint: Math.round(rop * 10) / 10,
+      targetInventory: Math.round(target * 10) / 10,
+      status,
+    })
+  }
+
+  // ★ Urgency determination — uses review_frequency to set relevant horizon
+  // Instead of checking the full 20-week window, only flag WARNING if the
+  // reorder trigger falls within the review cycle + lead time.
+  // This prevents items with 15+ weeks of cover from being flagged WARNING
+  // just because they dip below ROP in week 19.
+  const reviewCycle = sku.review_frequency === 'monthly' ? 4
+    : sku.review_frequency === 'biweekly' ? 2
+      : 1  // 'weekly' or default
+  const urgencyHorizon = currentWeek + reviewCycle + lt  // review window + lead time
+
+  const urgency: SKUProjection['urgency'] =
+    (stockoutWeek !== null && stockoutWeek <= currentWeek + lt) ? 'CRITICAL'
+      : (reorderTriggerWeek !== null && reorderTriggerWeek <= urgencyHorizon) ? 'WARNING'
+        : 'OK'
+
+  return {
+    skuId: sku.id,
+    skuCode: sku.sku_code,
+    partModel: sku.part_model,
+    supplierCode: sku.supplier_code,
+    abcClass: sku.abc_class,
+    xyzClass: sku.xyz_class,
+    matrixCell: sku.matrix_cell,
+    currentInventory: Math.round(currentInventory * 10) / 10,
+    avgWeeklyDemand: avgWk,
+    leadTimeWeeks: lt,
+    safetyStock: Math.round(ssUnits * 10) / 10,
+    safetyStockWeeks: Math.round(ssWeeks * 10) / 10,
+    reorderPoint: Math.round(rop),
+    targetInventory: Math.round(target),
+    moq,
+    unitCost: sku.unit_cost,
+    replenishmentMethod: sku.replenishment_method || 'auto',
+    weeks,
+    stockoutWeek,
+    reorderTriggerWeek,
+    urgency,
+    // Inventory position fields
+    inventoryPosition: Math.round(invPos.inventoryPosition * 10) / 10,
+    totalInTransit: Math.round(invPos.totalInTransit * 10) / 10,
+    inTransitSchedule: invPos.schedule,
+    // Demand source tracking
+    demandSource: hasForecast ? 'forecast' : 'historical',
+    forecastDemand: hasForecast ? Math.round(effectiveDemand * 10) / 10 : null,
+  }
+}
+
+// ─── Replenishment Suggestions (enriched) ────────────────────────────────────
+
+export function generateSuggestions(
+  projections: SKUProjection[],
+  currentWeek: number,
+  skuMap?: Map<string, SKUClassificationExtended>
+): ReplenishmentSuggestion[] {
+  const suggestions: ReplenishmentSuggestion[] = []
+
+  for (const proj of projections) {
+    // Skip zero-demand SKUs
+    if (proj.avgWeeklyDemand <= 0) continue
+    // Skip if no risk detected
+    if (proj.urgency === 'OK') continue
+
+    // ★ Skip on_demand SKUs (CZ class) unless CRITICAL
+    if (proj.replenishmentMethod === 'on_demand' && proj.urgency !== 'CRITICAL') continue
+
+    // ★ Apply review_frequency filter (CRITICAL always bypasses)
+    const skuMasterForFreq = skuMap?.get(proj.skuCode)
+    if (skuMasterForFreq?.review_frequency && !shouldReviewThisWeek(currentWeek, skuMasterForFreq.review_frequency)) {
+      if (proj.urgency !== 'CRITICAL') continue
+    }
+
+    const arrivalWeek = currentWeek + proj.leadTimeWeeks
+    // Find projected inventory at arrival
+    const arrivalWeekData = proj.weeks.find(w => w.weekNumber === arrivalWeek)
+    // If arrival is beyond projection window, use last projected value
+    const projectedAtArrival = arrivalWeekData
+      ? arrivalWeekData.projectedInventory
+      : proj.weeks[proj.weeks.length - 1]?.projectedInventory ?? 0
+
+    // Order qty = target - projected_at_arrival
+    let orderQty = proj.targetInventory - projectedAtArrival
+    if (orderQty <= 0) continue  // no order needed
+
+    // Round up to MOQ
+    const moq = proj.moq || 1
+    if (moq > 1) {
+      orderQty = Math.ceil(orderQty / moq) * moq
+    } else {
+      orderQty = Math.ceil(orderQty)
+    }
+
+    const weeksOfCover = proj.avgWeeklyDemand > 0 ? orderQty / proj.avgWeeklyDemand : 0
+
+    // Enrichment from SKU master data
+    const skuMaster = skuMap?.get(proj.skuCode)
+    const qtyPerContainer = skuMaster?.qty_per_container ?? null
+    const unitWeight = skuMaster?.unit_weight ?? null
+    const annualValue = skuMaster?.annual_consumption_value ?? null
+
+    // Days of supply = current inventory / daily demand
+    const daysOfSupply = proj.avgWeeklyDemand > 0
+      ? Math.round(proj.currentInventory / (proj.avgWeeklyDemand / 7))
+      : 999
+
+    // Weeks until stockout
+    const weeksUntilStockout = proj.stockoutWeek !== null
+      ? proj.stockoutWeek - currentWeek
+      : null
+
+    suggestions.push({
+      skuId: proj.skuId,
+      skuCode: proj.skuCode,
+      partModel: proj.partModel,
+      supplierCode: proj.supplierCode,
+      matrixCell: proj.matrixCell,
+      urgency: proj.urgency,
+      replenishmentMethod: proj.replenishmentMethod,
+      suggestedOrderQty: orderQty,
+      moq,
+      orderDate: new Date().toISOString().split('T')[0],
+      expectedArrivalWeek: arrivalWeek,
+      expectedArrivalDate: getWeekStartDate(arrivalWeek),
+      currentInventory: proj.currentInventory,
+      projectedAtArrival: Math.round(projectedAtArrival),
+      safetyStock: proj.safetyStock,
+      targetInventory: proj.targetInventory,
+      avgWeeklyDemand: proj.avgWeeklyDemand,
+      leadTimeWeeks: proj.leadTimeWeeks,
+      weeksOfCover: Math.round(weeksOfCover * 10) / 10,
+      estimatedCost: proj.unitCost ? Math.round(orderQty * proj.unitCost) : null,
+      // Enriched fields
+      inventoryPosition: proj.inventoryPosition,
+      totalInTransit: proj.totalInTransit,
+      inTransitSchedule: proj.inTransitSchedule,
+      daysOfSupply,
+      stockoutWeek: proj.stockoutWeek,
+      weeksUntilStockout,
+      qtyPerContainer,
+      estimatedContainers: qtyPerContainer && qtyPerContainer > 0
+        ? Math.round((orderQty / qtyPerContainer) * 10) / 10
+        : null,
+      annualConsumptionValue: annualValue,
+      unitWeight,
+      totalWeight: unitWeight ? Math.round(orderQty * unitWeight) : null,
+      demandSource: proj.demandSource,
+    })
+  }
+
+  // Sort: CRITICAL first, then WARNING, then by estimated cost desc
+  return suggestions.sort((a, b) => {
+    const urgencyOrder = { CRITICAL: 0, WARNING: 1, OK: 2 }
+    const diff = urgencyOrder[a.urgency] - urgencyOrder[b.urgency]
+    if (diff !== 0) return diff
+    return (b.estimatedCost || 0) - (a.estimatedCost || 0)
+  })
+}
+
+// ─── Review Frequency Filter ────────────────────────────────────────────────
+
+/** Check if this week is a review week based on ABC/XYZ frequency policy */
+export function shouldReviewThisWeek(
+  currentWeek: number,
+  frequency: 'weekly' | 'biweekly' | 'monthly' | string
+): boolean {
+  if (frequency === 'weekly') return true
+  if (frequency === 'biweekly') return currentWeek % 2 === 0  // even weeks
+  if (frequency === 'monthly') return currentWeek % 4 === 0   // every 4th week
+  return true // unknown frequency = always review
+}
+
+// ─── Supplier Consolidation ─────────────────────────────────────────────────
+
+export function consolidateBySupplier(
+  suggestions: ReplenishmentSuggestion[]
+): ConsolidatedPO[] {
+  // Group by supplier
+  const groups = new Map<string, ReplenishmentSuggestion[]>()
+  for (const sug of suggestions) {
+    const sup = sug.supplierCode || 'Unknown'
+    if (!groups.has(sup)) groups.set(sup, [])
+    groups.get(sup)!.push(sug)
+  }
+
+  const pos: ConsolidatedPO[] = []
+  for (const [supplierCode, items] of groups.entries()) {
+    let totalQty = 0
+    let totalCost = 0
+    let totalWeight: number | null = 0
+    let totalContainers = 0
+    let hasContainerData = false
+    let criticalCount = 0
+    let maxArrivalWeek = 0
+
+    const poItems: ConsolidatedPO['items'] = []
+    for (const sug of items) {
+      totalQty += sug.suggestedOrderQty
+      totalCost += sug.estimatedCost || 0
+      if (sug.totalWeight !== null && totalWeight !== null) {
+        totalWeight += sug.totalWeight
+      } else if (sug.totalWeight === null) {
+        totalWeight = null  // can't compute total if any item missing weight
+      }
+      if (sug.urgency === 'CRITICAL') criticalCount++
+      if (sug.expectedArrivalWeek > maxArrivalWeek) maxArrivalWeek = sug.expectedArrivalWeek
+
+      let containerHint: string | null = null
+      if (sug.qtyPerContainer && sug.qtyPerContainer > 0) {
+        const ctrs = sug.suggestedOrderQty / sug.qtyPerContainer
+        containerHint = `~${Math.round(ctrs * 10) / 10} ctr`
+        totalContainers += ctrs
+        hasContainerData = true
+      }
+
+      poItems.push({
+        skuCode: sug.skuCode,
+        partModel: sug.partModel,
+        matrixCell: sug.matrixCell,
+        urgency: sug.urgency,
+        suggestedOrderQty: sug.suggestedOrderQty,
+        estimatedCost: sug.estimatedCost,
+        weeksOfCover: sug.weeksOfCover,
+        containerHint,
+      })
+    }
+
+    pos.push({
+      supplierCode,
+      orderDate: new Date().toISOString().split('T')[0],
+      expectedArrivalWeek: maxArrivalWeek,
+      expectedArrivalDate: getWeekStartDate(maxArrivalWeek),
+      items: poItems,
+      totalQty,
+      totalCost: Math.round(totalCost),
+      totalWeight: totalWeight !== null ? Math.round(totalWeight) : null,
+      estimatedContainers: hasContainerData ? Math.ceil(totalContainers) : null,
+      skuCount: items.length,
+      criticalCount,
+    })
+  }
+
+  // Sort by total cost descending
+  return pos.sort((a, b) => b.totalCost - a.totalCost)
+}
+
+// ─── Summary Generator ───────────────────────────────────────────────────────
+
+export function computeProjectionSummary(
+  projections: SKUProjection[],
+  suggestions: ReplenishmentSuggestion[]
+): ProjectionSummary {
+  const bySupplier: ProjectionSummary['bySupplier'] = {}
+
+  let criticalCount = 0
+  let warningCount = 0
+  let okCount = 0
+
+  for (const proj of projections) {
+    if (proj.urgency === 'CRITICAL') criticalCount++
+    else if (proj.urgency === 'WARNING') warningCount++
+    else okCount++
+
+    const sup = proj.supplierCode || 'Unknown'
+    if (!bySupplier[sup]) {
+      bySupplier[sup] = { skuCount: 0, criticalCount: 0, suggestedValue: 0 }
+    }
+    bySupplier[sup].skuCount++
+    if (proj.urgency === 'CRITICAL') bySupplier[sup].criticalCount++
+  }
+
+  let totalSuggestedValue = 0
+  for (const sug of suggestions) {
+    totalSuggestedValue += sug.estimatedCost || 0
+    const sup = sug.supplierCode || 'Unknown'
+    if (bySupplier[sup]) {
+      bySupplier[sup].suggestedValue += sug.estimatedCost || 0
+    }
+  }
+
+  // Consolidated POs
+  const consolidatedPOs = consolidateBySupplier(suggestions)
+
+  return {
+    totalSkus: projections.length,
+    criticalCount,
+    warningCount,
+    okCount,
+    totalSuggestedOrders: suggestions.length,
+    totalSuggestedValue,
+    bySupplier,
+    consolidatedPOs,
+  }
+}
+
+===END:lib/replenishment-engine.ts===
+
+===FILE:lib/risk-report-generator.ts===
+
+/**
+ * Phase 3F — Risk Report Generator
+ *
+ * Pure function module — no React, no Supabase, no side effects.
+ * Transforms projection + suggestion data into a customer-facing RiskReport.
+ * Also generates email HTML for weekly risk reports.
+ */
+
+import type {
+  SKUProjection,
+  ReplenishmentSuggestion,
+  ProjectionSummary,
+  RiskItem,
+  RiskReport,
+  RiskType,
+} from './types'
+import { getWeekStartDate } from './replenishment-engine'
+
+// ─── Risk Report Builder ────────────────────────────────────────────────────
+
+export function buildRiskReport(
+  projections: SKUProjection[],
+  suggestions: ReplenishmentSuggestion[],
+  summary: ProjectionSummary,
+  currentWeek: number,
+  aiSummary?: string | null,
+  aiActionItems?: string | null,
+  aiMeetingAgenda?: string | null,
+): RiskReport {
+  // Build suggestion lookup: skuCode → suggestion
+  const suggestionMap = new Map<string, ReplenishmentSuggestion>()
+  for (const sug of suggestions) {
+    suggestionMap.set(sug.skuCode, sug)
+  }
+
+  const criticalItems: RiskItem[] = []
+  const warningItems: RiskItem[] = []
+  const okItems: RiskItem[] = []
+  let totalPendingOrders = 0
+  let totalOrderValue = 0
+  let unmitigatedRiskCount = 0
+
+  for (const proj of projections) {
+    const sug = suggestionMap.get(proj.skuCode)
+    const riskItem = buildRiskItem(proj, sug, currentWeek)
+
+    if (sug) {
+      totalPendingOrders++
+      totalOrderValue += sug.estimatedCost || 0
+    }
+
+    if (riskItem.riskLevel === 'CRITICAL') {
+      criticalItems.push(riskItem)
+      if (!riskItem.hasPendingOrder) unmitigatedRiskCount++
+    } else if (riskItem.riskLevel === 'WARNING') {
+      warningItems.push(riskItem)
+      if (!riskItem.hasPendingOrder) unmitigatedRiskCount++
+    } else {
+      okItems.push(riskItem)
+    }
+  }
+
+  // Sort critical by stockout week (soonest first)
+  criticalItems.sort((a, b) => (a.stockoutWeek ?? 999) - (b.stockoutWeek ?? 999))
+  // Sort warning by weeks of cover (lowest first)
+  warningItems.sort((a, b) => a.weeksOfCover - b.weeksOfCover)
+
+  const weekStartDate = getWeekStartDate(currentWeek)
+  const d = new Date(weekStartDate)
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const reportWeekLabel = `Week ${currentWeek} (${monthNames[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()})`
+
+  return {
+    generatedAt: new Date().toISOString(),
+    currentWeek,
+    reportWeekLabel,
+    totalSkus: projections.length,
+    criticalCount: criticalItems.length,
+    warningCount: warningItems.length,
+    okCount: okItems.length,
+    criticalItems,
+    warningItems,
+    okItems,
+    totalPendingOrders,
+    totalOrderValue: Math.round(totalOrderValue),
+    unmitigatedRiskCount,
+    aiSummary: aiSummary ?? null,
+    aiActionItems: aiActionItems ?? null,
+    aiMeetingAgenda: aiMeetingAgenda ?? null,
+  }
+}
+
+// ─── Single SKU Risk Assessment ─────────────────────────────────────────────
+
+function buildRiskItem(
+  proj: SKUProjection,
+  suggestion: ReplenishmentSuggestion | undefined,
+  currentWeek: number
+): RiskItem {
+  const avgWk = proj.avgWeeklyDemand
+
+  // Weeks of cover (on-hand only)
+  const weeksOfCover = avgWk > 0 ? proj.currentInventory / avgWk : 999
+  // Days of supply
+  const daysOfSupply = avgWk > 0 ? Math.round(proj.currentInventory / (avgWk / 7)) : 9999
+
+  // Determine risk type
+  let riskType: RiskType = 'LOW_COVER'
+  if (proj.stockoutWeek !== null) {
+    riskType = 'STOCKOUT'
+  } else if (proj.weeks.some(w => w.projectedInventory < proj.safetyStock)) {
+    riskType = 'BELOW_SAFETY'
+  } else if (proj.weeks.some(w => w.projectedInventory < proj.reorderPoint)) {
+    riskType = 'BELOW_REORDER'
+  } else if (weeksOfCover < 4) {
+    riskType = 'LOW_COVER'
+  }
+
+  // Stockout date formatting
+  let stockoutDate: string | null = null
+  let weeksUntilStockout: number | null = null
+  if (proj.stockoutWeek !== null) {
+    const soDate = getWeekStartDate(proj.stockoutWeek)
+    const d = new Date(soDate)
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    stockoutDate = `Week ${proj.stockoutWeek} (${monthNames[d.getUTCMonth()]} ${d.getUTCDate()})`
+    weeksUntilStockout = proj.stockoutWeek - currentWeek
+  }
+
+  // Mitigation status
+  const hasPendingOrder = !!suggestion
+  let mitigationStatus: RiskItem['mitigationStatus'] = 'NONE'
+  let orderQty: number | null = null
+  let orderArrivalWeek: number | null = null
+  let orderArrivalDate: string | null = null
+  let estimatedCost: number | null = null
+
+  if (suggestion) {
+    orderQty = suggestion.suggestedOrderQty
+    orderArrivalWeek = suggestion.expectedArrivalWeek
+    estimatedCost = suggestion.estimatedCost
+
+    const arrDate = getWeekStartDate(suggestion.expectedArrivalWeek)
+    const ad = new Date(arrDate)
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    orderArrivalDate = `W${suggestion.expectedArrivalWeek} (${monthNames[ad.getUTCMonth()]} ${ad.getUTCDate()})`
+
+    // Check if order covers the gap
+    const projAtArrival = suggestion.projectedAtArrival
+    const afterOrder = projAtArrival + suggestion.suggestedOrderQty
+    if (afterOrder > proj.safetyStock) {
+      mitigationStatus = 'COVERED'
+    } else if (afterOrder > 0) {
+      mitigationStatus = 'PARTIAL'
+    } else {
+      mitigationStatus = 'NONE'
+    }
+  }
+
+  // Customer impact note
+  let customerImpactNote = 'No impact — sufficient buffer'
+  if (proj.urgency === 'CRITICAL') {
+    if (proj.stockoutWeek !== null) {
+      const model = proj.partModel?.split('/')[1]?.trim() || proj.skuCode
+      customerImpactNote = `May affect ${model} production after ${stockoutDate}`
+    } else {
+      customerImpactNote = 'Below safety stock — risk of supply disruption'
+    }
+  } else if (proj.urgency === 'WARNING') {
+    customerImpactNote = `Inventory below reorder point — monitoring (${Math.round(weeksOfCover * 10) / 10} wks cover)`
+  }
+
+  // Action note
+  let actionNote = 'No action needed'
+  if (suggestion) {
+    actionNote = `Order ${suggestion.suggestedOrderQty} units placed, arriving ${orderArrivalDate}`
+    if (estimatedCost) {
+      actionNote += ` (~$${estimatedCost.toLocaleString()})`
+    }
+  } else if (proj.urgency !== 'OK') {
+    actionNote = 'No order placed — needs review'
+  }
+
+  return {
+    skuCode: proj.skuCode,
+    partModel: proj.partModel,
+    supplierCode: proj.supplierCode,
+    matrixCell: proj.matrixCell,
+    riskLevel: proj.urgency,
+    riskType,
+    currentInventory: proj.currentInventory,
+    totalInTransit: proj.totalInTransit,
+    inventoryPosition: proj.inventoryPosition,
+    daysOfSupply,
+    weeksOfCover: Math.round(weeksOfCover * 10) / 10,
+    demandSource: proj.demandSource,
+    avgWeeklyDemand: proj.avgWeeklyDemand,
+    stockoutWeek: proj.stockoutWeek,
+    stockoutDate,
+    weeksUntilStockout,
+    hasPendingOrder,
+    orderQty,
+    orderArrivalWeek,
+    orderArrivalDate,
+    estimatedCost,
+    mitigationStatus,
+    customerImpactNote,
+    actionNote,
+    weekProjections: proj.weeks,
+    safetyStock: proj.safetyStock,
+    reorderPoint: proj.reorderPoint,
+    targetInventory: proj.targetInventory,
+    leadTimeWeeks: proj.leadTimeWeeks,
+  }
+}
+
+// ─── Meeting-Ready Text (for copy-to-clipboard) ────────────────────────────
+
+export function generateMeetingText(report: RiskReport): string {
+  const lines: string[] = []
+
+  lines.push(`WHI Pipeline Risk Report - ${report.reportWeekLabel}`)
+  lines.push(`${'='.repeat(50)}`)
+  lines.push('')
+
+  if (report.criticalCount > 0) {
+    lines.push(`CRITICAL (${report.criticalCount}):`)
+    for (const item of report.criticalItems) {
+      const model = item.partModel?.split('/')[1]?.trim() || item.skuCode
+      lines.push(`- ${item.skuCode} ${model}: ${item.stockoutDate ? `Stockout ${item.stockoutDate}` : 'Below safety stock'}. ${item.actionNote}`)
+    }
+    lines.push('')
+  }
+
+  if (report.warningCount > 0) {
+    lines.push(`WARNING (${report.warningCount}):`)
+    for (const item of report.warningItems) {
+      const model = item.partModel?.split('/')[1]?.trim() || item.skuCode
+      lines.push(`- ${item.skuCode} ${model}: Below ROP. ${item.weeksOfCover} wks cover on-hand. ${item.actionNote}`)
+    }
+    lines.push('')
+  }
+
+  if (report.criticalCount === 0 && report.warningCount === 0) {
+    lines.push('STATUS: All SKUs healthy - no risk items this week.')
+    lines.push('')
+  }
+
+  lines.push('Action Items:')
+  if (report.criticalItems.some(i => i.hasPendingOrder)) {
+    for (const item of report.criticalItems.filter(i => i.hasPendingOrder)) {
+      lines.push(`- Confirm ${item.supplierCode} shipment arrival ${item.orderArrivalDate}`)
+    }
+  }
+  if (report.unmitigatedRiskCount > 0) {
+    lines.push(`- Review ${report.unmitigatedRiskCount} unmitigated risk SKU(s)`)
+  }
+  for (const item of report.criticalItems) {
+    const model = item.partModel?.split('/')[1]?.trim() || item.skuCode
+    lines.push(`- Review ${item.skuCode} demand trend with Genie`)
+  }
+  if (report.criticalCount === 0 && report.warningCount === 0) {
+    lines.push('- None — all items on track')
+  }
+
+  lines.push('')
+  lines.push(`OK SKUs: ${report.okCount} | Total monitored: ${report.totalSkus}`)
+  const forecastCount = [...report.criticalItems, ...report.warningItems, ...report.okItems]
+    .filter(i => i.demandSource === 'forecast').length
+  if (forecastCount > 0) {
+    lines.push(`Demand source: ${forecastCount} SKUs using Genie forecast, ${report.totalSkus - forecastCount} using historical average`)
+  }
+
+  return lines.join('\n')
+}
+
+// ─── Email HTML Generator ──────────────────────────────────────────────────
+
+export function generateEmailSubject(report: RiskReport): string {
+  const parts = []
+  if (report.criticalCount > 0) parts.push(`${report.criticalCount} Critical`)
+  if (report.warningCount > 0) parts.push(`${report.warningCount} Warning`)
+  if (parts.length === 0) parts.push('All Clear')
+  return `[WHI Pipeline] ${report.reportWeekLabel} Risk Report — ${parts.join(', ')}`
+}
+
+export function generateEmailHtml(report: RiskReport): string {
+  const riskColor = report.criticalCount > 0 ? '#dc2626' : report.warningCount > 0 ? '#d97706' : '#059669'
+  const riskBg = report.criticalCount > 0 ? '#fef2f2' : report.warningCount > 0 ? '#fffbeb' : '#ecfdf5'
+  const riskText = report.criticalCount > 0
+    ? `${report.criticalCount} CRITICAL, ${report.warningCount} WARNING`
+    : report.warningCount > 0
+      ? `${report.warningCount} WARNING`
+      : 'All Clear'
+
+  const forecastCount = [...report.criticalItems, ...report.warningItems, ...report.okItems]
+    .filter(i => i.demandSource === 'forecast').length
+
+  let html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:700px;margin:0 auto;background:#fff;">
+  <!-- Header -->
+  <tr><td style="background:#1e293b;color:#fff;padding:24px 32px;">
+    <div style="font-size:20px;font-weight:700;">WHI Pipeline Dashboard</div>
+    <div style="font-size:14px;color:#94a3b8;margin-top:4px;">${report.reportWeekLabel} Risk Report</div>
+  </td></tr>
+
+  <!-- Risk Banner -->
+  <tr><td style="background:${riskBg};padding:20px 32px;border-bottom:3px solid ${riskColor};">
+    <div style="font-size:24px;font-weight:700;color:${riskColor};">${riskText}</div>
+    <div style="font-size:13px;color:#64748b;margin-top:4px;">${report.totalSkus} SKUs monitored`
+  if (forecastCount > 0) {
+    html += ` &bull; ${forecastCount} using Genie forecast`
+  }
+  html += `</div>
+  </td></tr>`
+
+  // AI Summary
+  if (report.aiSummary) {
+    html += `
+  <tr><td style="padding:20px 32px;border-bottom:1px solid #e2e8f0;">
+    <div style="font-size:14px;font-weight:600;color:#334155;margin-bottom:8px;">Executive Summary</div>
+    <div style="font-size:13px;color:#475569;line-height:1.6;">${report.aiSummary}</div>
+  </td></tr>`
+  }
+
+  // Critical Items
+  if (report.criticalItems.length > 0) {
+    html += `
+  <tr><td style="padding:20px 32px 8px;">
+    <div style="font-size:14px;font-weight:700;color:#dc2626;">Critical (${report.criticalCount})</div>
+  </td></tr>`
+    for (const item of report.criticalItems) {
+      const model = item.partModel?.split('/')[1]?.trim() || ''
+      html += `
+  <tr><td style="padding:4px 32px;">
+    <table width="100%" style="border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:4px;margin-bottom:8px;" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:12px 16px;">
+        <div style="font-size:13px;font-weight:700;color:#1e293b;">${item.skuCode} ${model} <span style="color:#64748b;font-weight:400;">${item.supplierCode || ''}</span></div>
+        <div style="font-size:12px;color:#dc2626;margin-top:4px;">${item.stockoutDate ? `Stockout ${item.stockoutDate}` : 'Below safety stock'}</div>
+        <div style="font-size:12px;color:#475569;margin-top:4px;">On-Hand: ${Math.round(item.currentInventory)} &bull; In-Transit: ${Math.round(item.totalInTransit)} &bull; ${item.weeksOfCover} wks cover</div>
+        <div style="font-size:12px;margin-top:4px;color:${item.hasPendingOrder ? '#059669' : '#dc2626'};font-weight:600;">${item.actionNote}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px;">${item.customerImpactNote}</div>
+      </td></tr>
+    </table>
+  </td></tr>`
+    }
+  }
+
+  // Warning Items
+  if (report.warningItems.length > 0) {
+    html += `
+  <tr><td style="padding:20px 32px 8px;">
+    <div style="font-size:14px;font-weight:700;color:#d97706;">Warning (${report.warningCount})</div>
+  </td></tr>`
+    for (const item of report.warningItems) {
+      const model = item.partModel?.split('/')[1]?.trim() || ''
+      html += `
+  <tr><td style="padding:4px 32px;">
+    <table width="100%" style="border:1px solid #fde68a;border-left:4px solid #d97706;border-radius:4px;margin-bottom:8px;" cellpadding="0" cellspacing="0">
+      <tr><td style="padding:12px 16px;">
+        <div style="font-size:13px;font-weight:700;color:#1e293b;">${item.skuCode} ${model} <span style="color:#64748b;font-weight:400;">${item.supplierCode || ''}</span></div>
+        <div style="font-size:12px;color:#475569;margin-top:4px;">On-Hand: ${Math.round(item.currentInventory)} &bull; In-Transit: ${Math.round(item.totalInTransit)} &bull; ${item.weeksOfCover} wks cover</div>
+        <div style="font-size:12px;margin-top:4px;color:${item.hasPendingOrder ? '#059669' : '#d97706'};font-weight:600;">${item.actionNote}</div>
+      </td></tr>
+    </table>
+  </td></tr>`
+    }
+  }
+
+  // AI Action Items
+  if (report.aiActionItems) {
+    html += `
+  <tr><td style="padding:20px 32px;border-top:1px solid #e2e8f0;">
+    <div style="font-size:14px;font-weight:600;color:#334155;margin-bottom:8px;">Action Items</div>
+    <div style="font-size:13px;color:#475569;line-height:1.6;">${report.aiActionItems}</div>
+  </td></tr>`
+  }
+
+  // OK summary
+  if (report.okCount > 0) {
+    html += `
+  <tr><td style="padding:20px 32px;border-top:1px solid #e2e8f0;">
+    <div style="font-size:14px;font-weight:600;color:#059669;margin-bottom:8px;">OK (${report.okCount} SKUs)</div>
+    <table width="100%" style="font-size:12px;border-collapse:collapse;">
+      <tr style="background:#f8fafc;">
+        <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e2e8f0;">SKU</th>
+        <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #e2e8f0;">Supplier</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #e2e8f0;">On-Hand</th>
+        <th style="padding:6px 8px;text-align:right;border-bottom:1px solid #e2e8f0;">Wks Cover</th>
+      </tr>`
+    for (const item of report.okItems.slice(0, 20)) {
+      html += `
+      <tr>
+        <td style="padding:4px 8px;border-bottom:1px solid #f1f5f9;font-family:monospace;">${item.skuCode}</td>
+        <td style="padding:4px 8px;border-bottom:1px solid #f1f5f9;">${item.supplierCode || '-'}</td>
+        <td style="padding:4px 8px;text-align:right;border-bottom:1px solid #f1f5f9;">${Math.round(item.currentInventory)}</td>
+        <td style="padding:4px 8px;text-align:right;border-bottom:1px solid #f1f5f9;">${item.weeksOfCover}</td>
+      </tr>`
+    }
+    html += `</table>
+  </td></tr>`
+  }
+
+  // Footer
+  html += `
+  <tr><td style="padding:20px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;">
+    <div style="font-size:11px;color:#94a3b8;">Generated by WHI Pipeline Dashboard &bull; ${new Date().toISOString().split('T')[0]}</div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:2px;">This is an automated report. Reply to discuss risk items.</div>
+  </td></tr>
+</table>
+</body></html>`
+
+  return html
+}
+
+
+===END:lib/risk-report-generator.ts===
+
+===FILE:app/api/reports/weekly-risk/route.ts===
+import { NextResponse } from 'next/server'
+import nodemailer from 'nodemailer'
+import { fetchAndComputeProjections } from '@/lib/replenishment-data'
+import {
+  buildRiskReport,
+  generateEmailHtml,
+  generateEmailSubject,
+} from '@/lib/risk-report-generator'
+
+/**
+ * Weekly Risk Report API
+ *
+ * Triggered by:
+ * - Vercel Cron (GET, Saturday 8am EST)
+ * - Manual POST request
+ *
+ * Flow:
+ * 1. Fetch + compute all projections (shared data layer)
+ * 2. Build risk report
+ * 3. Generate AI summary (optional, if ANTHROPIC_API_KEY set)
+ * 4. Generate email HTML
+ * 5. Send via Gmail SMTP (if SMTP_USER/SMTP_PASS set)
+ */
+
+// Verify cron secret for GET requests
+function verifyCronAuth(request: Request): boolean {
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret) return true // no secret = no protection (dev mode)
+  const authHeader = request.headers.get('authorization')
+  return authHeader === `Bearer ${cronSecret}`
+}
+
+// AI Summary Generation (non-streaming)
+async function generateAISummary(
+  reportData: { criticalItems: unknown[]; warningItems: unknown[]; reportWeekLabel: string }
+): Promise<{ summary: string; actionItems: string; meetingAgenda: string } | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) return null
+
+  try {
+    const riskDataStr = JSON.stringify({
+      reportWeek: reportData.reportWeekLabel,
+      criticalItems: reportData.criticalItems,
+      warningItems: reportData.warningItems,
+    }, null, 2)
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [
+          {
+            role: 'user',
+            content: `You are a senior supply chain risk analyst for WHI International. Analyze this weekly risk data and provide:
+
+1. EXECUTIVE SUMMARY (2-3 sentences): Key risks and overall supply health status.
+2. ACTION ITEMS (bullet list): Specific actions the team should take this week.
+3. MEETING AGENDA (3-5 items): Suggested topics for the weekly customer meeting with Genie.
+
+Risk Data:
+${riskDataStr}
+
+Respond in this exact JSON format:
+{"summary":"...","actionItems":"...","meetingAgenda":"..."}
+
+Keep it concise and actionable. Use HTML for formatting (bullet lists: <ul><li>).`,
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(30000), // 30s timeout
+    })
+
+    if (!response.ok) return null
+
+    const data = await response.json()
+    const rawText = data.content?.[0]?.text || ''
+
+    // Extract JSON
+    let jsonStr = rawText
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+    if (jsonMatch) jsonStr = jsonMatch[0]
+
+    const parsed = JSON.parse(jsonStr)
+    return {
+      summary: parsed.summary || null,
+      actionItems: parsed.actionItems || null,
+      meetingAgenda: parsed.meetingAgenda || null,
+    }
+  } catch (err) {
+    console.error('AI summary generation failed:', err)
+    return null
+  }
+}
+
+// Send email via Gmail SMTP
+async function sendEmail(
+  subject: string,
+  html: string,
+  recipients: string[]
+): Promise<boolean> {
+  const smtpUser = process.env.SMTP_USER
+  const smtpPass = process.env.SMTP_PASS
+
+  if (!smtpUser || !smtpPass) {
+    console.log('SMTP credentials not configured, skipping email send')
+    return false
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false, // TLS
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+    })
+
+    await transporter.sendMail({
+      from: `"WHI Pipeline" <${smtpUser}>`,
+      to: recipients.join(', '),
+      subject,
+      html,
+    })
+
+    return true
+  } catch (err) {
+    console.error('Email send failed:', err)
+    return false
+  }
+}
+
+async function handleReport(request: Request) {
+  try {
+    // 1. Fetch and compute projections
+    const { currentWeek, projections, suggestions, summary } = await fetchAndComputeProjections()
+
+    // 2. Build initial risk report (without AI)
+    let report = buildRiskReport(projections, suggestions, summary, currentWeek)
+
+    // 3. Generate AI summary (optional)
+    const aiResult = await generateAISummary(report)
+    if (aiResult) {
+      report = buildRiskReport(
+        projections, suggestions, summary, currentWeek,
+        aiResult.summary, aiResult.actionItems, aiResult.meetingAgenda
+      )
+    }
+
+    // 4. Generate email
+    const subject = generateEmailSubject(report)
+    const html = generateEmailHtml(report)
+
+    // 5. Send email
+    const recipients = (process.env.REPORT_RECIPIENTS || 'richard.fan@whcast.com')
+      .split(',')
+      .map(e => e.trim())
+      .filter(Boolean)
+
+    const emailSent = await sendEmail(subject, html, recipients)
+
+    return NextResponse.json({
+      success: true,
+      reportWeek: report.reportWeekLabel,
+      criticalCount: report.criticalCount,
+      warningCount: report.warningCount,
+      okCount: report.okCount,
+      totalSkus: report.totalSkus,
+      unmitigatedRiskCount: report.unmitigatedRiskCount,
+      aiSummaryGenerated: !!aiResult,
+      emailSent,
+      recipients: emailSent ? recipients : [],
+      generatedAt: report.generatedAt,
+    })
+  } catch (error) {
+    console.error('Weekly risk report error:', error)
+    return NextResponse.json(
+      { error: 'Failed to generate risk report', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    )
+  }
+}
+
+// GET: Vercel Cron trigger
+export async function GET(request: Request) {
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  return handleReport(request)
+}
+
+// POST: Manual trigger
+export async function POST(request: Request) {
+  return handleReport(request)
+}
+
+
+===END:app/api/reports/weekly-risk/route.ts===
+
+===FILE:app/api/replenishment/suggestions/route.ts===
+
+import { NextResponse } from 'next/server'
+
+// GET: Fetch replenishment suggestions
+// This is a convenience endpoint that returns only the suggestions portion
+// of the projection response. The full computation happens in /api/replenishment/projection.
+export async function GET(request: Request) {
+  try {
+    // Forward to projection endpoint and extract suggestions
+    const baseUrl = new URL(request.url).origin
+    const response = await fetch(`${baseUrl}/api/replenishment/projection`, {
+      headers: request.headers,
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      return NextResponse.json(errorData, { status: response.status })
+    }
+
+    const data = await response.json()
+
+    return NextResponse.json({
+      suggestions: data.suggestions,
+      summary: data.summary,
+      currentWeek: data.currentWeek,
+      dataAsOf: data.dataAsOf,
+    })
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Failed to fetch suggestions', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    )
+  }
+}
+
+===END:app/api/replenishment/suggestions/route.ts===
+
