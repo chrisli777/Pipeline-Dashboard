@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 // Target SKU IDs we track in our database
-const TARGET_SKUS = ['1272762', '1272913', '61415', '824433']
+const TARGET_SKUS = ['1272762', '1272913', '61415', '824433', '1282199']
 
 // Calculate week dates from week number
 // Week 1 Monday is Dec 29, 2025
@@ -48,8 +48,8 @@ export async function GET() {
 // Iterates all receivers, filters ReceiveItems by SKU, sums Qty
 export async function POST(request: Request) {
   try {
-    const { skuId, weekNumber } = await request.json()
-
+    const { skuId, weekNumber, token } = await request.json()
+  
     if (!skuId || !weekNumber) {
       return NextResponse.json(
         { error: 'Missing skuId or weekNumber' },
@@ -65,10 +65,11 @@ export async function POST(request: Request) {
       )
     }
 
-    const wmsToken = process.env.WMS_API_TOKEN
+    // Use provided token (for Kent warehouse SKUs) or fall back to env token (Moses Lake)
+    const wmsToken = token || process.env.WMS_API_TOKEN
     if (!wmsToken) {
       return NextResponse.json(
-        { error: 'WMS_API_TOKEN not configured' },
+        { error: 'WMS API token not provided' },
         { status: 500 }
       )
     }

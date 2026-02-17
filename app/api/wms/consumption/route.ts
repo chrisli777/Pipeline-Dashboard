@@ -50,15 +50,16 @@ export async function GET() {
 // POST: Fetch consumption data from WMS for a specific SKU and week
 export async function POST(request: NextRequest) {
   try {
-    const { skuId, weekNumber } = await request.json()
+    const { skuId, weekNumber, token } = await request.json()
 
     if (!skuId || weekNumber === undefined) {
       return NextResponse.json({ error: 'Missing skuId or weekNumber' }, { status: 400 })
     }
 
-    const wmsToken = process.env.WMS_API_TOKEN
+    // Use provided token (for Kent warehouse SKUs) or fall back to env token (Moses Lake)
+    const wmsToken = token || process.env.WMS_API_TOKEN
     if (!wmsToken) {
-      return NextResponse.json({ error: 'WMS_API_TOKEN not configured' }, { status: 500 })
+      return NextResponse.json({ error: 'WMS API token not provided' }, { status: 500 })
     }
 
     // Calculate date range for the week (Monday to Friday)
