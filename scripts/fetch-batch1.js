@@ -1,11 +1,17 @@
-const REPO = 'chrisli777/Pipeline-Dashboard'
-const BRANCH = 'main'
-
+const OWNER = 'chrisli777', REPO = 'Pipeline-Dashboard', BRANCH = 'main'
+const files = [
+  'scripts/014_sku_classification_and_master_data.sql',
+  'scripts/015_phase3b_safety_stock_and_projection.sql',
+]
 async function main() {
-  const url = `https://api.github.com/repos/${REPO}/contents/scripts?ref=${BRANCH}`
-  const res = await fetch(url, { headers: { Accept: 'application/vnd.github.v3+json' } })
-  if (!res.ok) { console.log('Failed:', res.status); return }
-  const files = await res.json()
-  files.forEach(f => console.log(f.name))
+  for (const f of files) {
+    const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${f}?ref=${BRANCH}`
+    const res = await fetch(url, { headers: { Accept: 'application/vnd.github.v3.raw' } })
+    if (!res.ok) { console.log(`=== SKIP ${f} (${res.status}) ===`); continue }
+    const text = await res.text()
+    console.log(`=== FILE: ${f} ===`)
+    console.log(text)
+    console.log(`=== END: ${f} ===`)
+  }
 }
 main()
