@@ -1,58 +1,18 @@
-// Fetch ONE file from GitHub main branch and output its content to stdout
-// Usage: set FILE_INDEX env var or defaults to 0
+const OWNER = 'chrisli777'
+const REPO = 'Pipeline-Dashboard'
+const BRANCH = 'main'
 
-const REPO = 'chrisli777/Pipeline-Dashboard';
-const BRANCH = 'main';
-
-const FILES = [
-  'lib/types.ts',
-  'components/sidebar.tsx',
-  'components/pipeline-dashboard.tsx',
-  'components/inventory-filters.tsx',
-  'components/inventory-table.tsx',
-  'components/inventory-alert-bar.tsx',
-  'components/sync-dialog.tsx',
-  'components/shipment-detail-panel.tsx',
-  'components/shipment-status-badge.tsx',
-  'components/tracking-status-update.tsx',
-  'app/page.tsx',
-  'app/shipments/page.tsx',
-  'app/api/shipments/route.ts',
-  'app/api/shipments/dashboard/route.ts',
-  'app/api/shipments/[id]/tracking/route.ts',
-  'app/api/shipments/[id]/containers/tracking/route.ts',
-  'app/api/shipments/[id]/containers/batch-update/route.ts',
-  'app/api/dispatcher/containers/route.ts',
-  'app/api/inventory/route.ts',
-  'app/api/inventory/in-transit/route.ts',
-  'app/api/wms/ata/route.ts',
-  'app/api/wms/consumption/route.ts',
-];
-
-// Batch: fetch all and print as ===FILE:path=== delimited
-async function main() {
-  for (const filePath of FILES) {
-    const url = `https://api.github.com/repos/${REPO}/contents/${filePath}?ref=${BRANCH}`;
-    try {
-      const res = await fetch(url, {
-        headers: { 'Accept': 'application/vnd.github.v3+json' }
-      });
-      if (!res.ok) {
-        console.log(`===SKIP:${filePath}===`);
-        continue;
-      }
-      const data = await res.json();
-      if (data.encoding === 'base64') {
-        const content = Buffer.from(data.content, 'base64').toString('utf-8');
-        console.log(`===FILE:${filePath}===`);
-        console.log(content);
-        console.log(`===END:${filePath}===`);
-      }
-    } catch (err) {
-      console.log(`===SKIP:${filePath}===`);
-    }
-    await new Promise(r => setTimeout(r, 80));
+async function listTree() {
+  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/git/trees/${BRANCH}?recursive=1`)
+  const data = await res.json()
+  const files = data.tree
+    .filter(f => f.type === 'blob')
+    .map(f => ({ path: f.path, sha: f.sha.substring(0, 8) }))
+    .sort((a, b) => a.path.localeCompare(b.path))
+  
+  for (const f of files) {
+    console.log(`${f.sha}  ${f.path}`)
   }
+  console.log(`\nTotal: ${files.length} files`)
 }
-
-main();
+listTree()
