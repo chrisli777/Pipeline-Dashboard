@@ -91,6 +91,31 @@ export async function POST(
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
 
+    // ★ Sync ATA inventory when batch-updating to DELIVERED
+    // Each container's SKU quantities get added to inventory_data.ata for the delivery week
+    const inventoryResults: Array<{ container: string; status: string }> = []
+    if (targetStatus === 'DELIVERED') {
+      const deliveryDate = updates.delivered_date || new Date().toISOString().split('T')[0]
+
+      for (const container of existingContainers.filter(c => validIds.includes(c.id))) {
+        const { error: invError } = await supabase.rpc(
+          'deliver_container_to_inventory',
+          {
+            p_shipment_id: shipmentId,
+            p_container_number: container.container_number,
+            p_delivered_date: deliveryDate,
+          }
+        )
+
+        if (invError) {
+          console.error(`deliver_container_to_inventory error for ${container.container_number}:`, invError.message)
+          inventoryResults.push({ container: container.container_number, status: `error: ${invError.message}` })
+        } else {
+          inventoryResults.push({ container: container.container_number, status: 'synced' })
+        }
+      }
+    }
+
     // Find containers that were not in the request
     const notFound = container_numbers.filter(
       (cn: string) => !existingContainers.find(c => c.container_number === cn)
@@ -101,6 +126,7 @@ export async function POST(
       updatedCount: updated?.length || 0,
       errors: errors.length > 0 ? errors : undefined,
       notFound: notFound.length > 0 ? notFound : undefined,
+      inventorySync: inventoryResults.length > 0 ? inventoryResults : undefined,
       message: `Updated ${updated?.length || 0} containers${errors.length > 0 ? `, ${errors.length} skipped` : ''}`,
     })
   } catch (error) {

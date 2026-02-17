@@ -48,24 +48,42 @@ export async function fetchAndComputeProjections(): Promise<ProjectionResult> {
   }
 
   // 2. Fetch current inventory for each SKU
-  //    Get the most recent week with actual_inventory data
+  //    Primary: query current week's actual_inventory (WMS syncs weekly)
+  //    Fallback: if current week missing, find most recent historical record
   const { data: inventoryRows, error: invError } = await supabase
     .from('inventory_data')
     .select('sku_id, actual_inventory, week_number')
-    .gte('week_number', currentWeek - 4)  // look back up to 4 weeks
-    .lte('week_number', currentWeek)
+    .eq('week_number', currentWeek)
     .not('actual_inventory', 'is', null)
-    .order('week_number', { ascending: false })
 
   if (invError) {
     throw new Error(`Failed to fetch inventory data: ${invError.message}`)
   }
 
-  // Build map: sku_id → latest actual_inventory
+  // Build map: sku_id → current week's actual_inventory
   const inventoryMap = new Map<string, number>()
   for (const row of inventoryRows || []) {
-    if (!inventoryMap.has(row.sku_id)) {
-      inventoryMap.set(row.sku_id, row.actual_inventory || 0)
+    inventoryMap.set(row.sku_id, row.actual_inventory || 0)
+  }
+
+  // Fallback: for SKUs without current week data, query most recent historical record
+  // (Transition period until WMS weekly sync is fully operational)
+  const classifiedSkuIds = (skus || []).map((s: SKUClassificationExtended) => s.id)
+  const missingSkuIds = classifiedSkuIds.filter((id: string) => !inventoryMap.has(id))
+
+  if (missingSkuIds.length > 0) {
+    const { data: fallbackRows } = await supabase
+      .from('inventory_data')
+      .select('sku_id, actual_inventory, week_number')
+      .in('sku_id', missingSkuIds)
+      .lt('week_number', currentWeek)
+      .not('actual_inventory', 'is', null)
+      .order('week_number', { ascending: false })
+
+    for (const row of fallbackRows || []) {
+      if (!inventoryMap.has(row.sku_id)) {
+        inventoryMap.set(row.sku_id, row.actual_inventory || 0)
+      }
     }
   }
 
