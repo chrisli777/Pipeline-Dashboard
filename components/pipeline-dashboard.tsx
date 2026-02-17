@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { Package, Download, RefreshCw, Loader2, Save, RefreshCcw, CloudDownload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { InventoryAlertBar } from '@/components/inventory-alert-bar'
@@ -229,19 +229,7 @@ export function PipelineDashboard() {
   // Load data on mount
   useEffect(() => {
     fetchData()
-  }, [fetchData, getTokenForSku])
-
-  // Handle token dialog confirmation
-  const handleTokenConfirm = useCallback(() => {
-    if (needsKentHx && !kentHxToken) return
-    if (needsKentAmc && !kentAmcToken) return
-    const config = pendingSyncConfigRef.current
-    if (config) {
-      pendingSyncConfigRef.current = null
-      executeSync(config)
-    }
-  }, [kentHxToken, kentAmcToken, needsKentHx, needsKentAmc, executeSync])
-
+  }, [fetchData])
 
     skus.forEach((sku) => {
       // Track if we've already found the first problem for each severity
