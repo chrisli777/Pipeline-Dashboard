@@ -58,7 +58,7 @@ export function computeSafetyStockUnits(
   leadTimeWeeks: number,
   serviceLevel: number,
   multiplier: number = 1.0,
-  targetWoh?: number
+  targetWoh?: number  // cap SS at target_woh weeks of demand
 ): number {
   if (avgWeeklyDemand <= 0 || leadTimeWeeks <= 0) return 0
   const z = getZScore(serviceLevel)
@@ -66,6 +66,7 @@ export function computeSafetyStockUnits(
   let ss = z * sigmaDemand * Math.sqrt(leadTimeWeeks) * multiplier
 
   // Cap safety stock: SS(weeks) must not exceed target_woh
+  // Customer (Genie) requires warehouse safety stock of 4-6 weeks only
   if (targetWoh && targetWoh > 0) {
     const maxSS = avgWeeklyDemand * targetWoh
     ss = Math.min(ss, maxSS)
@@ -98,7 +99,7 @@ export function computeReorderPoint(
   return avgWeeklyDemand * leadTimeWeeks + safetyStockUnits
 }
 
-/** Target inventory in UNITS = avg_weekly_demand x target_woh (warehouse only) */
+/** Target inventory in UNITS = avg_weekly_demand × target_woh (warehouse only) */
 export function computeTargetInventory(
   avgWeeklyDemand: number,
   targetWoh: number
@@ -153,9 +154,9 @@ export function computeProjection(
   sku: SKUClassificationExtended,
   currentInventory: number,
   currentWeek: number,
-  inTransitByWeek: Map<number, number>,
+  inTransitByWeek: Map<number, number>,  // weekNumber → qty arriving
   projectionHorizon: number = 20,
-  weeklyForecast?: Map<number, number>
+  weeklyForecast?: Map<number, number>   // weekNum → customer forecast qty
 ): SKUProjection {
   const historicalDemand = sku.avg_weekly_demand || 0
   const cv = sku.cv_demand || 0.5
@@ -223,8 +224,8 @@ export function computeProjection(
   // Urgency determination — uses review_frequency to set relevant horizon
   const reviewCycle = sku.review_frequency === 'monthly' ? 4
     : sku.review_frequency === 'biweekly' ? 2
-      : 1
-  const urgencyHorizon = currentWeek + reviewCycle + lt
+      : 1  // 'weekly' or default
+  const urgencyHorizon = currentWeek + reviewCycle + lt  // review window + lead time
 
   const urgency: SKUProjection['urgency'] =
     (stockoutWeek !== null && stockoutWeek <= currentWeek + lt) ? 'CRITICAL'
@@ -253,9 +254,11 @@ export function computeProjection(
     stockoutWeek,
     reorderTriggerWeek,
     urgency,
+    // Inventory position fields
     inventoryPosition: Math.round(invPos.inventoryPosition * 10) / 10,
     totalInTransit: Math.round(invPos.totalInTransit * 10) / 10,
     inTransitSchedule: invPos.schedule,
+    // Demand source tracking
     demandSource: hasForecast ? 'forecast' : 'historical',
     forecastDemand: hasForecast ? Math.round(effectiveDemand * 10) / 10 : null,
   }
@@ -271,7 +274,9 @@ export function generateSuggestions(
   const suggestions: ReplenishmentSuggestion[] = []
 
   for (const proj of projections) {
+    // Skip zero-demand SKUs
     if (proj.avgWeeklyDemand <= 0) continue
+    // Skip if no risk detected
     if (proj.urgency === 'OK') continue
 
     // Skip on_demand SKUs (CZ class) unless CRITICAL
@@ -284,14 +289,18 @@ export function generateSuggestions(
     }
 
     const arrivalWeek = currentWeek + proj.leadTimeWeeks
+    // Find projected inventory at arrival
     const arrivalWeekData = proj.weeks.find(w => w.weekNumber === arrivalWeek)
+    // If arrival is beyond projection window, use last projected value
     const projectedAtArrival = arrivalWeekData
       ? arrivalWeekData.projectedInventory
       : proj.weeks[proj.weeks.length - 1]?.projectedInventory ?? 0
 
+    // Order qty = target - projected_at_arrival
     let orderQty = proj.targetInventory - projectedAtArrival
-    if (orderQty <= 0) continue
+    if (orderQty <= 0) continue  // no order needed
 
+    // Round up to MOQ
     const moq = proj.moq || 1
     if (moq > 1) {
       orderQty = Math.ceil(orderQty / moq) * moq
@@ -301,15 +310,18 @@ export function generateSuggestions(
 
     const weeksOfCover = proj.avgWeeklyDemand > 0 ? orderQty / proj.avgWeeklyDemand : 0
 
+    // Enrichment from SKU master data
     const skuMaster = skuMap?.get(proj.skuCode)
     const qtyPerContainer = skuMaster?.qty_per_container ?? null
     const unitWeight = skuMaster?.unit_weight ?? null
     const annualValue = skuMaster?.annual_consumption_value ?? null
 
+    // Days of supply = current inventory / daily demand
     const daysOfSupply = proj.avgWeeklyDemand > 0
       ? Math.round(proj.currentInventory / (proj.avgWeeklyDemand / 7))
       : 999
 
+    // Weeks until stockout
     const weeksUntilStockout = proj.stockoutWeek !== null
       ? proj.stockoutWeek - currentWeek
       : null
@@ -335,6 +347,7 @@ export function generateSuggestions(
       leadTimeWeeks: proj.leadTimeWeeks,
       weeksOfCover: Math.round(weeksOfCover * 10) / 10,
       estimatedCost: proj.unitCost ? Math.round(orderQty * proj.unitCost) : null,
+      // Enriched fields
       inventoryPosition: proj.inventoryPosition,
       totalInTransit: proj.totalInTransit,
       inTransitSchedule: proj.inTransitSchedule,
@@ -352,6 +365,7 @@ export function generateSuggestions(
     })
   }
 
+  // Sort: CRITICAL first, then WARNING, then by estimated cost desc
   return suggestions.sort((a, b) => {
     const urgencyOrder = { CRITICAL: 0, WARNING: 1, OK: 2 }
     const diff = urgencyOrder[a.urgency] - urgencyOrder[b.urgency]
@@ -368,9 +382,9 @@ export function shouldReviewThisWeek(
   frequency: 'weekly' | 'biweekly' | 'monthly' | string
 ): boolean {
   if (frequency === 'weekly') return true
-  if (frequency === 'biweekly') return currentWeek % 2 === 0
-  if (frequency === 'monthly') return currentWeek % 4 === 0
-  return true
+  if (frequency === 'biweekly') return currentWeek % 2 === 0  // even weeks
+  if (frequency === 'monthly') return currentWeek % 4 === 0   // every 4th week
+  return true // unknown frequency = always review
 }
 
 // ─── Supplier Consolidation ─────────────────────────────────────────────────
@@ -378,6 +392,7 @@ export function shouldReviewThisWeek(
 export function consolidateBySupplier(
   suggestions: ReplenishmentSuggestion[]
 ): ConsolidatedPO[] {
+  // Group by supplier
   const groups = new Map<string, ReplenishmentSuggestion[]>()
   for (const sug of suggestions) {
     const sup = sug.supplierCode || 'Unknown'
@@ -402,7 +417,7 @@ export function consolidateBySupplier(
       if (sug.totalWeight !== null && totalWeight !== null) {
         totalWeight += sug.totalWeight
       } else if (sug.totalWeight === null) {
-        totalWeight = null
+        totalWeight = null  // can't compute total if any item missing weight
       }
       if (sug.urgency === 'CRITICAL') criticalCount++
       if (sug.expectedArrivalWeek > maxArrivalWeek) maxArrivalWeek = sug.expectedArrivalWeek
@@ -442,6 +457,7 @@ export function consolidateBySupplier(
     })
   }
 
+  // Sort by total cost descending
   return pos.sort((a, b) => b.totalCost - a.totalCost)
 }
 
@@ -479,6 +495,7 @@ export function computeProjectionSummary(
     }
   }
 
+  // Consolidated POs
   const consolidatedPOs = consolidateBySupplier(suggestions)
 
   return {

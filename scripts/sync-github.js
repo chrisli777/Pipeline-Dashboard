@@ -1,21 +1,36 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'fs'
-import { dirname, resolve } from 'path'
+// Fetch key files from GitHub to check for updates
+const OWNER = 'chrisli777'
+const REPO = 'Pipeline-Dashboard'
+const BRANCH = 'main'
 
-const PROJECT_ROOT = '/vercel/share/v0-project'
-const RAW_FILE = resolve(PROJECT_ROOT, 'scripts/_raw_github_batch1.txt')
+const filesToCheck = [
+  'lib/types.ts',
+  'app/api/replenishment/projection/route.ts',
+  'app/api/replenishment/classification/route.ts',
+  'app/api/replenishment/classification/policies/route.ts',
+  'app/api/sync/customer-forecast/route.ts',
+  'package.json',
+]
 
-const raw = readFileSync(RAW_FILE, 'utf-8')
-const regex = /===FILE:(.+?)===\n([\s\S]*?)\n===END:\1===/g
-
-let match
-let count = 0
-while ((match = regex.exec(raw)) !== null) {
-  const filePath = match[1]
-  const content = match[2]
-  const fullPath = resolve(PROJECT_ROOT, filePath)
-  mkdirSync(dirname(fullPath), { recursive: true })
-  writeFileSync(fullPath, content, 'utf-8')
-  console.log(`Wrote: ${filePath} (${content.length} bytes)`)
-  count++
+async function fetchFile(path) {
+  const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${path}?ref=${BRANCH}`
+  const res = await fetch(url, { headers: { 'Accept': 'application/vnd.github.v3.raw' } })
+  if (!res.ok) return null
+  return await res.text()
 }
-console.log(`\nDone: ${count} files written`)
+
+async function main() {
+  for (const path of filesToCheck) {
+    const content = await fetchFile(path)
+    if (content === null) {
+      console.log(`SKIP: ${path} (not found)`)
+      continue
+    }
+    console.log(`===FILE:${path}===`)
+    console.log(content)
+    console.log(`===END:${path}===`)
+    console.log()
+  }
+}
+
+main().catch(console.error)

@@ -16,7 +16,7 @@ import type {
 } from './types'
 import { getWeekStartDate } from './replenishment-engine'
 
-// Risk Report Builder
+// ─── Risk Report Builder ────────────────────────────────────────────────────
 
 export function buildRiskReport(
   projections: SKUProjection[],
@@ -27,7 +27,7 @@ export function buildRiskReport(
   aiActionItems?: string | null,
   aiMeetingAgenda?: string | null,
 ): RiskReport {
-  // Build suggestion lookup: skuCode -> suggestion
+  // Build suggestion lookup: skuCode → suggestion
   const suggestionMap = new Map<string, ReplenishmentSuggestion>()
   for (const sug of suggestions) {
     suggestionMap.set(sug.skuCode, sug)
@@ -90,7 +90,7 @@ export function buildRiskReport(
   }
 }
 
-// Single SKU Risk Assessment
+// ─── Single SKU Risk Assessment ─────────────────────────────────────────────
 
 function buildRiskItem(
   proj: SKUProjection,
@@ -214,7 +214,7 @@ function buildRiskItem(
   }
 }
 
-// Meeting-Ready Text (for copy-to-clipboard)
+// ─── Meeting-Ready Text (for copy-to-clipboard) ────────────────────────────
 
 export function generateMeetingText(report: RiskReport): string {
   const lines: string[] = []
@@ -273,7 +273,7 @@ export function generateMeetingText(report: RiskReport): string {
   return lines.join('\n')
 }
 
-// Email HTML Generator
+// ─── Email HTML Generator ──────────────────────────────────────────────────
 
 export function generateEmailSubject(report: RiskReport): string {
   const parts = []
