@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { BarChart3, Package, TrendingUp, Loader2, RefreshCw, AlertTriangle, ShoppingCart, Shield } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ClassificationMatrix } from '@/components/classification-matrix'
 import { ClassificationTable } from '@/components/classification-table'
