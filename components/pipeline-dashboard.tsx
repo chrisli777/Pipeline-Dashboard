@@ -507,6 +507,17 @@ export function PipelineDashboard() {
     }
   }, [fetchData])
 
+  // Export CSV
+  const handleExport = () => {
+    const headers = [
+      'Part/Model',
+      'Row Type',
+      ...Array.from(
+        { length: weekRange.end - weekRange.start + 1 },
+        (_, i) => `W${weekRange.start + i}`
+      ),
+    ]
+    const rows: string[][] = []
 
     filteredSkus.forEach((sku) => {
       const weekData = sku.weeks.filter(
