@@ -199,8 +199,6 @@ export function PipelineDashboard() {
         }
       }
 
-      console.log("[v0] inventoryData sample:", data.inventoryData?.[0])
-      console.log("[v0] inventoryData length:", data.inventoryData?.length)
       const transformedData = transformDatabaseData(data.inventoryData || [])
 
       // Merge in-transit invoice info into transformed data

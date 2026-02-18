@@ -39,14 +39,8 @@ export function InventoryFilters({
 }: InventoryFiltersProps) {
   const weekOptions = Array.from({ length: totalWeeks }, (_, i) => i + 1)
 
-  // Derive unique customers from SKU data
-  const customers = useMemo(() => {
-    const set = new Set<string>()
-    skus.forEach((sku) => {
-      if (sku.customerCode) set.add(sku.customerCode)
-    })
-    return Array.from(set).sort()
-  }, [skus])
+  // All known customers (includes Clark even without SKUs yet)
+  const ALL_CUSTOMERS = ['CLARK', 'GENIE']
 
   // Derive vendors filtered by selected customer
   const vendors = useMemo(() => {
@@ -106,7 +100,7 @@ export function InventoryFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Customers</SelectItem>
-            {customers.map((code) => (
+            {ALL_CUSTOMERS.map((code) => (
               <SelectItem key={code} value={code}>
                 {code}
               </SelectItem>
