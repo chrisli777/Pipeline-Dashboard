@@ -106,10 +106,6 @@ function getCellBackground(rowType: RowType, value: number | null): string {
     return ''
   }
 
-  if (rowType === 'inTransit' && value > 0) {
-    return 'bg-blue-50 text-blue-700'
-  }
-
   return ''
 }
 
@@ -117,8 +113,8 @@ const ROW_TYPE_ORDER: RowType[] = [
   'customerForecast',
   'actualConsumption',
   'etd',
+  'eta',
   'ata',
-  'inTransit',
   'defect',
   'actualInventory',
 ]
@@ -228,16 +224,11 @@ function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) 
           </td>
           {skuWeeks.map((week) => {
             const value = week[rowType]
-            // In Transit and calculated Actual Inventory are read-only
+            // Calculated Actual Inventory is read-only (except week 1)
             const isReadOnly =
-              rowType === 'inTransit' ||
               (rowType === 'actualInventory' && week.weekNumber !== 1)
-            const tooltipText =
-              rowType === 'inTransit' && week.inTransitInvoices && week.inTransitInvoices.length > 0
-                ? `Invoices: ${week.inTransitInvoices.join(', ')}`
-                : undefined
             return (
-              <td key={week.weekNumber} className="p-0" title={tooltipText}>
+              <td key={week.weekNumber} className="p-0">
                 <EditableCell
                   value={value}
                   onChange={(v) => onDataChange(sku.id, week.weekNumber, rowType, v)}

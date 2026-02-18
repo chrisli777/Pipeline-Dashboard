@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
-import { Package, Download, RefreshCw, Loader2, Save, RefreshCcw, CloudDownload } from 'lucide-react'
+import { Package, Download, Loader2, Save, RefreshCcw, CloudDownload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { InventoryAlertBar } from '@/components/inventory-alert-bar'
 import { InventoryFilters } from '@/components/inventory-filters'
@@ -80,8 +80,8 @@ function transformDatabaseData(inventoryData: any[]): SKUData[] {
       customerForecast: row.customer_forecast !== null ? Number(row.customer_forecast) : null,
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
-      eta: row.ata !== null ? Number(row.ata) : null,
-      inTransit: row.in_transit !== null && row.in_transit !== undefined ? Number(row.in_transit) : null,
+      eta: row.eta !== null ? Number(row.eta) : 0,
+      ata: row.ata !== null ? Number(row.ata) : 0,
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
       weeksOnHand: 0, // Will be calculated after sorting
@@ -116,7 +116,7 @@ function transformDatabaseData(inventoryData: any[]): SKUData[] {
         // Only calculate if actualInventory was not manually set in database
         // We check if the database had a null value by looking at the original data
         const consumption = currentWeek.actualConsumption ?? currentWeek.customerForecast ?? 0
-        const ata = currentWeek.eta ?? 0
+        const ata = currentWeek.ata ?? 0
         const prevInventory = prevWeek.actualInventory ?? 0
         // Always recalculate based on formula - this is the intended behavior
         // The formula chains from Week 1's manually set value
@@ -158,11 +158,8 @@ export function PipelineDashboard() {
       setError(null)
     }
     try {
-      // Fetch inventory data and in-transit data in parallel
-      const [inventoryRes, inTransitRes] = await Promise.all([
-        fetch('/api/inventory'),
-        fetch('/api/inventory/in-transit'),
-      ])
+      // Fetch inventory data
+      const inventoryRes = await fetch('/api/inventory')
 
       // Auto-retry on server errors (429, 500, 502, 503, 504)
       if (inventoryRes.status >= 429 && retryCount < 5) {
@@ -180,41 +177,7 @@ export function PipelineDashboard() {
         throw new Error(data.error)
       }
 
-      // Parse in-transit invoice data for tooltips
-      let inTransitInvoiceMap: Map<string, Map<number, string[]>> | undefined
-      if (inTransitRes.ok) {
-        const inTransitData = await inTransitRes.json()
-        if (inTransitData.inTransitData) {
-          // Build map: sku_id -> week -> invoice_numbers[]
-          inTransitInvoiceMap = new Map()
-          for (const row of inTransitData.inTransitData) {
-            if (!row.sku_id) continue
-            if (!inTransitInvoiceMap.has(row.sku_id)) {
-              inTransitInvoiceMap.set(row.sku_id, new Map())
-            }
-            const weekMap = inTransitInvoiceMap.get(row.sku_id)!
-            const existing = weekMap.get(row.expected_week) || []
-            weekMap.set(row.expected_week, [...existing, ...(row.invoice_numbers || [])])
-          }
-        }
-      }
-
       const transformedData = transformDatabaseData(data.inventoryData || [])
-
-      // Merge in-transit invoice info into transformed data
-      if (inTransitInvoiceMap) {
-        for (const sku of transformedData) {
-          const weekMap = inTransitInvoiceMap.get(sku.id)
-          if (!weekMap) continue
-          for (const week of sku.weeks) {
-            const invoices = weekMap.get(week.weekNumber)
-            if (invoices && invoices.length > 0) {
-              week.inTransitInvoices = [...new Set(invoices)] // deduplicate
-            }
-          }
-        }
-      }
-
       setSkus(transformedData)
       setLoading(false)
     } catch (err) {
@@ -323,11 +286,11 @@ export function PipelineDashboard() {
               const prevWeek = updatedWeeks[i - 1]
               const currentWeek = updatedWeeks[i]
               const consumption = currentWeek.actualConsumption ?? currentWeek.customerForecast ?? 0
-              const ata = currentWeek.eta ?? 0
+              const ata = currentWeek.ata ?? 0
               const prevInventory = prevWeek.actualInventory ?? 0
               currentWeek.actualInventory = prevInventory - consumption + ata
             }
-          } else if (field === 'actualConsumption' || field === 'eta' || field === 'customerForecast') {
+          } else if (field === 'actualConsumption' || field === 'ata' || field === 'customerForecast') {
             // Recalculate actualInventory from the changed week onwards
             const changedIndex = updatedWeeks.findIndex(w => w.weekNumber === weekNumber)
             if (changedIndex >= 0) {
@@ -335,7 +298,7 @@ export function PipelineDashboard() {
                 const prevWeek = updatedWeeks[i - 1]
                 const currentWeek = updatedWeeks[i]
                 const consumption = currentWeek.actualConsumption ?? currentWeek.customerForecast ?? 0
-                const ata = currentWeek.eta ?? 0
+                const ata = currentWeek.ata ?? 0
                 const prevInventory = prevWeek.actualInventory ?? 0
                 currentWeek.actualInventory = prevInventory - consumption + ata
               }
@@ -511,7 +474,7 @@ export function PipelineDashboard() {
         (w) => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
       )
       
-      const rowTypes = ['customerForecast', 'actualConsumption', 'etd', 'eta', 'inTransit', 'defect', 'actualInventory', 'weeksOnHand'] as const
+      const rowTypes = ['customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'] as const
       
       rowTypes.forEach((rowType) => {
         const row = [

@@ -5,9 +5,8 @@ export interface WeekData {
   customerForecast: number | null
   actualConsumption: number | null
   etd: number | null // ETD (departure from origin)
-  eta: number | null // ETA (arrival to warehouse)
-  inTransit: number | null // In-transit quantity (on water)
-  inTransitInvoices?: string[] // tooltip: which invoices
+  eta: number | null // ETA (estimated arrival)
+  ata: number | null // ATA (actual arrival to warehouse)
   defect: number | null
   actualInventory: number | null
   weeksOnHand: number | null
@@ -36,8 +35,8 @@ export type RowType =
   | 'customerForecast'
   | 'actualConsumption'
   | 'etd'
+  | 'eta'
   | 'ata'
-  | 'inTransit'
   | 'defect'
   | 'actualInventory'
   | 'weeksOnHand'
@@ -46,8 +45,8 @@ export const ROW_LABELS: Record<RowType, string> = {
   customerForecast: 'Customer Forecast',
   actualConsumption: 'Actual Consumption',
   etd: 'ETD (departure from origin)',
+  eta: 'ETA (estimated arrival)',
   ata: 'ATA (arrival to warehouse)',
-  inTransit: 'In Transit (on water)',
   defect: 'Defect',
   actualInventory: 'Actual inventory on hand',
   weeksOnHand: 'Weeks on hand (actual / runout)',
