@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { Filter, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,9 +14,10 @@ import type { SKUData } from '@/lib/types'
 
 interface InventoryFiltersProps {
   skus: SKUData[]
-  customers: string[]
   selectedCustomer: string
   onCustomerChange: (value: string) => void
+  selectedVendor: string
+  onVendorChange: (value: string) => void
   selectedSku: string
   onSkuChange: (value: string) => void
   weekRange: { start: number; end: number }
@@ -25,9 +27,10 @@ interface InventoryFiltersProps {
 
 export function InventoryFilters({
   skus,
-  customers,
   selectedCustomer,
   onCustomerChange,
+  selectedVendor,
+  onVendorChange,
   selectedSku,
   onSkuChange,
   weekRange,
@@ -36,8 +39,53 @@ export function InventoryFilters({
 }: InventoryFiltersProps) {
   const weekOptions = Array.from({ length: totalWeeks }, (_, i) => i + 1)
 
+  // Derive unique customers from SKU data
+  const customers = useMemo(() => {
+    const set = new Set<string>()
+    skus.forEach((sku) => {
+      if (sku.customerCode) set.add(sku.customerCode)
+    })
+    return Array.from(set).sort()
+  }, [skus])
+
+  // Derive vendors filtered by selected customer
+  const vendors = useMemo(() => {
+    const set = new Set<string>()
+    skus.forEach((sku) => {
+      if (sku.supplierCode) {
+        if (selectedCustomer === 'all' || sku.customerCode === selectedCustomer) {
+          set.add(sku.supplierCode)
+        }
+      }
+    })
+    return Array.from(set).sort()
+  }, [skus, selectedCustomer])
+
+  // Derive SKUs filtered by selected customer and vendor
+  const filteredSkuOptions = useMemo(() => {
+    return skus.filter((sku) => {
+      if (selectedCustomer !== 'all' && sku.customerCode !== selectedCustomer) return false
+      if (selectedVendor !== 'all' && sku.supplierCode !== selectedVendor) return false
+      return true
+    })
+  }, [skus, selectedCustomer, selectedVendor])
+
+  // When customer changes, reset vendor and SKU
+  const handleCustomerChange = (value: string) => {
+    onCustomerChange(value)
+    onVendorChange('all')
+    onSkuChange('all')
+  }
+
+  // When vendor changes, reset SKU
+  const handleVendorChange = (value: string) => {
+    onVendorChange(value)
+    onSkuChange('all')
+  }
+
   const handleReset = () => {
     onCustomerChange('all')
+    onVendorChange('all')
     onSkuChange('all')
     onWeekRangeChange({ start: 1, end: totalWeeks })
   }
@@ -49,10 +97,11 @@ export function InventoryFilters({
         <span className="text-sm font-medium text-foreground">Filters:</span>
       </div>
 
+      {/* Tier 1: Customer */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">Customer:</label>
-        <Select value={selectedCustomer} onValueChange={onCustomerChange}>
-          <SelectTrigger className="w-[160px]">
+        <Select value={selectedCustomer} onValueChange={handleCustomerChange}>
+          <SelectTrigger className="w-[150px]">
             <SelectValue placeholder="Select Customer" />
           </SelectTrigger>
           <SelectContent>
@@ -66,6 +115,25 @@ export function InventoryFilters({
         </Select>
       </div>
 
+      {/* Tier 2: Vendor (Supplier) */}
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-muted-foreground">Vendor:</label>
+        <Select value={selectedVendor} onValueChange={handleVendorChange}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue placeholder="Select Vendor" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Vendors</SelectItem>
+            {vendors.map((code) => (
+              <SelectItem key={code} value={code}>
+                {code}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Tier 3: SKU */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">SKU:</label>
         <Select value={selectedSku} onValueChange={onSkuChange}>
@@ -74,7 +142,7 @@ export function InventoryFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All SKUs</SelectItem>
-            {skus.map((sku) => (
+            {filteredSkuOptions.map((sku) => (
               <SelectItem key={sku.id} value={sku.id}>
                 {sku.partModelNumber}
               </SelectItem>
@@ -83,6 +151,7 @@ export function InventoryFilters({
         </Select>
       </div>
 
+      {/* Week Range */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">Week Range:</label>
         <Select

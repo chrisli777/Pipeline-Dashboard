@@ -18,6 +18,7 @@ export interface SKUData {
   partModelNumber: string // e.g., "1272762 / T80 (Control Side)"
   description: string // e.g., "(15.26 sq ft / 970 lbs)"
   category: string // e.g., "COUNTERWEIGHT"
+  customerCode: string | null // e.g., "GENIE" or "CLARK"
   supplierCode: string | null // e.g., "HX" or "AMC"
   weeks: WeekData[]
 }

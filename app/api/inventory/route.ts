@@ -4,10 +4,10 @@ import { NextResponse } from 'next/server'
 export async function GET() {
   const supabase = await createClient()
 
-  // Fetch SKUs
+  // Fetch SKUs with customer_code from suppliers
   const { data: skus, error: skusError } = await supabase
     .from('skus')
-    .select('*')
+    .select('*, suppliers!inner(customer_code)')
     .order('part_model')
 
   if (skusError) {
