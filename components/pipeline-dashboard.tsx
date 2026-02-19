@@ -91,8 +91,8 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       customerForecast: row.customer_forecast !== null ? Number(row.customer_forecast) : null,
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
-      eta: row.eta !== null ? Number(row.eta) : 0,
-      ata: row.ata !== null ? Number(row.ata) : 0,
+      eta: row.eta != null ? Number(row.eta) : 0,
+      ata: row.ata != null ? Number(row.ata) : 0,
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
       weeksOnHand: 0, // Will be calculated after sorting
