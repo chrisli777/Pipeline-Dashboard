@@ -42,18 +42,31 @@ export function InventoryFilters({
   // All known customers (includes Clark even without SKUs yet)
   const ALL_CUSTOMERS = ['CLARK', 'GENIE']
 
-  // Derive vendors filtered by selected customer
-  const vendors = useMemo(() => {
-    const set = new Set<string>()
+  // Build vendor -> customer mapping from SKU data
+  const vendorToCustomer = useMemo(() => {
+    const map = new Map<string, string>()
     skus.forEach((sku) => {
-      if (sku.supplierCode) {
-        if (selectedCustomer === 'all' || sku.customerCode === selectedCustomer) {
-          set.add(sku.supplierCode)
-        }
+      if (sku.supplierCode && sku.customerCode) {
+        map.set(sku.supplierCode, sku.customerCode)
       }
     })
+    return map
+  }, [skus])
+
+  // Derive all known vendors (unfiltered by customer, so vendor dropdown always shows all)
+  const allVendors = useMemo(() => {
+    const set = new Set<string>()
+    skus.forEach((sku) => {
+      if (sku.supplierCode) set.add(sku.supplierCode)
+    })
     return Array.from(set).sort()
-  }, [skus, selectedCustomer])
+  }, [skus])
+
+  // Derive vendors filtered by selected customer (for display when a customer is selected)
+  const vendors = useMemo(() => {
+    if (selectedCustomer === 'all') return allVendors
+    return allVendors.filter((v) => vendorToCustomer.get(v) === selectedCustomer)
+  }, [allVendors, selectedCustomer, vendorToCustomer])
 
   // Derive SKUs filtered by selected customer and vendor
   const filteredSkuOptions = useMemo(() => {
@@ -71,10 +84,32 @@ export function InventoryFilters({
     onSkuChange('all')
   }
 
-  // When vendor changes, reset SKU
+  // When vendor changes, auto-sync customer upward and reset SKU
   const handleVendorChange = (value: string) => {
+    if (value !== 'all') {
+      const parentCustomer = vendorToCustomer.get(value)
+      if (parentCustomer && selectedCustomer !== parentCustomer) {
+        onCustomerChange(parentCustomer)
+      }
+    }
     onVendorChange(value)
     onSkuChange('all')
+  }
+
+  // When SKU changes, auto-sync vendor and customer upward
+  const handleSkuChange = (value: string) => {
+    if (value !== 'all') {
+      const sku = skus.find((s) => s.id === value)
+      if (sku) {
+        if (sku.supplierCode && selectedVendor !== sku.supplierCode) {
+          onVendorChange(sku.supplierCode)
+        }
+        if (sku.customerCode && selectedCustomer !== sku.customerCode) {
+          onCustomerChange(sku.customerCode)
+        }
+      }
+    }
+    onSkuChange(value)
   }
 
   const handleReset = () => {
@@ -130,7 +165,7 @@ export function InventoryFilters({
       {/* Tier 3: SKU */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">SKU:</label>
-        <Select value={selectedSku} onValueChange={onSkuChange}>
+        <Select value={selectedSku} onValueChange={handleSkuChange}>
           <SelectTrigger className="w-[280px]">
             <SelectValue placeholder="Select SKU" />
           </SelectTrigger>
