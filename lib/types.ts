@@ -19,6 +19,11 @@ export interface SKUData {
   category: string // e.g., "COUNTERWEIGHT"
   customerCode: string | null // e.g., "GENIE" or "CLARK"
   supplierCode: string | null // e.g., "HX" or "AMC"
+  unitWeight: number | null // lbs
+  unitCost: number | null // USD
+  leadTimeWeeks: number | null
+  moq: number | null // minimum order quantity
+  qtyPerContainer: number | null
   weeks: WeekData[]
 }
 

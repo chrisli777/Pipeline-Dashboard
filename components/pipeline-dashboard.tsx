@@ -48,11 +48,16 @@ function calculateWeeksOnHand(weeks: WeekData[], currentWeekIndex: number): numb
   return parseFloat((currentInventory / avgConsumption).toFixed(2))
 }
 
-function transformDatabaseData(inventoryData: any[]): SKUData[] {
+function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUData[] {
+  // Build a lookup map for SKU metadata (unit_weight, unit_cost, lead_time, moq, qty_per_container)
+  const skuMetaMap = new Map<string, any>()
+  skusMeta.forEach((s) => skuMetaMap.set(s.id, s))
+
   const skuMap = new Map<string, SKUData & { allWeeks: WeekData[] }>()
 
   inventoryData.forEach((row) => {
     if (!skuMap.has(row.sku_id)) {
+      const meta = skuMetaMap.get(row.sku_id)
       skuMap.set(row.sku_id, {
         id: row.sku_id,
         partModelNumber: row.part_model,
@@ -60,6 +65,11 @@ function transformDatabaseData(inventoryData: any[]): SKUData[] {
         category: row.category || 'COUNTERWEIGHT',
         customerCode: row.customer_code || null,
         supplierCode: row.supplier_code || null,
+        unitWeight: meta?.unit_weight ? parseFloat(meta.unit_weight) : null,
+        unitCost: meta?.unit_cost ? parseFloat(meta.unit_cost) : null,
+        leadTimeWeeks: meta?.lead_time_weeks ?? null,
+        moq: meta?.moq ?? null,
+        qtyPerContainer: meta?.qty_per_container ?? null,
         weeks: [],
         allWeeks: [], // Include historical weeks for calculation
       })
@@ -177,7 +187,7 @@ export function PipelineDashboard() {
         throw new Error(data.error)
       }
 
-      const transformedData = transformDatabaseData(data.inventoryData || [])
+      const transformedData = transformDatabaseData(data.inventoryData || [], data.skus || [])
       setSkus(transformedData)
       setLoading(false)
     } catch (err) {

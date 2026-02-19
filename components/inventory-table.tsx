@@ -200,8 +200,16 @@ function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) 
           rowSpan={totalRows}
         >
           <div className="text-sm font-bold">{sku.partModelNumber}</div>
-          <div className="text-xs text-muted-foreground">{sku.description}</div>
+          {sku.description && (
+            <div className="text-xs text-muted-foreground">({sku.description})</div>
+          )}
           <div className="text-xs font-bold">{sku.category}</div>
+          <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
+            {sku.supplierCode && <span>Vendor: {sku.supplierCode}</span>}
+            {sku.leadTimeWeeks != null && <span>LT: {sku.leadTimeWeeks}w</span>}
+            {sku.moq != null && <span>MOQ: {sku.moq}</span>}
+            {sku.unitWeight != null && sku.unitWeight > 0 && <span>{sku.unitWeight.toLocaleString()} lbs</span>}
+          </div>
         </td>
         <td className="sticky left-[180px] z-10 bg-[#f8fafc] px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
           {ROW_LABELS.customerForecast}
