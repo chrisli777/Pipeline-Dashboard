@@ -206,6 +206,7 @@ function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) 
           <div className="text-xs font-bold">{sku.category}</div>
           <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
             {sku.supplierCode && <span>Vendor: {sku.supplierCode}</span>}
+            {sku.warehouse && <span>WH: {sku.warehouse}</span>}
             {sku.leadTimeWeeks != null && <span>LT: {sku.leadTimeWeeks}w</span>}
             {sku.moq != null && <span>MOQ: {sku.moq}</span>}
             {sku.unitWeight != null && sku.unitWeight > 0 && <span>{sku.unitWeight.toLocaleString()} lbs</span>}

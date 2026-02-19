@@ -19,6 +19,7 @@ export interface SKUData {
   category: string // e.g., "COUNTERWEIGHT"
   customerCode: string | null // e.g., "GENIE" or "CLARK"
   supplierCode: string | null // e.g., "HX" or "AMC"
+  warehouse: string | null // e.g., "Moses Lake" or "Kent"
   unitWeight: number | null // lbs
   unitCost: number | null // USD
   leadTimeWeeks: number | null

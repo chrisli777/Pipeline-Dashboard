@@ -65,6 +65,7 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
         category: row.category || 'COUNTERWEIGHT',
         customerCode: row.customer_code || null,
         supplierCode: row.supplier_code || null,
+        warehouse: row.warehouse || null,
         unitWeight: meta?.unit_weight ? parseFloat(meta.unit_weight) : null,
         unitCost: meta?.unit_cost ? parseFloat(meta.unit_cost) : null,
         leadTimeWeeks: meta?.lead_time_weeks ?? null,
@@ -156,6 +157,7 @@ export function PipelineDashboard() {
   const [error, setError] = useState<string | null>(null)
   const [selectedCustomer, setSelectedCustomer] = useState<string>('all')
   const [selectedVendor, setSelectedVendor] = useState<string>('all')
+  const [selectedWarehouse, setSelectedWarehouse] = useState<string>('all')
   const [selectedSku, setSelectedSku] = useState<string>('all')
   const [weekRange, setWeekRange] = useState({ start: 1, end: 53 })
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([])
@@ -260,7 +262,7 @@ export function PipelineDashboard() {
     return alertList
   }, [skus])
 
-  // 3-tier cascading filter: Customer -> Vendor -> SKU
+  // 4-tier cascading filter: Customer -> Vendor -> Warehouse -> SKU
   const filteredSkus = useMemo(() => {
     let filtered = skus
     if (selectedCustomer !== 'all') {
@@ -269,11 +271,14 @@ export function PipelineDashboard() {
     if (selectedVendor !== 'all') {
       filtered = filtered.filter((sku) => sku.supplierCode === selectedVendor)
     }
+    if (selectedWarehouse !== 'all') {
+      filtered = filtered.filter((sku) => sku.warehouse === selectedWarehouse)
+    }
     if (selectedSku !== 'all') {
       filtered = filtered.filter((sku) => sku.id === selectedSku)
     }
     return filtered
-  }, [skus, selectedCustomer, selectedVendor, selectedSku])
+  }, [skus, selectedCustomer, selectedVendor, selectedWarehouse, selectedSku])
 
   // Handle data changes - update locally and track pending changes
   const handleDataChange = useCallback(
@@ -614,6 +619,8 @@ export function PipelineDashboard() {
           onCustomerChange={setSelectedCustomer}
           selectedVendor={selectedVendor}
           onVendorChange={setSelectedVendor}
+          selectedWarehouse={selectedWarehouse}
+          onWarehouseChange={setSelectedWarehouse}
           selectedSku={selectedSku}
           onSkuChange={setSelectedSku}
           weekRange={weekRange}

@@ -18,6 +18,8 @@ interface InventoryFiltersProps {
   onCustomerChange: (value: string) => void
   selectedVendor: string
   onVendorChange: (value: string) => void
+  selectedWarehouse: string
+  onWarehouseChange: (value: string) => void
   selectedSku: string
   onSkuChange: (value: string) => void
   weekRange: { start: number; end: number }
@@ -31,6 +33,8 @@ export function InventoryFilters({
   onCustomerChange,
   selectedVendor,
   onVendorChange,
+  selectedWarehouse,
+  onWarehouseChange,
   selectedSku,
   onSkuChange,
   weekRange,
@@ -53,7 +57,7 @@ export function InventoryFilters({
     return map
   }, [skus])
 
-  // Derive all known vendors (unfiltered by customer, so vendor dropdown always shows all)
+  // Derive all known vendors
   const allVendors = useMemo(() => {
     const set = new Set<string>()
     skus.forEach((sku) => {
@@ -62,29 +66,43 @@ export function InventoryFilters({
     return Array.from(set).sort()
   }, [skus])
 
-  // Derive vendors filtered by selected customer (for display when a customer is selected)
+  // Vendors filtered by selected customer
   const vendors = useMemo(() => {
     if (selectedCustomer === 'all') return allVendors
     return allVendors.filter((v) => vendorToCustomer.get(v) === selectedCustomer)
   }, [allVendors, selectedCustomer, vendorToCustomer])
 
-  // Derive SKUs filtered by selected customer and vendor
+  // Warehouses filtered by selected customer + vendor
+  const warehouses = useMemo(() => {
+    const set = new Set<string>()
+    skus.forEach((sku) => {
+      if (!sku.warehouse) return
+      if (selectedCustomer !== 'all' && sku.customerCode !== selectedCustomer) return
+      if (selectedVendor !== 'all' && sku.supplierCode !== selectedVendor) return
+      set.add(sku.warehouse)
+    })
+    return Array.from(set).sort()
+  }, [skus, selectedCustomer, selectedVendor])
+
+  // SKUs filtered by selected customer, vendor, and warehouse
   const filteredSkuOptions = useMemo(() => {
     return skus.filter((sku) => {
       if (selectedCustomer !== 'all' && sku.customerCode !== selectedCustomer) return false
       if (selectedVendor !== 'all' && sku.supplierCode !== selectedVendor) return false
+      if (selectedWarehouse !== 'all' && sku.warehouse !== selectedWarehouse) return false
       return true
     })
-  }, [skus, selectedCustomer, selectedVendor])
+  }, [skus, selectedCustomer, selectedVendor, selectedWarehouse])
 
-  // When customer changes, reset vendor and SKU
+  // When customer changes: reset vendor, warehouse, SKU downward
   const handleCustomerChange = (value: string) => {
     onCustomerChange(value)
     onVendorChange('all')
+    onWarehouseChange('all')
     onSkuChange('all')
   }
 
-  // When vendor changes, auto-sync customer upward and reset SKU
+  // When vendor changes: auto-sync customer upward, reset warehouse + SKU downward
   const handleVendorChange = (value: string) => {
     if (value !== 'all') {
       const parentCustomer = vendorToCustomer.get(value)
@@ -93,14 +111,36 @@ export function InventoryFilters({
       }
     }
     onVendorChange(value)
+    onWarehouseChange('all')
     onSkuChange('all')
   }
 
-  // When SKU changes, auto-sync vendor and customer upward
+  // When warehouse changes: auto-sync vendor + customer upward, reset SKU downward
+  const handleWarehouseChange = (value: string) => {
+    if (value !== 'all') {
+      // Find a SKU in this warehouse to determine the parent vendor/customer
+      const sample = skus.find((s) => s.warehouse === value)
+      if (sample) {
+        if (sample.supplierCode && selectedVendor === 'all') {
+          onVendorChange(sample.supplierCode)
+        }
+        if (sample.customerCode && selectedCustomer !== sample.customerCode) {
+          onCustomerChange(sample.customerCode)
+        }
+      }
+    }
+    onWarehouseChange(value)
+    onSkuChange('all')
+  }
+
+  // When SKU changes: auto-sync warehouse, vendor, and customer upward
   const handleSkuChange = (value: string) => {
     if (value !== 'all') {
       const sku = skus.find((s) => s.id === value)
       if (sku) {
+        if (sku.warehouse && selectedWarehouse !== sku.warehouse) {
+          onWarehouseChange(sku.warehouse)
+        }
         if (sku.supplierCode && selectedVendor !== sku.supplierCode) {
           onVendorChange(sku.supplierCode)
         }
@@ -115,6 +155,7 @@ export function InventoryFilters({
   const handleReset = () => {
     onCustomerChange('all')
     onVendorChange('all')
+    onWarehouseChange('all')
     onSkuChange('all')
     onWeekRangeChange({ start: 1, end: totalWeeks })
   }
@@ -162,7 +203,25 @@ export function InventoryFilters({
         </Select>
       </div>
 
-      {/* Tier 3: SKU */}
+      {/* Tier 3: Warehouse */}
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-muted-foreground">Warehouse:</label>
+        <Select value={selectedWarehouse} onValueChange={handleWarehouseChange}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Select Warehouse" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Warehouses</SelectItem>
+            {warehouses.map((wh) => (
+              <SelectItem key={wh} value={wh}>
+                {wh}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Tier 4: SKU */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">SKU:</label>
         <Select value={selectedSku} onValueChange={handleSkuChange}>
