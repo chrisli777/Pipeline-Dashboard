@@ -9,7 +9,7 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'Warehouse Pipeline Dashboard',
+  title: 'WHI',
   description: 'Inventory Management & Forecasting Dashboard for Warehouse Operations',
   generator: 'v0.app',
   icons: {

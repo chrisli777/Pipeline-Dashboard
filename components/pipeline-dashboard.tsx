@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Package, Download, Loader2, Save, RefreshCcw, CloudDownload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { InventoryAlertBar } from '@/components/inventory-alert-bar'
@@ -24,27 +25,27 @@ interface PendingChange {
 // Calculate weeks on hand: inventory / AVG(consumption from -4 weeks to +8 weeks, including current week = 13 weeks total)
 function calculateWeeksOnHand(weeks: WeekData[], currentWeekIndex: number): number {
   const currentInventory = weeks[currentWeekIndex]?.actualInventory ?? 0
-  
+
   // Get consumption from 4 weeks before to 8 weeks after (including current week = 13 weeks total)
   // -4, -3, -2, -1, current, +1, +2, +3, +4, +5, +6, +7, +8
   const startIndex = Math.max(0, currentWeekIndex - 4)
   const endIndex = Math.min(weeks.length - 1, currentWeekIndex + 8)
-  
+
   let totalConsumption = 0
   const weeksCount = 13 // Fixed 13 weeks for averaging
-  
+
   for (let i = startIndex; i <= endIndex; i++) {
     const consumption = weeks[i]?.actualConsumption ?? weeks[i]?.customerForecast ?? 0
     totalConsumption += consumption
   }
-  
+
   // Calculate average over 13 weeks
   const avgConsumption = totalConsumption / weeksCount
-  
+
   if (avgConsumption <= 0) {
     return currentInventory > 0 ? 999 : 0
   }
-  
+
   return parseFloat((currentInventory / avgConsumption).toFixed(2))
 }
 
@@ -77,7 +78,7 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
     }
 
     const sku = skuMap.get(row.sku_id)!
-    
+
     // Format week date - show Friday of the week (week_start_date is Sunday, Friday is 2 days before)
     const weekDate = new Date(row.week_start_date)
     weekDate.setDate(weekDate.getDate() - 1)
@@ -103,7 +104,7 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
   skuMap.forEach((sku) => {
     // Sort all weeks including historical data
     sku.allWeeks.sort((a, b) => a.weekNumber - b.weekNumber)
-    
+
     // Apply defect default: if defect is null/0, inherit from previous week
     for (let i = 1; i < sku.allWeeks.length; i++) {
       const currentWeek = sku.allWeeks[i]
@@ -112,7 +113,7 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
         currentWeek.defect = prevWeek.defect
       }
     }
-    
+
     // Calculate actual inventory for display weeks starting from week 2
     // Formula: actualInventory = prevWeek.actualInventory - actualConsumption + ATA
     // Week 1's actualInventory is the starting point (manually set in database)
@@ -134,12 +135,12 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
         currentWeek.actualInventory = prevInventory - consumption + ata
       }
     }
-    
+
     // Calculate weeks on hand for each week using rolling average (including historical data)
     sku.allWeeks.forEach((week, index) => {
       week.weeksOnHand = calculateWeeksOnHand(sku.allWeeks, index)
     })
-    
+
     // Only keep weeks >= 1 for display (filter out historical weeks -3, -2, -1, 0)
     sku.weeks = sku.allWeeks.filter(w => w.weekNumber >= 1)
   })
@@ -149,19 +150,40 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
 }
 
 export function PipelineDashboard() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
   const [skus, setSkus] = useState<SKUData[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('all')
-  const [selectedVendor, setSelectedVendor] = useState<string>('all')
-  const [selectedWarehouse, setSelectedWarehouse] = useState<string>('all')
-  const [selectedSku, setSelectedSku] = useState<string>('all')
   const [weekRange, setWeekRange] = useState({ start: 1, end: 53 })
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([])
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+
+  // Read filter state from URL search params
+  const selectedCustomer = searchParams.get('customer') || 'all'
+  const selectedVendor = searchParams.get('vendor') || 'all'
+  const selectedWarehouse = searchParams.get('warehouse') || 'all'
+  const selectedSku = searchParams.get('sku') || 'all'
+
+  // Update URL search params when filters change
+  const updateFilter = useCallback((key: string, value: string) => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (value === 'all') {
+      params.delete(key)
+    } else {
+      params.set(key, value)
+    }
+    router.replace(`?${params.toString()}`, { scroll: false })
+  }, [searchParams, router])
+
+  const setSelectedCustomer = useCallback((v: string) => updateFilter('customer', v), [updateFilter])
+  const setSelectedVendor = useCallback((v: string) => updateFilter('vendor', v), [updateFilter])
+  const setSelectedWarehouse = useCallback((v: string) => updateFilter('warehouse', v), [updateFilter])
+  const setSelectedSku = useCallback((v: string) => updateFilter('sku', v), [updateFilter])
 
   // Fetch data from Supabase with automatic retry on failure
   const fetchData = useCallback(async (retryCount = 0): Promise<void> => {
@@ -216,12 +238,12 @@ export function PipelineDashboard() {
       let foundCritical = false
       let foundWarning = false
       let foundLow = false
-      
+
       // Weeks are already sorted by weekNumber, so we iterate in order
       for (const week of sku.weeks) {
         // Only show alerts for Week 1 and onwards
         if (week.weekNumber < 1 || week.weeksOnHand === null) continue
-        
+
         if (week.weeksOnHand < 0 && !foundCritical) {
           alertList.push({
             skuId: sku.id,
@@ -253,12 +275,12 @@ export function PipelineDashboard() {
           })
           foundLow = true
         }
-        
+
         // Stop early if we've found all three types
         if (foundCritical && foundWarning && foundLow) break
       }
     })
-    
+
     return alertList
   }, [skus])
 
@@ -287,12 +309,12 @@ export function PipelineDashboard() {
       setSkus((prevSkus) =>
         prevSkus.map((sku) => {
           if (sku.id !== skuId) return sku
-          
+
           const updatedWeeks = sku.weeks.map((week) => {
             if (week.weekNumber !== weekNumber) return week
             return { ...week, [field]: value }
           })
-          
+
           // If changing actualInventory for week 1, or changing consumption/ATA,
           // recalculate actualInventory for subsequent weeks
           if (field === 'actualInventory' && weekNumber === 1) {
@@ -319,12 +341,12 @@ export function PipelineDashboard() {
               }
             }
           }
-          
+
           // Recalculate weeks on hand for this SKU
           updatedWeeks.forEach((week, index) => {
             week.weeksOnHand = calculateWeeksOnHand(updatedWeeks, index)
           })
-          
+
           return { ...sku, weeks: updatedWeeks }
         })
       )
@@ -363,7 +385,7 @@ export function PipelineDashboard() {
       )
 
       const results = await Promise.all(savePromises)
-      
+
       // Check for errors
       const errors = results.filter((r) => r.error)
       if (errors.length > 0) {
@@ -387,11 +409,11 @@ export function PipelineDashboard() {
     setSyncing(true)
     setSyncDialogOpen(false)
     setError(null)
-    
+
     try {
       const { skuIds, weekStart, weekEnd, fields } = config
       const results: Array<{ success?: boolean; error?: string }> = []
-      
+
       // Sync each field type
       // Note: Customer Forecast is synced separately from the Customer Forecast page
       for (const field of fields) {
@@ -445,21 +467,21 @@ export function PipelineDashboard() {
           }
         }
       }
-      
+
       // Count successful syncs
       const successfulSyncs = results.filter(r => r.success)
       const failedSyncs = results.filter(r => r.error)
-      
+
       // If all syncs failed, don't update anything and show error
       if (failedSyncs.length > 0 && successfulSyncs.length === 0) {
         alert(`All ${failedSyncs.length} syncs failed. Please check your API token. No data was changed.`)
         setSyncing(false)
         return
       }
-      
+
       // Refresh data to show updated values
       await fetchData()
-      
+
       if (failedSyncs.length > 0) {
         alert(`Synced ${successfulSyncs.length} records. ${failedSyncs.length} failed.`)
       } else {
@@ -488,9 +510,9 @@ export function PipelineDashboard() {
       const weekData = sku.weeks.filter(
         (w) => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
       )
-      
+
       const rowTypes = ['customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'] as const
-      
+
       rowTypes.forEach((rowType) => {
         const row = [
           sku.partModelNumber,
@@ -500,7 +522,7 @@ export function PipelineDashboard() {
         rows.push(row)
       })
     })
-    
+
     const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -562,7 +584,7 @@ export function PipelineDashboard() {
           <div className="flex items-center gap-3">
             <Package className="h-8 w-8 text-blue-700" />
             <div>
-              <h1 className="text-2xl font-bold text-blue-800">Warehouse Pipeline Dashboard</h1>
+              <h1 className="text-2xl font-bold text-blue-800">Pipeline Dashboard</h1>
               <p className="text-sm text-muted-foreground">Inventory Management & Forecasting</p>
             </div>
           </div>
@@ -574,8 +596,8 @@ export function PipelineDashboard() {
             )}
             <Button
               variant="outline"
-              size="sm" 
-              onClick={() => setSyncDialogOpen(true)} 
+              size="sm"
+              onClick={() => setSyncDialogOpen(true)}
               disabled={loading || saving || syncing}
               className="border-blue-500 text-blue-600 hover:bg-blue-50 bg-transparent"
             >
@@ -586,9 +608,9 @@ export function PipelineDashboard() {
               )}
               Sync
             </Button>
-            <Button 
-              size="sm" 
-              onClick={handleSave} 
+            <Button
+              size="sm"
+              onClick={handleSave}
               disabled={!hasUnsavedChanges || saving}
               className="bg-blue-700 hover:bg-blue-800 text-white"
             >
@@ -678,10 +700,10 @@ export function PipelineDashboard() {
           </ul>
         </div>
       </main>
-      
+
       {/* AI Chat Assistant */}
       <AIChat />
-      
+
       {/* Sync Dialog */}
       <SyncDialog
         open={syncDialogOpen}

@@ -1,5 +1,10 @@
+import { Suspense } from 'react'
 import { PipelineDashboard } from '@/components/pipeline-dashboard'
 
 export default function Home() {
-  return <PipelineDashboard />
+  return (
+    <Suspense>
+      <PipelineDashboard />
+    </Suspense>
+  )
 }
