@@ -91,8 +91,8 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       customerForecast: row.customer_forecast !== null ? Number(row.customer_forecast) : null,
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
-      eta: row.eta != null ? Number(row.eta) : 0,
-      ata: row.ata != null ? Number(row.ata) : 0,
+      eta: row.eta != null && Number(row.eta) !== 0 ? Number(row.eta) : null,
+      ata: row.ata != null && Number(row.ata) !== 0 ? Number(row.ata) : null,
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
       weeksOnHand: 0, // Will be calculated after sorting
@@ -113,6 +113,25 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       }
     }
     
+    // Calculate ETA: ETA for week N = ETD from 4 weeks prior (week N-4)
+    // Build a map of weekNumber -> ETD for quick lookup
+    const etdByWeek = new Map<number, number | null>()
+    for (const w of sku.allWeeks) {
+      etdByWeek.set(w.weekNumber, w.etd)
+    }
+    for (const w of sku.allWeeks) {
+      const sourceWeek = w.weekNumber - 4
+      const sourceEtd = etdByWeek.get(sourceWeek)
+      // Only auto-calculate if eta was not manually set in the database (i.e. was 0 or null from DB)
+      if (w.eta === 0 || w.eta === null) {
+        w.eta = sourceEtd != null ? sourceEtd : 0
+      }
+      // ATA defaults to ETA when no other data source is present
+      if (w.ata === 0 || w.ata === null) {
+        w.ata = w.eta
+      }
+    }
+
     // Calculate actual inventory for display weeks starting from week 2
     // Formula: actualInventory = prevWeek.actualInventory - actualConsumption + ATA
     // Week 1's actualInventory is the starting point (manually set in database)
