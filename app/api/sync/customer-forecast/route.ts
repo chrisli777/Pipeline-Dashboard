@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import * as XLSX from 'xlsx'
 
 const BUCKET_NAME = 'forecast-files'
 
@@ -19,6 +20,156 @@ interface ForecastData {
   }[]
 }
 
+// Parse CSV text into rows of string arrays
+function parseCSV(text: string): string[][] {
+  const lines = text.split(/\r?\n/).filter(l => l.trim())
+  return lines.map(line => {
+    // Handle quoted fields with commas inside
+    const result: string[] = []
+    let current = ''
+    let inQuotes = false
+    for (const char of line) {
+      if (char === '"') {
+        inQuotes = !inQuotes
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim())
+        current = ''
+      } else {
+        current += char
+      }
+    }
+    result.push(current.trim())
+    return result
+  })
+}
+
+// Extract forecast data from spreadsheet rows (Excel or CSV)
+// Supports two formats:
+// Format A (model-based): columns = Model, Week 1, Week 2, ... with values as weekly rates
+// Format B (SKU-based): columns = SKU, Week 1, Week 2, ... with values as weekly rates
+function extractForecastFromRows(rows: string[][]): ForecastData {
+  if (rows.length < 2) {
+    return { models: [] }
+  }
+
+  const header = rows[0].map(h => String(h).trim())
+
+  // Find week columns: look for headers like "Week 1", "W1", "1", etc.
+  const weekColumns: { colIndex: number; weekNumber: number }[] = []
+  for (let i = 1; i < header.length; i++) {
+    const h = header[i]
+    // Match "Week 1", "Week1", "W1", "Wk1", "Wk 1", or just a number
+    const weekMatch = h.match(/^(?:Week\s*|W(?:k)?\s*)(\d+)$/i) || h.match(/^(\d+)$/)
+    if (weekMatch) {
+      weekColumns.push({ colIndex: i, weekNumber: parseInt(weekMatch[1]) })
+    }
+  }
+
+  if (weekColumns.length === 0) {
+    return { models: [] }
+  }
+
+  // Detect first column type: is it SKU codes or model names?
+  const firstColHeader = header[0].toLowerCase()
+  const isSKUBased = firstColHeader.includes('sku') || firstColHeader.includes('part') || firstColHeader.includes('code')
+
+  const models: ForecastData['models'] = []
+
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    const identifier = String(row[0] || '').trim()
+    if (!identifier) continue
+
+    const weeklyData: { weekNumber: number; weeklyRate: number }[] = []
+    for (const wc of weekColumns) {
+      const val = parseFloat(String(row[wc.colIndex] || '0'))
+      if (!isNaN(val)) {
+        weeklyData.push({ weekNumber: wc.weekNumber, weeklyRate: val })
+      }
+    }
+
+    if (weeklyData.length > 0) {
+      if (isSKUBased) {
+        // Create a pseudo-model entry with the SKU code as the name
+        // The SKU code will be matched directly later
+        models.push({ modelName: `SKU:${identifier}`, weeklyData })
+      } else {
+        models.push({ modelName: identifier, weeklyData })
+      }
+    }
+  }
+
+  return { models }
+}
+
+// Extract forecast from PDF using Claude AI
+async function extractForecastFromPDF(base64Data: string, mimeType: string): Promise<ForecastData> {
+  const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: mimeType || 'application/pdf',
+                data: base64Data,
+              },
+            },
+            {
+              type: 'text',
+              text: `Extract forecast data from this PDF. ONLY extract these models: "S60J & S80J", "Z80", "Z62". Ignore all others (like Z60).
+
+For each model found, extract week numbers from the "Week #" row and weekly rate values from the "Weekly Rate" row.
+
+Return ONLY valid JSON in this exact format, no other text:
+{"models":[{"modelName":"S60J & S80J","weeklyData":[{"weekNumber":2,"weeklyRate":4}]}]}`,
+            },
+          ],
+        },
+      ],
+    }),
+  })
+
+  if (!claudeResponse.ok) {
+    const errText = await claudeResponse.text()
+    console.error('[v0] Claude API error:', claudeResponse.status, errText)
+    throw new Error(`Claude API error: ${claudeResponse.status}`)
+  }
+
+  const claudeData = await claudeResponse.json()
+  const rawText = claudeData.content?.[0]?.text || ''
+
+  // Extract JSON from Claude's response (may be wrapped in markdown code blocks)
+  let jsonStr = rawText
+  const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (jsonMatch) {
+    jsonStr = jsonMatch[1].trim()
+  } else {
+    const objMatch = rawText.match(/\{[\s\S]*\}/)
+    if (objMatch) {
+      jsonStr = objMatch[0]
+    }
+  }
+
+  try {
+    return JSON.parse(jsonStr)
+  } catch {
+    console.error('[v0] Failed to parse Claude response as JSON:', rawText)
+    throw new Error('Could not parse forecast data from PDF. AI returned invalid format.')
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const { fileId } = await request.json()
@@ -29,18 +180,18 @@ export async function POST(request: Request) {
     let fileQuery = supabase
       .from('forecast_files')
       .select('id, file_name, file_path, mime_type')
-    
+
     if (fileId) {
       fileQuery = fileQuery.eq('id', fileId)
     } else {
       fileQuery = fileQuery.order('uploaded_at', { ascending: false }).limit(1)
     }
-    
+
     const { data: targetFile, error: fileError } = await fileQuery.single()
 
     if (fileError || !targetFile) {
-      return NextResponse.json({ 
-        error: 'No forecast file found. Please upload a forecast PDF first.' 
+      return NextResponse.json({
+        error: 'No forecast file found. Please upload a forecast file first.'
       }, { status: 404 })
     }
 
@@ -50,95 +201,42 @@ export async function POST(request: Request) {
       .download(targetFile.file_path)
 
     if (downloadError || !fileBlob) {
-      return NextResponse.json({ 
-        error: 'Failed to download forecast file from storage' 
+      return NextResponse.json({
+        error: 'Failed to download forecast file from storage'
       }, { status: 500 })
     }
 
-    // Convert blob to base64
-    const arrayBuffer = await fileBlob.arrayBuffer()
-    const uint8Array = new Uint8Array(arrayBuffer)
-    let binaryString = ''
-    for (let i = 0; i < uint8Array.length; i++) {
-      binaryString += String.fromCharCode(uint8Array[i])
-    }
-    const base64Data = btoa(binaryString)
-
-    // Call Claude API directly to extract forecast data from PDF
-    const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4096,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'document',
-                source: {
-                  type: 'base64',
-                  media_type: targetFile.mime_type || 'application/pdf',
-                  data: base64Data,
-                },
-              },
-              {
-                type: 'text',
-                text: `Extract forecast data from this PDF. ONLY extract these models: "S60J & S80J", "Z80", "Z62". Ignore all others (like Z60).
-
-For each model found, extract week numbers from the "Week #" row and weekly rate values from the "Weekly Rate" row.
-
-Return ONLY valid JSON in this exact format, no other text:
-{"models":[{"modelName":"S60J & S80J","weeklyData":[{"weekNumber":2,"weeklyRate":4}]}]}`,
-              },
-            ],
-          },
-        ],
-      }),
-    })
-
-    if (!claudeResponse.ok) {
-      const errText = await claudeResponse.text()
-      console.error('[v0] Claude API error:', claudeResponse.status, errText)
-      return NextResponse.json({ 
-        error: `Claude API error: ${claudeResponse.status}` 
-      }, { status: 500 })
-    }
-
-    const claudeData = await claudeResponse.json()
-    const rawText = claudeData.content?.[0]?.text || ''
-    
-    // Extract JSON from Claude's response (may be wrapped in markdown code blocks)
-    let jsonStr = rawText
-    const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/)
-    if (jsonMatch) {
-      jsonStr = jsonMatch[1].trim()
-    } else {
-      // Try to find raw JSON object
-      const objMatch = rawText.match(/\{[\s\S]*\}/)
-      if (objMatch) {
-        jsonStr = objMatch[0]
-      }
-    }
-
+    // Determine file type and extract forecast data
+    const fileName = targetFile.file_name.toLowerCase()
     let output: ForecastData
-    try {
-      output = JSON.parse(jsonStr)
-    } catch {
-      console.error('[v0] Failed to parse Claude response as JSON:', rawText)
-      return NextResponse.json({ 
-        error: 'Could not parse forecast data from PDF. AI returned invalid format.' 
-      }, { status: 400 })
+
+    if (fileName.endsWith('.csv')) {
+      // Parse CSV
+      const text = await fileBlob.text()
+      const rows = parseCSV(text)
+      output = extractForecastFromRows(rows)
+    } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+      // Parse Excel
+      const arrayBuffer = await fileBlob.arrayBuffer()
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
+      const rows: string[][] = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' })
+      output = extractForecastFromRows(rows)
+    } else {
+      // PDF - use Claude AI
+      const arrayBuffer = await fileBlob.arrayBuffer()
+      const uint8Array = new Uint8Array(arrayBuffer)
+      let binaryString = ''
+      for (let i = 0; i < uint8Array.length; i++) {
+        binaryString += String.fromCharCode(uint8Array[i])
+      }
+      const base64Data = btoa(binaryString)
+      output = await extractForecastFromPDF(base64Data, targetFile.mime_type || 'application/pdf')
     }
-    
+
     if (!output || !output.models || output.models.length === 0) {
-      return NextResponse.json({ 
-        error: 'Could not extract forecast data from PDF. Please ensure the PDF contains forecast tables.' 
+      return NextResponse.json({
+        error: 'Could not extract forecast data from file. Please ensure the file contains forecast tables with week columns.'
       }, { status: 400 })
     }
 
@@ -146,10 +244,10 @@ Return ONLY valid JSON in this exact format, no other text:
     const { data: existingData, error: existingError } = await supabase
       .from('inventory_data')
       .select('sku_id, week_number')
-    
+
     if (existingError) {
-      return NextResponse.json({ 
-        error: 'Failed to fetch existing inventory data' 
+      return NextResponse.json({
+        error: 'Failed to fetch existing inventory data'
       }, { status: 500 })
     }
 
@@ -158,24 +256,28 @@ Return ONLY valid JSON in this exact format, no other text:
       existingData?.map(d => `${d.sku_id}_${d.week_number}`) || []
     )
 
-    // Update database with extracted forecast data (only for existing weeks and known models)
+    // Update database with extracted forecast data
     const updates: { skuId: string; weekNumber: number; value: number }[] = []
     const skippedWeeks: number[] = []
     const matchedModels: string[] = []
 
     for (const model of output.models) {
-      // Find matching SKU IDs for this model (only known models)
-      const matchingSkus = MODEL_TO_SKUS[model.modelName]
-      
-      if (!matchingSkus) {
-        // Skip unknown models (not in our database)
-        continue
+      let matchingSkus: string[] | undefined
+
+      if (model.modelName.startsWith('SKU:')) {
+        // Direct SKU code match (from Excel/CSV SKU-based format)
+        const skuCode = model.modelName.replace('SKU:', '')
+        matchingSkus = [skuCode]
+      } else {
+        // Model name match (from PDF or model-based format)
+        matchingSkus = MODEL_TO_SKUS[model.modelName]
       }
+
+      if (!matchingSkus) continue
 
       let modelHasUpdates = false
       for (const weekData of model.weeklyData) {
         for (const skuId of matchingSkus) {
-          // Only add if this sku_id + week_number exists in database
           if (existingCombinations.has(`${skuId}_${weekData.weekNumber}`)) {
             updates.push({
               skuId,
@@ -188,8 +290,7 @@ Return ONLY valid JSON in this exact format, no other text:
           }
         }
       }
-      
-      // Only add to matchedModels if we actually updated something for this model
+
       if (modelHasUpdates && !matchedModels.includes(model.modelName)) {
         matchedModels.push(model.modelName)
       }

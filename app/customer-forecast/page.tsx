@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Upload, FileText, Download, Trash2, Loader2, RefreshCw } from 'lucide-react'
+import { Upload, FileText, FileSpreadsheet, Download, Trash2, Loader2, RefreshCw } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -170,7 +170,7 @@ export default function CustomerForecastPage() {
             <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
             <div className="text-center">
               <p className="text-lg font-semibold text-gray-900">Syncing Customer Forecast</p>
-              <p className="text-sm text-gray-500">Please wait, analyzing PDF with AI...</p>
+              <p className="text-sm text-gray-500">Please wait, analyzing forecast file...</p>
             </div>
           </div>
         </div>
@@ -187,17 +187,17 @@ export default function CustomerForecastPage() {
           <CardHeader>
             <CardTitle className="text-lg">Upload Forecast File</CardTitle>
             <CardDescription>
-              Upload customer-provided forecast documents
+              Upload customer-provided forecast documents (PDF, Excel, or CSV)
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="file">PDF File</Label>
+                <Label htmlFor="file">Forecast File</Label>
                 <Input
                   id="file"
                   type="file"
-                  accept=".pdf"
+                  accept=".pdf,.xlsx,.xls,.csv"
                   onChange={handleFileChange}
                   className="cursor-pointer max-w-md"
                 />
@@ -256,7 +256,11 @@ export default function CustomerForecastPage() {
                     <TableRow key={file.id}>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-red-500" />
+                          {file.file_name.match(/\.(xlsx?|csv)$/i) ? (
+                            <FileSpreadsheet className="h-4 w-4 text-green-600" />
+                          ) : (
+                            <FileText className="h-4 w-4 text-red-500" />
+                          )}
                           {file.file_name}
                         </div>
                       </TableCell>
