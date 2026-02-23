@@ -44,58 +44,100 @@ function parseCSV(text: string): string[][] {
 }
 
 // Extract forecast data from spreadsheet rows (Excel or CSV)
-// Supports two formats:
-// Format A (model-based): columns = Model, Week 1, Week 2, ... with values as weekly rates
-// Format B (SKU-based): columns = SKU, Week 1, Week 2, ... with values as weekly rates
+// The real format has:
+//   Row: "Week Number:" | 6 | 7 | 8 | 9 | ...  (week identifiers)
+//   Row: "Week Of:"     | 2/2 | 2/9 | ...       (dates, skip)
+//   Row: "Working Days:" | ...                   (skip)
+//   Row: "VS Daily Rate:" | ...                  (skip)
+//   ...
+//   Row: "GS-2632 E-drive" | 32% | 28 | 28 | 21 | 28 | ...  (model + values)
+//   Row: "GS-4046 E-Drive" | 27% | 24 | 24 | 18 | 24 | ...
+//
+// Strategy:
+// 1. Find the row where first cell contains "Week Number" -> those cells give us week columns
+// 2. Below that, find rows whose first cell looks like a model name (contains letters + numbers)
+// 3. For each model row, extract weekly values from the corresponding week columns
 function extractForecastFromRows(rows: string[][]): ForecastData {
   if (rows.length < 2) {
     return { models: [] }
   }
 
-  const header = rows[0].map(h => String(h).trim())
+  // --- Strategy 1: Look for a "Week Number" row ---
+  let weekNumberRowIdx = -1
+  let weekColumns: { colIndex: number; weekNumber: number }[] = []
 
-  // Find week columns: look for headers like "Week 1", "W1", "1", etc.
-  const weekColumns: { colIndex: number; weekNumber: number }[] = []
-  for (let i = 1; i < header.length; i++) {
-    const h = header[i]
-    // Match "Week 1", "Week1", "W1", "Wk1", "Wk 1", or just a number
-    const weekMatch = h.match(/^(?:Week\s*|W(?:k)?\s*)(\d+)$/i) || h.match(/^(\d+)$/)
-    if (weekMatch) {
-      weekColumns.push({ colIndex: i, weekNumber: parseInt(weekMatch[1]) })
+  for (let r = 0; r < rows.length; r++) {
+    const firstCell = String(rows[r][0] || '').trim().toLowerCase()
+    if (firstCell.includes('week') && firstCell.includes('number')) {
+      weekNumberRowIdx = r
+      // Extract week numbers from subsequent columns
+      for (let c = 1; c < rows[r].length; c++) {
+        const val = parseInt(String(rows[r][c] || '').trim())
+        if (!isNaN(val) && val >= 1 && val <= 53) {
+          weekColumns.push({ colIndex: c, weekNumber: val })
+        }
+      }
+      break
     }
+  }
+
+  // --- Strategy 2: Fallback - look for "Week 1", "Week 2" etc. in header row ---
+  if (weekColumns.length === 0) {
+    const header = rows[0].map(h => String(h).trim())
+    for (let i = 1; i < header.length; i++) {
+      const h = header[i]
+      const weekMatch = h.match(/^(?:Week\s*|W(?:k)?\s*)(\d+)$/i) || h.match(/^(\d+)$/)
+      if (weekMatch) {
+        weekColumns.push({ colIndex: i, weekNumber: parseInt(weekMatch[1]) })
+      }
+    }
+    weekNumberRowIdx = 0 // header row is the week row
   }
 
   if (weekColumns.length === 0) {
     return { models: [] }
   }
 
-  // Detect first column type: is it SKU codes or model names?
-  const firstColHeader = header[0].toLowerCase()
-  const isSKUBased = firstColHeader.includes('sku') || firstColHeader.includes('part') || firstColHeader.includes('code')
+  // Known header/metadata rows to skip (case-insensitive partial match)
+  const skipPatterns = [
+    'week number', 'week of', 'working day', 'daily rate', 'constraint',
+    'large slab', 'small slab', 'category', 'model', 'sku', 'part',
+  ]
 
   const models: ForecastData['models'] = []
 
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r]
-    const identifier = String(row[0] || '').trim()
-    if (!identifier) continue
+  // Scan rows after the week number row for model data
+  const startRow = weekNumberRowIdx >= 0 ? weekNumberRowIdx + 1 : 1
+  for (let r = startRow; r < rows.length; r++) {
+    const firstCell = String(rows[r][0] || '').trim()
+    if (!firstCell) continue
+
+    // Skip known header/metadata rows
+    const lowerCell = firstCell.toLowerCase()
+    if (skipPatterns.some(p => lowerCell.includes(p))) continue
+
+    // A model row should have a name with letters (e.g. "GS-4046 E-Drive")
+    // and numeric data in the week columns
+    if (!/[a-zA-Z]/.test(firstCell)) continue
 
     const weeklyData: { weekNumber: number; weeklyRate: number }[] = []
+    let hasNumericData = false
+
     for (const wc of weekColumns) {
-      const val = parseFloat(String(row[wc.colIndex] || '0'))
+      const rawVal = String(rows[r][wc.colIndex] || '').trim()
+      // Skip percentage values (e.g., "32%") - those are in the column right after model name
+      if (rawVal.includes('%')) continue
+      const val = parseFloat(rawVal)
       if (!isNaN(val)) {
         weeklyData.push({ weekNumber: wc.weekNumber, weeklyRate: val })
+        if (val > 0) hasNumericData = true
       }
     }
 
-    if (weeklyData.length > 0) {
-      if (isSKUBased) {
-        // Create a pseudo-model entry with the SKU code as the name
-        // The SKU code will be matched directly later
-        models.push({ modelName: `SKU:${identifier}`, weeklyData })
-      } else {
-        models.push({ modelName: identifier, weeklyData })
-      }
+    if (weeklyData.length > 0 && hasNumericData) {
+      // Clean up model name: remove trailing percentages or extra whitespace
+      const cleanName = firstCell.replace(/\s*\d+%\s*$/, '').trim()
+      models.push({ modelName: cleanName, weeklyData })
     }
   }
 
