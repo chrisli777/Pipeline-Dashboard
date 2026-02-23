@@ -97,16 +97,21 @@ function extractForecastFromRows(rows: string[][]): ForecastData {
   let weekColumns: { colIndex: number; weekNumber: number }[] = []
 
   for (let r = 0; r < rows.length; r++) {
-    const firstCell = String(rows[r][0] || '').trim().toLowerCase()
-    if (firstCell.includes('week') && firstCell.includes('number')) {
+    const rawCell = String(rows[r][0] || '').trim()
+    const firstCell = rawCell.toLowerCase()
+    // Match various patterns: "Week Number:", "Week Number", "Week #", "Week No"
+    if (firstCell.includes('week') && (firstCell.includes('number') || firstCell.includes('#') || firstCell.includes('no'))) {
       weekNumberRowIdx = r
+      console.log(`[v0] Found Week Number row at index ${r}: "${rawCell}"`)
       // Extract week numbers from subsequent columns
       for (let c = 1; c < rows[r].length; c++) {
-        const val = parseInt(String(rows[r][c] || '').trim())
+        const cellStr = String(rows[r][c] || '').trim()
+        const val = parseInt(cellStr)
         if (!isNaN(val) && val >= 1 && val <= 53) {
           weekColumns.push({ colIndex: c, weekNumber: val })
         }
       }
+      console.log(`[v0] Extracted ${weekColumns.length} week columns:`, weekColumns.map(w => w.weekNumber))
       break
     }
   }
@@ -291,9 +296,31 @@ export async function POST(request: Request) {
       // Parse Excel
       const arrayBuffer = await fileBlob.arrayBuffer()
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-      const rows: string[][] = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' })
-      output = extractForecastFromRows(rows)
+      console.log('[v0] Excel sheet names:', workbook.SheetNames)
+      // Try all sheets, not just the first one
+      let bestOutput: ForecastData = { models: [] }
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName]
+        const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+        console.log(`[v0] Sheet "${sheetName}" has ${rows.length} rows, first row:`, rows[0]?.slice(0, 6))
+        if (rows.length > 1) {
+          console.log('[v0] Second row:', rows[1]?.slice(0, 6))
+          console.log('[v0] Third row:', rows[2]?.slice(0, 6))
+          // Log all rows to find Week Number row
+          for (let r = 0; r < Math.min(rows.length, 20); r++) {
+            const firstCell = String(rows[r][0] || '').trim()
+            if (firstCell) {
+              console.log(`[v0] Row ${r}: "${firstCell}" | cells:`, rows[r].slice(0, 8).map(c => String(c).trim()))
+            }
+          }
+        }
+        const sheetOutput = extractForecastFromRows(rows)
+        console.log(`[v0] Sheet "${sheetName}" extracted ${sheetOutput.models.length} models`)
+        if (sheetOutput.models.length > bestOutput.models.length) {
+          bestOutput = sheetOutput
+        }
+      }
+      output = bestOutput
     } else {
       // PDF - use Claude AI
       const arrayBuffer = await fileBlob.arrayBuffer()
@@ -305,6 +332,8 @@ export async function POST(request: Request) {
       const base64Data = btoa(binaryString)
       output = await extractForecastFromPDF(base64Data, targetFile.mime_type || 'application/pdf')
     }
+
+    console.log('[v0] Final output models count:', output?.models?.length, 'models:', output?.models?.map(m => m.modelName))
 
     if (!output || !output.models || output.models.length === 0) {
       return NextResponse.json({
