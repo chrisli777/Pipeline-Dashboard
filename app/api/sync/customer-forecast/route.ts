@@ -15,7 +15,7 @@ const MODEL_TO_SKUS: Record<string, string[]> = {
   'z62': ['824433'],
   'z45xc': ['1282199'],
   // AMC / GENIE models (from Excel forecasts) — GS-4046 maps to all AMC SKUs
-  'gs-4046': ['132383', '132385', '229579', '1260200', '1264224', '1299483', '132517', '132525', '1260307', '1268198'],
+  'gs-4046': ['132383', '132385', '229579', '1260200', '1264224', '1299483', '132517', '132525', '1260307', '1260198'],
   // Additional GS models that may appear in forecast but don't have matching SKUs yet
   'gs-2632': [],
   'gs-3232': [],
@@ -103,7 +103,6 @@ function extractForecastFromRows(rows: string[][]): ForecastData {
       const cellLower = rawCell.toLowerCase()
       if (cellLower.includes('week') && (cellLower.includes('number') || cellLower.includes('#') || cellLower.includes('no'))) {
         weekNumberRowIdx = r
-        console.log(`[v0] Found Week Number at row ${r}, col ${c}: "${rawCell}"`)
         // Extract week numbers from columns AFTER the label
         for (let wc = c + 1; wc < rows[r].length; wc++) {
           const cellStr = String(rows[r][wc] || '').trim()
@@ -112,7 +111,6 @@ function extractForecastFromRows(rows: string[][]): ForecastData {
             weekColumns.push({ colIndex: wc, weekNumber: val })
           }
         }
-        console.log(`[v0] Extracted ${weekColumns.length} week columns:`, weekColumns.map(w => w.weekNumber))
         break
       }
     }
@@ -189,12 +187,10 @@ function extractForecastFromRows(rows: string[][]): ForecastData {
     if (weeklyData.length > 0 && hasNumericData) {
       // Clean up model name: remove trailing percentages or extra whitespace
       const cleanName = modelName.replace(/\s*\d+%\s*$/, '').trim()
-      console.log(`[v0] Found model: "${cleanName}" with ${weeklyData.length} weeks of data`)
       models.push({ modelName: cleanName, weeklyData })
     }
   }
 
-  console.log(`[v0] extractForecastFromRows total: ${models.length} models found`)
   return { models }
 }
 
@@ -316,26 +312,12 @@ export async function POST(request: Request) {
       const arrayBuffer = await fileBlob.arrayBuffer()
       const uint8 = new Uint8Array(arrayBuffer)
       const workbook = XLSX.read(uint8, { type: 'array' })
-      console.log('[v0] Excel sheet names:', workbook.SheetNames)
       // Try all sheets, not just the first one
       let bestOutput: ForecastData = { models: [] }
       for (const sheetName of workbook.SheetNames) {
         const sheet = workbook.Sheets[sheetName]
         const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
-        console.log(`[v0] Sheet "${sheetName}" has ${rows.length} rows, first row:`, rows[0]?.slice(0, 6))
-        if (rows.length > 1) {
-          console.log('[v0] Second row:', rows[1]?.slice(0, 6))
-          console.log('[v0] Third row:', rows[2]?.slice(0, 6))
-          // Log all rows to find Week Number row
-          for (let r = 0; r < Math.min(rows.length, 20); r++) {
-            const firstCell = String(rows[r][0] || '').trim()
-            if (firstCell) {
-              console.log(`[v0] Row ${r}: "${firstCell}" | cells:`, rows[r].slice(0, 8).map(c => String(c).trim()))
-            }
-          }
-        }
         const sheetOutput = extractForecastFromRows(rows)
-        console.log(`[v0] Sheet "${sheetName}" extracted ${sheetOutput.models.length} models`)
         if (sheetOutput.models.length > bestOutput.models.length) {
           bestOutput = sheetOutput
         }
@@ -353,24 +335,9 @@ export async function POST(request: Request) {
       output = await extractForecastFromPDF(base64Data, targetFile.mime_type || 'application/pdf')
     }
 
-    console.log('[v0] Final output models count:', output?.models?.length, 'models:', output?.models?.map(m => m.modelName))
-
     if (!output || !output.models || output.models.length === 0) {
-      // Include debug info in error for troubleshooting
-      let debugInfo = `File: ${targetFile.file_name}, Type detected: ${fileName.endsWith('.xlsx') || fileName.endsWith('.xls') ? 'Excel' : fileName.endsWith('.csv') ? 'CSV' : 'PDF'}`
-      if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
-        const ab = await fileBlob.arrayBuffer()
-        const wb = XLSX.read(new Uint8Array(ab), { type: 'array' })
-        debugInfo += `, Sheets: [${wb.SheetNames.join(', ')}]`
-        const firstSheet = wb.Sheets[wb.SheetNames[0]]
-        const sampleRows: string[][] = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' })
-        debugInfo += `, Rows: ${sampleRows.length}`
-        // Show first 5 rows for debugging
-        const preview = sampleRows.slice(0, 8).map((row, i) => `Row${i}: [${row.slice(0, 10).map(c => String(c).trim()).filter(Boolean).join(' | ')}]`).join('; ')
-        debugInfo += `, Preview: ${preview}`
-      }
       return NextResponse.json({
-        error: `Could not extract forecast data. Debug: ${debugInfo}`
+        error: 'Could not extract forecast data from file. Please ensure the file contains forecast tables with week columns.'
       }, { status: 400 })
     }
 
@@ -414,6 +381,7 @@ export async function POST(request: Request) {
 
       let modelHasUpdates = false
       for (const weekData of model.weeklyData) {
+        let weekFoundForAnySku = false
         for (const skuId of matchingSkus) {
           if (existingCombinations.has(`${skuId}_${weekData.weekNumber}`)) {
             updates.push({
@@ -422,9 +390,11 @@ export async function POST(request: Request) {
               value: weekData.weeklyRate,
             })
             modelHasUpdates = true
-          } else if (!skippedWeeks.includes(weekData.weekNumber)) {
-            skippedWeeks.push(weekData.weekNumber)
+            weekFoundForAnySku = true
           }
+        }
+        if (!weekFoundForAnySku && !skippedWeeks.includes(weekData.weekNumber)) {
+          skippedWeeks.push(weekData.weekNumber)
         }
       }
 
