@@ -4,13 +4,43 @@ import * as XLSX from 'xlsx'
 
 const BUCKET_NAME = 'forecast-files'
 
-// Model mapping: PDF model names -> database SKU IDs
+// Model mapping: forecast model names -> database SKU codes
+// Keys are lowercase for case-insensitive matching
 const MODEL_TO_SKUS: Record<string, string[]> = {
-  'S60J & S80J': ['1272762', '1272913'], // T80 and T60
-  'S60J': ['1272762', '1272913'],
-  'S80J': ['1272762', '1272913'],
-  'Z80': ['61415'],
-  'Z62': ['824433'],
+  // HX models (from PDF forecasts)
+  's60j & s80j': ['1272762', '1272913'],
+  's60j': ['1272762', '1272913'],
+  's80j': ['1272762', '1272913'],
+  'z80': ['61415'],
+  'z62': ['824433'],
+  'z45xc': ['1282199'],
+  // AMC / GENIE models (from Excel forecasts) — GS-4046 maps to all AMC SKUs
+  'gs-4046': ['132383', '132385', '229579', '1260200', '1264224', '1299483', '132517', '132525', '1260307', '1268198'],
+  // Additional GS models that may appear in forecast but don't have matching SKUs yet
+  'gs-2632': [],
+  'gs-3232': [],
+  'gs-2646': [],
+  'gs-3246': [],
+}
+
+// Fuzzy match a model name from the forecast to a MODEL_TO_SKUS key
+function findMatchingModelKey(modelName: string): string | undefined {
+  const normalized = modelName.toLowerCase().trim()
+
+  // 1. Exact match
+  if (MODEL_TO_SKUS[normalized] !== undefined) return normalized
+
+  // 2. Try matching by extracting the model identifier (e.g. "GS-4046" from "GS-4046 E-Drive")
+  for (const key of Object.keys(MODEL_TO_SKUS)) {
+    // Check if the model name starts with the key or contains it
+    if (normalized.startsWith(key) || normalized.includes(key)) return key
+    // Check if the key is contained in the model name without separators
+    const keyClean = key.replace(/[-\s]/g, '')
+    const nameClean = normalized.replace(/[-\s]/g, '')
+    if (nameClean.startsWith(keyClean) || nameClean.includes(keyClean)) return key
+  }
+
+  return undefined
 }
 
 interface ForecastData {
@@ -311,11 +341,14 @@ export async function POST(request: Request) {
         const skuCode = model.modelName.replace('SKU:', '')
         matchingSkus = [skuCode]
       } else {
-        // Model name match (from PDF or model-based format)
-        matchingSkus = MODEL_TO_SKUS[model.modelName]
+        // Fuzzy model name match
+        const matchedKey = findMatchingModelKey(model.modelName)
+        if (matchedKey !== undefined) {
+          matchingSkus = MODEL_TO_SKUS[matchedKey]
+        }
       }
 
-      if (!matchingSkus) continue
+      if (!matchingSkus || matchingSkus.length === 0) continue
 
       let modelHasUpdates = false
       for (const weekData of model.weeklyData) {
