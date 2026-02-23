@@ -97,23 +97,26 @@ function extractForecastFromRows(rows: string[][]): ForecastData {
   let weekColumns: { colIndex: number; weekNumber: number }[] = []
 
   for (let r = 0; r < rows.length; r++) {
-    const rawCell = String(rows[r][0] || '').trim()
-    const firstCell = rawCell.toLowerCase()
-    // Match various patterns: "Week Number:", "Week Number", "Week #", "Week No"
-    if (firstCell.includes('week') && (firstCell.includes('number') || firstCell.includes('#') || firstCell.includes('no'))) {
-      weekNumberRowIdx = r
-      console.log(`[v0] Found Week Number row at index ${r}: "${rawCell}"`)
-      // Extract week numbers from subsequent columns
-      for (let c = 1; c < rows[r].length; c++) {
-        const cellStr = String(rows[r][c] || '').trim()
-        const val = parseInt(cellStr)
-        if (!isNaN(val) && val >= 1 && val <= 53) {
-          weekColumns.push({ colIndex: c, weekNumber: val })
+    // Scan ALL columns in this row for "Week Number" (it may not be in column 0)
+    for (let c = 0; c < (rows[r]?.length || 0); c++) {
+      const rawCell = String(rows[r][c] || '').trim()
+      const cellLower = rawCell.toLowerCase()
+      if (cellLower.includes('week') && (cellLower.includes('number') || cellLower.includes('#') || cellLower.includes('no'))) {
+        weekNumberRowIdx = r
+        console.log(`[v0] Found Week Number at row ${r}, col ${c}: "${rawCell}"`)
+        // Extract week numbers from columns AFTER the label
+        for (let wc = c + 1; wc < rows[r].length; wc++) {
+          const cellStr = String(rows[r][wc] || '').trim()
+          const val = parseInt(cellStr)
+          if (!isNaN(val) && val >= 1 && val <= 53) {
+            weekColumns.push({ colIndex: wc, weekNumber: val })
+          }
         }
+        console.log(`[v0] Extracted ${weekColumns.length} week columns:`, weekColumns.map(w => w.weekNumber))
+        break
       }
-      console.log(`[v0] Extracted ${weekColumns.length} week columns:`, weekColumns.map(w => w.weekNumber))
-      break
     }
+    if (weekNumberRowIdx >= 0) break
   }
 
   // --- Strategy 2: Fallback - look for "Week 1", "Week 2" etc. in header row ---
@@ -141,26 +144,40 @@ function extractForecastFromRows(rows: string[][]): ForecastData {
 
   const models: ForecastData['models'] = []
 
+  // Determine the first week column index so we know which columns are "label" columns
+  const firstWeekColIdx = weekColumns.length > 0 ? Math.min(...weekColumns.map(w => w.colIndex)) : 1
+
   // Scan rows after the week number row for model data
   const startRow = weekNumberRowIdx >= 0 ? weekNumberRowIdx + 1 : 1
   for (let r = startRow; r < rows.length; r++) {
-    const firstCell = String(rows[r][0] || '').trim()
-    if (!firstCell) continue
+    // Find model name: scan all columns BEFORE the first week column for a text cell
+    let modelName = ''
+    for (let c = 0; c < firstWeekColIdx; c++) {
+      const cell = String(rows[r][c] || '').trim()
+      if (cell && /[a-zA-Z]/.test(cell)) {
+        modelName = cell
+        break
+      }
+    }
+    // Also check column 0 even if it's >= firstWeekColIdx (single-column layout)
+    if (!modelName) {
+      const cell = String(rows[r][0] || '').trim()
+      if (cell && /[a-zA-Z]/.test(cell)) {
+        modelName = cell
+      }
+    }
+    if (!modelName) continue
 
     // Skip known header/metadata rows
-    const lowerCell = firstCell.toLowerCase()
-    if (skipPatterns.some(p => lowerCell.includes(p))) continue
-
-    // A model row should have a name with letters (e.g. "GS-4046 E-Drive")
-    // and numeric data in the week columns
-    if (!/[a-zA-Z]/.test(firstCell)) continue
+    const lowerName = modelName.toLowerCase()
+    if (skipPatterns.some(p => lowerName.includes(p))) continue
 
     const weeklyData: { weekNumber: number; weeklyRate: number }[] = []
     let hasNumericData = false
 
     for (const wc of weekColumns) {
       const rawVal = String(rows[r][wc.colIndex] || '').trim()
-      // Skip percentage values (e.g., "32%") - those are in the column right after model name
+      // Skip percentage values (e.g., "32%")
       if (rawVal.includes('%')) continue
       const val = parseFloat(rawVal)
       if (!isNaN(val)) {
@@ -171,11 +188,13 @@ function extractForecastFromRows(rows: string[][]): ForecastData {
 
     if (weeklyData.length > 0 && hasNumericData) {
       // Clean up model name: remove trailing percentages or extra whitespace
-      const cleanName = firstCell.replace(/\s*\d+%\s*$/, '').trim()
+      const cleanName = modelName.replace(/\s*\d+%\s*$/, '').trim()
+      console.log(`[v0] Found model: "${cleanName}" with ${weeklyData.length} weeks of data`)
       models.push({ modelName: cleanName, weeklyData })
     }
   }
 
+  console.log(`[v0] extractForecastFromRows total: ${models.length} models found`)
   return { models }
 }
 
@@ -295,7 +314,8 @@ export async function POST(request: Request) {
     } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
       // Parse Excel
       const arrayBuffer = await fileBlob.arrayBuffer()
-      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+      const uint8 = new Uint8Array(arrayBuffer)
+      const workbook = XLSX.read(uint8, { type: 'array' })
       console.log('[v0] Excel sheet names:', workbook.SheetNames)
       // Try all sheets, not just the first one
       let bestOutput: ForecastData = { models: [] }
@@ -336,8 +356,21 @@ export async function POST(request: Request) {
     console.log('[v0] Final output models count:', output?.models?.length, 'models:', output?.models?.map(m => m.modelName))
 
     if (!output || !output.models || output.models.length === 0) {
+      // Include debug info in error for troubleshooting
+      let debugInfo = `File: ${targetFile.file_name}, Type detected: ${fileName.endsWith('.xlsx') || fileName.endsWith('.xls') ? 'Excel' : fileName.endsWith('.csv') ? 'CSV' : 'PDF'}`
+      if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+        const ab = await fileBlob.arrayBuffer()
+        const wb = XLSX.read(new Uint8Array(ab), { type: 'array' })
+        debugInfo += `, Sheets: [${wb.SheetNames.join(', ')}]`
+        const firstSheet = wb.Sheets[wb.SheetNames[0]]
+        const sampleRows: string[][] = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' })
+        debugInfo += `, Rows: ${sampleRows.length}`
+        // Show first 5 rows for debugging
+        const preview = sampleRows.slice(0, 8).map((row, i) => `Row${i}: [${row.slice(0, 10).map(c => String(c).trim()).filter(Boolean).join(' | ')}]`).join('; ')
+        debugInfo += `, Preview: ${preview}`
+      }
       return NextResponse.json({
-        error: 'Could not extract forecast data from file. Please ensure the file contains forecast tables with week columns.'
+        error: `Could not extract forecast data. Debug: ${debugInfo}`
       }, { status: 400 })
     }
 
