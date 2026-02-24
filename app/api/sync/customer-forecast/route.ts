@@ -7,7 +7,7 @@ const BUCKET_NAME = 'forecast-files'
 // SKU-specific forecast multipliers (sku_code -> multiplier)
 const FORECAST_MULTIPLIERS: Record<string, number> = {
   '229579': 8,
-  '60342': 2,
+  '60342': 3,
 }
 
 // Compound model names that map to multiple model lookups
