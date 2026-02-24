@@ -55,18 +55,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing skuId or weekNumber' }, { status: 400 })
     }
 
-    // Moses Lake HX SKUs use default token
-    const MOSES_LAKE_SKUS = ['1272762', '1272913', '61415', '824433']
-    // Kent HX SKU uses Kent HX token
-    const KENT_HX_SKUS = ['1282199']
+    // Determine WMS token based on SKU warehouse
+    // Look up the SKU's warehouse from the database to route to the correct WMS token
+    const supabaseForLookup = await createClient()
+    const { data: skuRow } = await supabaseForLookup
+      .from('skus')
+      .select('warehouse, supplier_code')
+      .eq('sku_code', skuId)
+      .single()
 
     let wmsToken: string | undefined
-    if (KENT_HX_SKUS.includes(skuId)) {
-      wmsToken = process.env.WMS_API_TOKEN_KENT_HX
-    } else if (MOSES_LAKE_SKUS.includes(skuId)) {
+    if (skuRow?.warehouse === 'Moses Lake') {
       wmsToken = process.env.WMS_API_TOKEN
+    } else if (skuRow?.supplier_code === 'HX') {
+      // Kent HX
+      wmsToken = process.env.WMS_API_TOKEN_KENT_HX
     } else {
-      // All other SKUs (AMC) use Kent AMC token
+      // Kent AMC or others
       wmsToken = process.env.WMS_API_TOKEN_KENT_AMC
     }
 

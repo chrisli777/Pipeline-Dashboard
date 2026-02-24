@@ -1,8 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
-// Target SKU IDs we track in our database
-const TARGET_SKUS = ['1272762', '1272913', '61415', '824433', '1282199']
+
 
 // Calculate week dates from week number
 // Weeks run Sunday to Saturday
@@ -59,26 +58,29 @@ export async function POST(request: Request) {
       )
     }
 
-    // Validate SKU is one we track
-    if (!TARGET_SKUS.includes(skuId)) {
+    // Look up the SKU's warehouse from the database to route to the correct WMS token
+    const supabaseForLookup = await createClient()
+    const { data: skuRow } = await supabaseForLookup
+      .from('skus')
+      .select('warehouse, supplier_code')
+      .eq('sku_code', skuId)
+      .single()
+
+    if (!skuRow) {
       return NextResponse.json(
-        { error: `SKU ${skuId} is not a tracked SKU` },
+        { error: `SKU ${skuId} not found in database` },
         { status: 400 }
       )
     }
 
-    // Moses Lake HX SKUs use default token
-    const MOSES_LAKE_SKUS = ['1272762', '1272913', '61415', '824433']
-    // Kent HX SKU uses Kent HX token
-    const KENT_HX_SKUS = ['1282199']
-
     let wmsToken: string | undefined
-    if (KENT_HX_SKUS.includes(skuId)) {
-      wmsToken = process.env.WMS_API_TOKEN_KENT_HX
-    } else if (MOSES_LAKE_SKUS.includes(skuId)) {
+    if (skuRow.warehouse === 'Moses Lake') {
       wmsToken = process.env.WMS_API_TOKEN
+    } else if (skuRow.supplier_code === 'HX') {
+      // Kent HX
+      wmsToken = process.env.WMS_API_TOKEN_KENT_HX
     } else {
-      // All other SKUs (AMC) use Kent AMC token
+      // Kent AMC or others
       wmsToken = process.env.WMS_API_TOKEN_KENT_AMC
     }
 
