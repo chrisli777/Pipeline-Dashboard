@@ -148,12 +148,27 @@ export async function POST(request: NextRequest) {
       currentPage++
     }
 
-    // Update the actual_consumption in database
+    // If WMS returned 0 consumption, fall back to customer_forecast
     const supabase = await createClient()
+    let finalConsumption = totalConsumption
+
+    if (totalConsumption === 0) {
+      const { data: existingRow } = await supabase
+        .from('inventory_data')
+        .select('customer_forecast')
+        .eq('sku_id', skuId)
+        .eq('week_number', weekNumber)
+        .single()
+      
+      if (existingRow?.customer_forecast != null && Number(existingRow.customer_forecast) > 0) {
+        finalConsumption = Number(existingRow.customer_forecast)
+      }
+    }
+
     const { error: updateError } = await supabase
       .from('inventory_data')
       .update({ 
-        actual_consumption: totalConsumption,
+        actual_consumption: finalConsumption,
         updated_at: new Date().toISOString()
       })
       .eq('sku_id', skuId)
