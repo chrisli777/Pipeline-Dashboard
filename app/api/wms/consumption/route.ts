@@ -82,8 +82,8 @@ export async function POST(request: NextRequest) {
     const rqlRaw = `ReadOnly.IsClosed==true;ReadOnly.ProcessDate=ge=${start};ReadOnly.ProcessDate=lt=${end}`
     const rqlEncoded = encodeURIComponent(rqlRaw)
 
-    // Build WMS API URL with detail=All to get order line items
-    const wmsUrl = `https://secure-wms.com/orders?pgsiz=100&pgnum=1&skucontains=${skuId}&rql=${rqlEncoded}&detail=All`
+    // Build WMS API URL with detail=OrderItems to get order line items
+    const wmsUrl = `https://secure-wms.com/orders?pgsiz=100&pgnum=1&skucontains=${skuId}&rql=${rqlEncoded}&detail=OrderItems`
 
     // Paginate through all results and sum qty
     let totalConsumption = 0
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     while (currentPage <= totalPages) {
       const pageUrl = currentPage === 1 
         ? wmsUrl 
-        : `https://secure-wms.com/orders?pgsiz=100&pgnum=${currentPage}&skucontains=${skuId}&rql=${rqlEncoded}&detail=All`
+        : `https://secure-wms.com/orders?pgsiz=100&pgnum=${currentPage}&skucontains=${skuId}&rql=${rqlEncoded}&detail=OrderItems`
 
       const wmsResponse = await fetch(pageUrl, {
         method: 'GET',
@@ -119,31 +119,24 @@ export async function POST(request: NextRequest) {
         totalPages = Math.ceil(totalResults / 100)
       }
 
-      // Iterate through orders and sum qty from order line items
+      // Iterate through orders -> OrderItems -> each item's Qty
+      // Response structure: { ResourceList: [ { OrderItems: [ { ItemIdentifier: { Sku }, Qty }, ... ] }, ... ] }
       const orders = wmsData.ResourceList || []
-      console.log(`[v0] Page ${currentPage}: ${orders.length} orders found for SKU ${skuId}, week ${weekNumber}`)
       for (const order of orders) {
-        // OrderItems can be: direct array, { ResourceList: [...] }, or nested
+        // Get OrderItems array from order
         const rawOrderItems = order.OrderItems
         let orderItems: any[] = []
         if (Array.isArray(rawOrderItems)) {
           orderItems = rawOrderItems
         } else if (rawOrderItems?.ResourceList && Array.isArray(rawOrderItems.ResourceList)) {
           orderItems = rawOrderItems.ResourceList
-        } else if (rawOrderItems && typeof rawOrderItems === 'object') {
-          // Could be a single item wrapped in an object
-          orderItems = [rawOrderItems]
         }
-        
-        console.log(`[v0] Order ${order.OrderId || order.ReadOnly?.OrderId || 'unknown'}: ${orderItems.length} items, raw type: ${Array.isArray(rawOrderItems) ? 'array' : typeof rawOrderItems}, keys: ${rawOrderItems ? Object.keys(rawOrderItems).slice(0, 5).join(',') : 'null'}`)
-        
+
+        // Iterate through each OrderItem and sum Qty for matching SKUs
         for (const item of orderItems) {
-          // Only count items matching our SKU
           const itemSku = item.Sku || item.ItemIdentifier?.Sku || ''
-          const itemQty = item.Qty || item.QtyOrdered || item.QtyShipped || 0
-          console.log(`[v0]   Item SKU: "${itemSku}", Qty: ${itemQty}, matches ${skuId}: ${itemSku.includes(skuId)}`)
           if (itemSku.includes(skuId)) {
-            totalConsumption += itemQty
+            totalConsumption += item.Qty || 0
           }
         }
       }
