@@ -14,6 +14,7 @@ const MODEL_TO_SKUS: Record<string, string[]> = {
   'z80': ['61415'],
   'z62': ['824433'],
   'z45xc': ['1282199'],
+  'sx-125': ['60342', '60863'],
   // AMC / GENIE models (from Excel forecasts) — GS-4046 maps to all AMC SKUs
   'gs-4046': ['132383', '132385', '229579', '1260200', '1264224', '1299483', '132517', '132525', '1260307', '1260198'],
   // Additional GS models that may appear in forecast but don't have matching SKUs yet
