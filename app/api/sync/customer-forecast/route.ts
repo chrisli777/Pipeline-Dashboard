@@ -384,10 +384,12 @@ export async function POST(request: Request) {
         let weekFoundForAnySku = false
         for (const skuId of matchingSkus) {
           if (existingCombinations.has(`${skuId}_${weekData.weekNumber}`)) {
+            // SKU 229579 requires forecast values multiplied by 8
+            const multiplier = skuId === '229579' ? 8 : 1
             updates.push({
               skuId,
               weekNumber: weekData.weekNumber,
-              value: weekData.weeklyRate,
+              value: weekData.weeklyRate * multiplier,
             })
             modelHasUpdates = true
             weekFoundForAnySku = true
