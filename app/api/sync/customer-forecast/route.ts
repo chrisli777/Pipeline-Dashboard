@@ -242,7 +242,7 @@ async function extractForecastFromPDF(base64Data: string, mimeType: string): Pro
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
+      max_tokens: 8192,
       messages: [
         {
           role: 'user',
@@ -283,22 +283,34 @@ Return ONLY valid JSON in this exact format, no other text:
   const rawText = claudeData.content?.[0]?.text || ''
 
   // Extract JSON from Claude's response (may be wrapped in markdown code blocks)
-  let jsonStr = rawText
+  let jsonStr = rawText.trim()
+  
+  // Try markdown code block first
   const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/)
   if (jsonMatch) {
     jsonStr = jsonMatch[1].trim()
-  } else {
-    const objMatch = rawText.match(/\{[\s\S]*\}/)
+  }
+  
+  // Try to find a JSON object with "models" key
+  if (!jsonStr.startsWith('{')) {
+    const objMatch = rawText.match(/\{[\s\S]*"models"[\s\S]*\}/)
     if (objMatch) {
       jsonStr = objMatch[0]
     }
   }
 
+  // Clean up common issues: trailing commas, etc.
+  jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1')
+
   try {
-    return JSON.parse(jsonStr)
-  } catch {
-    console.error('[v0] Failed to parse Claude response as JSON:', rawText)
-    throw new Error('Could not parse forecast data from PDF. AI returned invalid format.')
+    const parsed = JSON.parse(jsonStr)
+    if (!parsed.models || !Array.isArray(parsed.models)) {
+      throw new Error('Missing models array')
+    }
+    return parsed
+  } catch (parseErr) {
+    console.error('[v0] Failed to parse Claude response as JSON. Raw text:', rawText.slice(0, 500))
+    throw new Error(`Could not parse forecast data from PDF. AI returned invalid format. Preview: ${rawText.slice(0, 200)}`)
   }
 }
 
