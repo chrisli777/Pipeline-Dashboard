@@ -99,7 +99,10 @@ export default function CustomerForecastPage() {
         const skippedMsg = data.stats.skippedWeeks?.length > 0 
           ? `\nSkipped weeks (not in database): ${data.stats.skippedWeeks.join(', ')}`
           : ''
-        alert(`Sync completed!\n\nModels updated: ${data.stats.modelsUpdated.join(', ')}\nUpdates: ${data.stats.successCount} successful, ${data.stats.errorCount} errors${skippedMsg}`)
+        const unmatchedMsg = data.stats.unmatchedModels?.length > 0
+          ? `\nUnmatched models (no SKUs found): ${data.stats.unmatchedModels.join(', ')}`
+          : ''
+        alert(`Sync completed!\n\nModels updated: ${data.stats.modelsUpdated.join(', ')}\nUpdates: ${data.stats.successCount} successful, ${data.stats.errorCount} errors${unmatchedMsg}${skippedMsg}`)
         // Hard redirect to dashboard - ensures full page reload with fresh data
         window.location.href = '/'
       } else {

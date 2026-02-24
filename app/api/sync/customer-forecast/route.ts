@@ -15,6 +15,13 @@ const COMPOUND_MODELS: Record<string, string[]> = {
   's60j & s80j': ['s60j', 's80j'],
 }
 
+// Aliases: forecast model name -> DB part_model search terms
+// Used when customer model names differ from supplier part model names
+const MODEL_ALIASES: Record<string, string[]> = {
+  's60j': ['t60'],     // Genie S60J = HX T60 (Engine Side)
+  's80j': ['t80'],     // Genie S80J = HX T80 (Control Side)
+}
+
 // Find matching SKU codes from the database for a given model name
 async function findMatchingSkuCodes(supabase: any, modelName: string): Promise<string[]> {
   const normalized = modelName.toLowerCase().trim()
@@ -42,6 +49,13 @@ async function findMatchingSkuCodes(supabase: any, modelName: string): Promise<s
   variants.add(coreModel.replace(/-/g, ''))
   // Without spaces and hyphens
   variants.add(coreModel.replace(/[-\s]/g, ''))
+
+  // Also add alias variants (e.g., S60J -> T60)
+  if (MODEL_ALIASES[normalized]) {
+    for (const alias of MODEL_ALIASES[normalized]) {
+      variants.add(alias)
+    }
+  }
 
   const matchedSkuCodes: string[] = []
 
@@ -243,9 +257,12 @@ async function extractForecastFromPDF(base64Data: string, mimeType: string): Pro
             },
             {
               type: 'text',
-              text: `Extract forecast data from this PDF. ONLY extract these models: "S60J & S80J", "Z80", "Z62". Ignore all others (like Z60).
+              text: `Extract forecast data from this PDF. Extract ALL models/machine types you find in the document. Each model typically has a "Week #" row and a "Weekly Rate" row.
 
-For each model found, extract week numbers from the "Week #" row and weekly rate values from the "Weekly Rate" row.
+For each model found, extract:
+- The model name exactly as shown (e.g., "S60J & S80J", "Z80", "Z62", "Z45XC", "SX125XC", "T80", "T60", etc.)
+- Week numbers from the "Week #" row
+- Weekly rate values from the "Weekly Rate" row
 
 Return ONLY valid JSON in this exact format, no other text:
 {"models":[{"modelName":"S60J & S80J","weeklyData":[{"weekNumber":2,"weeklyRate":4}]}]}`,
@@ -385,6 +402,8 @@ export async function POST(request: Request) {
     const skippedWeeks: number[] = []
     const matchedModels: string[] = []
 
+    const unmatchedModels: string[] = []
+
     for (const model of output.models) {
       let matchingSkus: string[] | undefined
 
@@ -397,7 +416,12 @@ export async function POST(request: Request) {
         matchingSkus = await findMatchingSkuCodes(supabase, model.modelName)
       }
 
-      if (!matchingSkus || matchingSkus.length === 0) continue
+      console.log(`[v0] Model "${model.modelName}" -> matched SKUs: [${matchingSkus?.join(', ') || 'none'}]`)
+
+      if (!matchingSkus || matchingSkus.length === 0) {
+        unmatchedModels.push(model.modelName)
+        continue
+      }
 
       let modelHasUpdates = false
       for (const weekData of model.weeklyData) {
@@ -448,6 +472,7 @@ export async function POST(request: Request) {
       message: `Synced customer forecast from ${targetFile.file_name}`,
       stats: {
         modelsUpdated: matchedModels,
+        unmatchedModels,
         totalUpdates: updates.length,
         successCount,
         errorCount,
