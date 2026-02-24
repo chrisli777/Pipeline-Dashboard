@@ -5,18 +5,20 @@ import { NextResponse } from 'next/server'
 const TARGET_SKUS = ['1272762', '1272913', '61415', '824433', '1282199']
 
 // Calculate week dates from week number
-// Week 1 Monday is Dec 29, 2025
+// Weeks run Sunday to Saturday
+// Week 1: Dec 28, 2025 (Sun) - Jan 3, 2026 (Sat)
 function getWeekDateRange(weekNumber: number): { start: string; end: string } {
-  const week1Monday = new Date(2025, 11, 29) // Dec 29, 2025 (Monday)
-  const weekMonday = new Date(week1Monday)
-  weekMonday.setDate(week1Monday.getDate() + (weekNumber - 1) * 7)
+  const week1Sunday = new Date(2025, 11, 28) // Dec 28, 2025 (Sunday)
+  const weekSunday = new Date(week1Sunday)
+  weekSunday.setDate(week1Sunday.getDate() + (weekNumber - 1) * 7)
 
-  const nextMonday = new Date(weekMonday)
-  nextMonday.setDate(weekMonday.getDate() + 7)
+  // Saturday is 6 days after Sunday, but use next Sunday for exclusive end range
+  const nextSunday = new Date(weekSunday)
+  nextSunday.setDate(weekSunday.getDate() + 7)
 
   return {
-    start: formatDateForRQL(weekMonday),
-    end: formatDateForRQL(nextMonday),
+    start: formatDateForRQL(weekSunday),
+    end: formatDateForRQL(nextSunday),
   }
 }
 

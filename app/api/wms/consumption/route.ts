@@ -10,33 +10,32 @@ function formatDateForRQL(date: Date): string {
 }
 
 // Calculate week dates from week number
-// Week 1: Dec 29, 2025 (Mon) - Jan 2, 2026 (Fri) => Friday display: Jan 2
-// Week 2: Jan 5 (Mon) - Jan 9 (Fri) => Friday display: Jan 9
-// Week 5: Jan 26 (Mon) - Jan 30 (Fri) => Friday display: Jan 30
-// Week 6: Feb 2 (Mon) - Feb 6 (Fri) => Friday display: Feb 6
+// Weeks run Sunday to Saturday
+// Week 1: Dec 28, 2025 (Sun) - Jan 3, 2026 (Sat)
+// Week 6: Feb 1 (Sun) - Feb 7 (Sat)
+// Week 7: Feb 8 (Sun) - Feb 14 (Sat)
 function getWeekDateRange(weekNumber: number): { start: string; end: string } {
-  // Week 1 Monday is Dec 29, 2025
-  const week1Monday = new Date(2025, 11, 29) // Dec 29, 2025 (Monday)
-  const weekMonday = new Date(week1Monday)
-  weekMonday.setDate(week1Monday.getDate() + (weekNumber - 1) * 7)
+  // Week 1 Sunday is Dec 28, 2025
+  const week1Sunday = new Date(2025, 11, 28) // Dec 28, 2025 (Sunday)
+  const weekSunday = new Date(week1Sunday)
+  weekSunday.setDate(week1Sunday.getDate() + (weekNumber - 1) * 7)
   
-  // Friday is 4 days after Monday
-  const friday = new Date(weekMonday)
-  friday.setDate(weekMonday.getDate() + 4)
+  // Saturday is 6 days after Sunday
+  const saturday = new Date(weekSunday)
+  saturday.setDate(weekSunday.getDate() + 6)
   
   return { 
-    start: formatDateForRQL(weekMonday), 
-    end: formatDateForRQL(friday)
+    start: formatDateForRQL(weekSunday), 
+    end: formatDateForRQL(saturday)
   }
 }
 
 // Calculate current week number based on today's date
-// Week 1 Monday is Dec 29, 2025
-// Feb 3, 2026 should be Week 6
+// Week 1 Sunday is Dec 28, 2025
 function getCurrentWeekNumber(): number {
-  const week1Monday = new Date(2025, 11, 29) // Dec 29, 2025 (Monday)
+  const week1Sunday = new Date(2025, 11, 28) // Dec 28, 2025 (Sunday)
   const today = new Date()
-  const diffTime = today.getTime() - week1Monday.getTime()
+  const diffTime = today.getTime() - week1Sunday.getTime()
   const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
   return Math.floor(diffDays / 7) + 1
 }
