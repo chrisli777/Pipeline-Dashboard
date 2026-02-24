@@ -14,7 +14,7 @@ const MODEL_TO_SKUS: Record<string, string[]> = {
   'z80': ['61415'],
   'z62': ['824433'],
   'z45xc': ['1282199'],
-  'sx-125': ['60342', '60863'],
+  'sx125xc': ['60342', '60863'],
   // AMC / GENIE models (from Excel forecasts) — GS-4046 maps to all AMC SKUs
   'gs-4046': ['132383', '132385', '229579', '1260200', '1264224', '1299483', '132517', '132525', '1260307', '1260198'],
   // Additional GS models that may appear in forecast but don't have matching SKUs yet
@@ -386,7 +386,8 @@ export async function POST(request: Request) {
         for (const skuId of matchingSkus) {
           if (existingCombinations.has(`${skuId}_${weekData.weekNumber}`)) {
             // SKU 229579 requires forecast values multiplied by 8
-            const multiplier = skuId === '229579' ? 8 : 1
+            // SKU-specific forecast multipliers
+            const multiplier = skuId === '229579' ? 8 : skuId === '60342' ? 2 : 1
             updates.push({
               skuId,
               weekNumber: weekData.weekNumber,

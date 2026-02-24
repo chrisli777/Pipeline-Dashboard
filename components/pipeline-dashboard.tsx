@@ -174,10 +174,10 @@ export function PipelineDashboard() {
   const [syncing, setSyncing] = useState(false)
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('GENIE')
-  const [selectedVendor, setSelectedVendor] = useState<string>('HX')
-  const [selectedWarehouse, setSelectedWarehouse] = useState<string>('all')
-  const [selectedSku, setSelectedSku] = useState<string>('all')
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>(['GENIE'])
+  const [selectedVendors, setSelectedVendors] = useState<string[]>(['HX'])
+  const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([])
+  const [selectedSkus, setSelectedSkus] = useState<string[]>([])
   const [weekRange, setWeekRange] = useState({ start: 1, end: 53 })
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([])
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
@@ -282,22 +282,23 @@ export function PipelineDashboard() {
   }, [skus])
 
   // 4-tier cascading filter: Customer -> Vendor -> Warehouse -> SKU
+  // Empty array = all (no filter applied)
   const filteredSkus = useMemo(() => {
     let filtered = skus
-    if (selectedCustomer !== 'all') {
-      filtered = filtered.filter((sku) => sku.customerCode === selectedCustomer)
+    if (selectedCustomers.length > 0) {
+      filtered = filtered.filter((sku) => selectedCustomers.includes(sku.customerCode || ''))
     }
-    if (selectedVendor !== 'all') {
-      filtered = filtered.filter((sku) => sku.supplierCode === selectedVendor)
+    if (selectedVendors.length > 0) {
+      filtered = filtered.filter((sku) => selectedVendors.includes(sku.supplierCode || ''))
     }
-    if (selectedWarehouse !== 'all') {
-      filtered = filtered.filter((sku) => sku.warehouse === selectedWarehouse)
+    if (selectedWarehouses.length > 0) {
+      filtered = filtered.filter((sku) => selectedWarehouses.includes(sku.warehouse || ''))
     }
-    if (selectedSku !== 'all') {
-      filtered = filtered.filter((sku) => sku.id === selectedSku)
+    if (selectedSkus.length > 0) {
+      filtered = filtered.filter((sku) => selectedSkus.includes(sku.id))
     }
     return filtered
-  }, [skus, selectedCustomer, selectedVendor, selectedWarehouse, selectedSku])
+  }, [skus, selectedCustomers, selectedVendors, selectedWarehouses, selectedSkus])
 
   // Handle data changes - update locally and track pending changes
   const handleDataChange = useCallback(
@@ -634,14 +635,14 @@ export function PipelineDashboard() {
         {/* Filters */}
         <InventoryFilters
           skus={skus}
-          selectedCustomer={selectedCustomer}
-          onCustomerChange={setSelectedCustomer}
-          selectedVendor={selectedVendor}
-          onVendorChange={setSelectedVendor}
-          selectedWarehouse={selectedWarehouse}
-          onWarehouseChange={setSelectedWarehouse}
-          selectedSku={selectedSku}
-          onSkuChange={setSelectedSku}
+          selectedCustomers={selectedCustomers}
+          onCustomersChange={setSelectedCustomers}
+          selectedVendors={selectedVendors}
+          onVendorsChange={setSelectedVendors}
+          selectedWarehouses={selectedWarehouses}
+          onWarehousesChange={setSelectedWarehouses}
+          selectedSkus={selectedSkus}
+          onSkusChange={setSelectedSkus}
           weekRange={weekRange}
           onWeekRangeChange={setWeekRange}
           totalWeeks={TOTAL_WEEKS}

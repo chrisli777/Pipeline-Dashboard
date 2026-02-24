@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo } from 'react'
-import { Filter, X } from 'lucide-react'
+import { useMemo, useRef, useState, useEffect } from 'react'
+import { Filter, X, ChevronDown, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -14,39 +14,133 @@ import type { SKUData } from '@/lib/types'
 
 interface InventoryFiltersProps {
   skus: SKUData[]
-  selectedCustomer: string
-  onCustomerChange: (value: string) => void
-  selectedVendor: string
-  onVendorChange: (value: string) => void
-  selectedWarehouse: string
-  onWarehouseChange: (value: string) => void
-  selectedSku: string
-  onSkuChange: (value: string) => void
+  selectedCustomers: string[]
+  onCustomersChange: (value: string[]) => void
+  selectedVendors: string[]
+  onVendorsChange: (value: string[]) => void
+  selectedWarehouses: string[]
+  onWarehousesChange: (value: string[]) => void
+  selectedSkus: string[]
+  onSkusChange: (value: string[]) => void
   weekRange: { start: number; end: number }
   onWeekRangeChange: (range: { start: number; end: number }) => void
   totalWeeks: number
 }
 
+// Multi-select dropdown component
+function MultiSelect({
+  label,
+  options,
+  selected,
+  onChange,
+  renderOption,
+  width = 'w-[150px]',
+}: {
+  label: string
+  options: { value: string; label: string }[]
+  selected: string[]
+  onChange: (value: string[]) => void
+  renderOption?: (opt: { value: string; label: string }) => React.ReactNode
+  width?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const toggleValue = (value: string) => {
+    if (selected.includes(value)) {
+      onChange(selected.filter((v) => v !== value))
+    } else {
+      onChange([...selected, value])
+    }
+  }
+
+  const displayText =
+    selected.length === 0
+      ? `All`
+      : selected.length === 1
+        ? options.find((o) => o.value === selected[0])?.label || selected[0]
+        : `${selected.length} selected`
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={`${width} flex h-9 items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring`}
+      >
+        <span className="truncate text-foreground">{displayText}</span>
+        <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 max-h-[300px] min-w-[200px] overflow-auto rounded-md border border-border bg-popover p-1 shadow-md">
+          {/* Select All / Clear */}
+          <button
+            type="button"
+            onClick={() => {
+              if (selected.length === options.length) {
+                onChange([])
+              } else {
+                onChange(options.map((o) => o.value))
+              }
+            }}
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+          >
+            <div className="flex h-4 w-4 items-center justify-center rounded-sm border border-primary">
+              {selected.length === options.length && <Check className="h-3 w-3" />}
+            </div>
+            <span className="text-muted-foreground">
+              {selected.length === options.length ? 'Clear all' : 'Select all'}
+            </span>
+          </button>
+          <div className="my-1 h-px bg-border" />
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => toggleValue(opt.value)}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+            >
+              <div className="flex h-4 w-4 items-center justify-center rounded-sm border border-primary">
+                {selected.includes(opt.value) && <Check className="h-3 w-3" />}
+              </div>
+              {renderOption ? renderOption(opt) : <span>{opt.label}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function InventoryFilters({
   skus,
-  selectedCustomer,
-  onCustomerChange,
-  selectedVendor,
-  onVendorChange,
-  selectedWarehouse,
-  onWarehouseChange,
-  selectedSku,
-  onSkuChange,
+  selectedCustomers,
+  onCustomersChange,
+  selectedVendors,
+  onVendorsChange,
+  selectedWarehouses,
+  onWarehousesChange,
+  selectedSkus,
+  onSkusChange,
   weekRange,
   onWeekRangeChange,
   totalWeeks,
 }: InventoryFiltersProps) {
   const weekOptions = Array.from({ length: totalWeeks }, (_, i) => i + 1)
 
-  // All known customers (includes Clark even without SKUs yet)
   const ALL_CUSTOMERS = ['CLARK', 'GENIE']
 
-  // Build vendor -> customer mapping from SKU data
+  // Build vendor -> customer mapping
   const vendorToCustomer = useMemo(() => {
     const map = new Map<string, string>()
     skus.forEach((sku) => {
@@ -57,7 +151,7 @@ export function InventoryFilters({
     return map
   }, [skus])
 
-  // Derive all known vendors
+  // All vendors
   const allVendors = useMemo(() => {
     const set = new Set<string>()
     skus.forEach((sku) => {
@@ -66,97 +160,42 @@ export function InventoryFilters({
     return Array.from(set).sort()
   }, [skus])
 
-  // Vendors filtered by selected customer
+  // Vendors filtered by selected customers
   const vendors = useMemo(() => {
-    if (selectedCustomer === 'all') return allVendors
-    return allVendors.filter((v) => vendorToCustomer.get(v) === selectedCustomer)
-  }, [allVendors, selectedCustomer, vendorToCustomer])
+    if (selectedCustomers.length === 0) return allVendors
+    return allVendors.filter((v) => {
+      const cust = vendorToCustomer.get(v)
+      return cust && selectedCustomers.includes(cust)
+    })
+  }, [allVendors, selectedCustomers, vendorToCustomer])
 
-  // Warehouses filtered by selected customer + vendor
+  // Warehouses filtered by selected customers + vendors
   const warehouses = useMemo(() => {
     const set = new Set<string>()
     skus.forEach((sku) => {
       if (!sku.warehouse) return
-      if (selectedCustomer !== 'all' && sku.customerCode !== selectedCustomer) return
-      if (selectedVendor !== 'all' && sku.supplierCode !== selectedVendor) return
+      if (selectedCustomers.length > 0 && !selectedCustomers.includes(sku.customerCode || '')) return
+      if (selectedVendors.length > 0 && !selectedVendors.includes(sku.supplierCode || '')) return
       set.add(sku.warehouse)
     })
     return Array.from(set).sort()
-  }, [skus, selectedCustomer, selectedVendor])
+  }, [skus, selectedCustomers, selectedVendors])
 
-  // SKUs filtered by selected customer, vendor, and warehouse
+  // SKUs filtered by selected customers, vendors, warehouses
   const filteredSkuOptions = useMemo(() => {
     return skus.filter((sku) => {
-      if (selectedCustomer !== 'all' && sku.customerCode !== selectedCustomer) return false
-      if (selectedVendor !== 'all' && sku.supplierCode !== selectedVendor) return false
-      if (selectedWarehouse !== 'all' && sku.warehouse !== selectedWarehouse) return false
+      if (selectedCustomers.length > 0 && !selectedCustomers.includes(sku.customerCode || '')) return false
+      if (selectedVendors.length > 0 && !selectedVendors.includes(sku.supplierCode || '')) return false
+      if (selectedWarehouses.length > 0 && !selectedWarehouses.includes(sku.warehouse || '')) return false
       return true
     })
-  }, [skus, selectedCustomer, selectedVendor, selectedWarehouse])
-
-  // When customer changes: reset vendor, warehouse, SKU downward
-  const handleCustomerChange = (value: string) => {
-    onCustomerChange(value)
-    onVendorChange('all')
-    onWarehouseChange('all')
-    onSkuChange('all')
-  }
-
-  // When vendor changes: auto-sync customer upward, reset warehouse + SKU downward
-  const handleVendorChange = (value: string) => {
-    if (value !== 'all') {
-      const parentCustomer = vendorToCustomer.get(value)
-      if (parentCustomer && selectedCustomer !== parentCustomer) {
-        onCustomerChange(parentCustomer)
-      }
-    }
-    onVendorChange(value)
-    onWarehouseChange('all')
-    onSkuChange('all')
-  }
-
-  // When warehouse changes: auto-sync vendor + customer upward, reset SKU downward
-  const handleWarehouseChange = (value: string) => {
-    if (value !== 'all') {
-      // Find a SKU in this warehouse to determine the parent vendor/customer
-      const sample = skus.find((s) => s.warehouse === value)
-      if (sample) {
-        if (sample.supplierCode && selectedVendor === 'all') {
-          onVendorChange(sample.supplierCode)
-        }
-        if (sample.customerCode && selectedCustomer !== sample.customerCode) {
-          onCustomerChange(sample.customerCode)
-        }
-      }
-    }
-    onWarehouseChange(value)
-    onSkuChange('all')
-  }
-
-  // When SKU changes: auto-sync warehouse, vendor, and customer upward
-  const handleSkuChange = (value: string) => {
-    if (value !== 'all') {
-      const sku = skus.find((s) => s.id === value)
-      if (sku) {
-        if (sku.warehouse && selectedWarehouse !== sku.warehouse) {
-          onWarehouseChange(sku.warehouse)
-        }
-        if (sku.supplierCode && selectedVendor !== sku.supplierCode) {
-          onVendorChange(sku.supplierCode)
-        }
-        if (sku.customerCode && selectedCustomer !== sku.customerCode) {
-          onCustomerChange(sku.customerCode)
-        }
-      }
-    }
-    onSkuChange(value)
-  }
+  }, [skus, selectedCustomers, selectedVendors, selectedWarehouses])
 
   const handleReset = () => {
-    onCustomerChange('all')
-    onVendorChange('all')
-    onWarehouseChange('all')
-    onSkuChange('all')
+    onCustomersChange([])
+    onVendorsChange([])
+    onWarehousesChange([])
+    onSkusChange([])
     onWeekRangeChange({ start: 1, end: totalWeeks })
   }
 
@@ -170,76 +209,52 @@ export function InventoryFilters({
       {/* Tier 1: Customer */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">Customer:</label>
-        <Select value={selectedCustomer} onValueChange={handleCustomerChange}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="Select Customer" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Customers</SelectItem>
-            {ALL_CUSTOMERS.map((code) => (
-              <SelectItem key={code} value={code}>
-                {code}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <MultiSelect
+          label="Customer"
+          options={ALL_CUSTOMERS.map((c) => ({ value: c, label: c }))}
+          selected={selectedCustomers}
+          onChange={onCustomersChange}
+          width="w-[150px]"
+        />
       </div>
 
-      {/* Tier 2: Vendor (Supplier) */}
+      {/* Tier 2: Vendor */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">Vendor:</label>
-        <Select value={selectedVendor} onValueChange={handleVendorChange}>
-          <SelectTrigger className="w-[140px]">
-            <SelectValue placeholder="Select Vendor" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Vendors</SelectItem>
-            {vendors.map((code) => (
-              <SelectItem key={code} value={code}>
-                {code}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <MultiSelect
+          label="Vendor"
+          options={vendors.map((v) => ({ value: v, label: v }))}
+          selected={selectedVendors}
+          onChange={onVendorsChange}
+          width="w-[140px]"
+        />
       </div>
 
       {/* Tier 3: Warehouse */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">Warehouse:</label>
-        <Select value={selectedWarehouse} onValueChange={handleWarehouseChange}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Select Warehouse" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Warehouses</SelectItem>
-            {warehouses.map((wh) => (
-              <SelectItem key={wh} value={wh}>
-                {wh}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <MultiSelect
+          label="Warehouse"
+          options={warehouses.map((w) => ({ value: w, label: w }))}
+          selected={selectedWarehouses}
+          onChange={onWarehousesChange}
+          width="w-[180px]"
+        />
       </div>
 
       {/* Tier 4: SKU */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">SKU:</label>
-        <Select value={selectedSku} onValueChange={handleSkuChange}>
-          <SelectTrigger className="w-[280px]">
-            <SelectValue placeholder="Select SKU" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All SKUs</SelectItem>
-            {filteredSkuOptions.map((sku) => (
-              <SelectItem key={sku.id} value={sku.id}>
-                {sku.partModelNumber}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <MultiSelect
+          label="SKU"
+          options={filteredSkuOptions.map((sku) => ({ value: sku.id, label: sku.partModelNumber }))}
+          selected={selectedSkus}
+          onChange={onSkusChange}
+          width="w-[280px]"
+        />
       </div>
 
-      {/* Week Range */}
+      {/* Week Range (keep as single select) */}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">Week Range:</label>
         <Select
