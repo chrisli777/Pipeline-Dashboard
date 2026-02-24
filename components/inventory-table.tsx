@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 interface InventoryTableProps {
   skus: SKUData[]
   weekRange: { start: number; end: number }
+  highlightedWeeks?: number[]
   onDataChange: (skuId: string, weekNumber: number, field: keyof WeekData, value: number | null) => void
 }
 
@@ -119,7 +120,8 @@ const ROW_TYPE_ORDER: RowType[] = [
   'actualInventory',
 ]
 
-export function InventoryTable({ skus, weekRange, onDataChange }: InventoryTableProps) {
+export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataChange }: InventoryTableProps) {
+  const highlightedSet = new Set(highlightedWeeks)
   const filteredWeeks = skus[0]?.weeks.filter(
     w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
   ) || []
@@ -139,7 +141,10 @@ export function InventoryTable({ skus, weekRange, onDataChange }: InventoryTable
             {filteredWeeks.map((week) => (
               <th
                 key={week.weekNumber}
-                className="px-2 py-1 text-center font-bold min-w-[60px] bg-blue-100"
+                className={cn(
+                  "px-2 py-1 text-center font-bold min-w-[60px]",
+                  highlightedSet.has(week.weekNumber) ? "bg-amber-200 text-amber-900" : "bg-blue-100"
+                )}
               >
                 {week.weekNumber}
               </th>
@@ -154,7 +159,10 @@ export function InventoryTable({ skus, weekRange, onDataChange }: InventoryTable
             {filteredWeeks.map((week) => (
               <th
                 key={week.weekNumber}
-                className="px-1 py-1 text-center text-xs font-bold min-w-[60px] bg-blue-50"
+                className={cn(
+                  "px-1 py-1 text-center text-xs font-bold min-w-[60px]",
+                  highlightedSet.has(week.weekNumber) ? "bg-amber-100 text-amber-800" : "bg-blue-50"
+                )}
               >
                 {week.weekOf}
               </th>
@@ -168,6 +176,7 @@ export function InventoryTable({ skus, weekRange, onDataChange }: InventoryTable
               sku={sku}
               filteredWeeks={filteredWeeks}
               weekRange={weekRange}
+              highlightedSet={highlightedSet}
               onDataChange={onDataChange}
             />
           ))}
@@ -181,10 +190,11 @@ interface SKURowsProps {
   sku: SKUData
   filteredWeeks: WeekData[]
   weekRange: { start: number; end: number }
+  highlightedSet: Set<number>
   onDataChange: (skuId: string, weekNumber: number, field: keyof WeekData, value: number | null) => void
 }
 
-function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) {
+function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, onDataChange }: SKURowsProps) {
   const skuWeeks = sku.weeks.filter(
     w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
   )
@@ -216,7 +226,7 @@ function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) 
           {ROW_LABELS.customerForecast}
         </td>
         {skuWeeks.map((week) => (
-          <td key={week.weekNumber} className="p-0 bg-white">
+          <td key={week.weekNumber} className={cn("p-0", highlightedSet.has(week.weekNumber) ? "bg-amber-50" : "bg-white")}>
             <EditableCell
               value={week.customerForecast}
               onChange={(v) => onDataChange(sku.id, week.weekNumber, 'customerForecast', v)}
@@ -236,12 +246,13 @@ function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) 
             // Calculated Actual Inventory is read-only (except week 1)
             const isReadOnly =
               (rowType === 'actualInventory' && week.weekNumber !== 1)
+            const isHighlighted = highlightedSet.has(week.weekNumber)
             return (
-              <td key={week.weekNumber} className="p-0">
+              <td key={week.weekNumber} className={cn("p-0", isHighlighted && "bg-amber-50")}>
                 <EditableCell
                   value={value}
                   onChange={(v) => onDataChange(sku.id, week.weekNumber, rowType, v)}
-                  className={getCellBackground(rowType, value)}
+                  className={getCellBackground(rowType, value) || (isHighlighted ? 'bg-amber-50' : '')}
                   isReadOnly={isReadOnly}
                 />
               </td>
@@ -255,16 +266,19 @@ function SKURows({ sku, filteredWeeks, weekRange, onDataChange }: SKURowsProps) 
         <td className="sticky left-[180px] z-10 bg-blue-50 px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
           Weeks on hand (actual / runout)
         </td>
-        {skuWeeks.map((week) => (
-          <td key={week.weekNumber} className="p-0 bg-blue-50">
-            <EditableCell
-              value={week.weeksOnHand}
-              onChange={() => {}}
-              className={getCellBackground('weeksOnHand', week.weeksOnHand)}
-              isWeeksOnHand
-            />
-          </td>
-        ))}
+        {skuWeeks.map((week) => {
+          const isHighlighted = highlightedSet.has(week.weekNumber)
+          return (
+            <td key={week.weekNumber} className={cn("p-0", isHighlighted ? "bg-amber-100" : "bg-blue-50")}>
+              <EditableCell
+                value={week.weeksOnHand}
+                onChange={() => {}}
+                className={getCellBackground('weeksOnHand', week.weeksOnHand) || (isHighlighted ? 'bg-amber-100' : '')}
+                isWeeksOnHand
+              />
+            </td>
+          )
+        })}
       </tr>
     </>
   )

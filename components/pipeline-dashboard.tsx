@@ -167,6 +167,22 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
   return Array.from(skuMap.values()).map(({ allWeeks, ...sku }) => sku)
 }
 
+// Calculate the default week (same logic as sync dialog)
+function getDefaultWeek(): number {
+  const today = new Date()
+  const dayOfWeek = today.getDay()
+  let daysToLastFriday: number
+  if (dayOfWeek === 5) daysToLastFriday = 7
+  else if (dayOfWeek === 6) daysToLastFriday = 1
+  else daysToLastFriday = dayOfWeek + 2
+  const lastFriday = new Date(today)
+  lastFriday.setDate(today.getDate() - daysToLastFriday)
+  const week1Sunday = new Date(2025, 11, 28)
+  const diffTime = lastFriday.getTime() - week1Sunday.getTime()
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+  return Math.max(1, Math.floor(diffDays / 7) + 1)
+}
+
 export function PipelineDashboard() {
   const [skus, setSkus] = useState<SKUData[]>([])
   const [loading, setLoading] = useState(true)
@@ -178,6 +194,7 @@ export function PipelineDashboard() {
   const [selectedVendors, setSelectedVendors] = useState<string[]>(['HX'])
   const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([])
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
+  const [highlightedWeeks, setHighlightedWeeks] = useState<number[]>(() => [getDefaultWeek()])
   const [weekRange, setWeekRange] = useState({ start: 1, end: 53 })
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([])
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
@@ -643,6 +660,8 @@ export function PipelineDashboard() {
           onWarehousesChange={setSelectedWarehouses}
           selectedSkus={selectedSkus}
           onSkusChange={setSelectedSkus}
+          highlightedWeeks={highlightedWeeks}
+          onHighlightedWeeksChange={setHighlightedWeeks}
           weekRange={weekRange}
           onWeekRangeChange={setWeekRange}
           totalWeeks={TOTAL_WEEKS}
@@ -652,6 +671,7 @@ export function PipelineDashboard() {
         <InventoryTable
           skus={filteredSkus}
           weekRange={weekRange}
+          highlightedWeeks={highlightedWeeks}
           onDataChange={handleDataChange}
         />
 

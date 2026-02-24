@@ -4,44 +4,66 @@ import * as XLSX from 'xlsx'
 
 const BUCKET_NAME = 'forecast-files'
 
-// Model mapping: forecast model names -> database SKU codes
-// Keys are lowercase for case-insensitive matching
-const MODEL_TO_SKUS: Record<string, string[]> = {
-  // HX models (from PDF forecasts)
-  's60j & s80j': ['1272762', '1272913'],
-  's60j': ['1272762', '1272913'],
-  's80j': ['1272762', '1272913'],
-  'z80': ['61415'],
-  'z62': ['824433'],
-  'z45xc': ['1282199'],
-  'sx125xc': ['60342', '60863'],
-  // AMC / GENIE models (from Excel forecasts) — GS-4046 maps to all AMC SKUs
-  'gs-4046': ['132383', '132385', '229579', '1260200', '1264224', '1299483', '132517', '132525', '1260307', '1260198'],
-  // Additional GS models that may appear in forecast but don't have matching SKUs yet
-  'gs-2632': [],
-  'gs-3232': [],
-  'gs-2646': [],
-  'gs-3246': [],
+// SKU-specific forecast multipliers (sku_code -> multiplier)
+const FORECAST_MULTIPLIERS: Record<string, number> = {
+  '229579': 8,
+  '60342': 2,
 }
 
-// Fuzzy match a model name from the forecast to a MODEL_TO_SKUS key
-function findMatchingModelKey(modelName: string): string | undefined {
+// Compound model names that map to multiple model lookups
+const COMPOUND_MODELS: Record<string, string[]> = {
+  's60j & s80j': ['s60j', 's80j'],
+}
+
+// Find matching SKU codes from the database for a given model name
+async function findMatchingSkuCodes(supabase: any, modelName: string): Promise<string[]> {
   const normalized = modelName.toLowerCase().trim()
 
-  // 1. Exact match
-  if (MODEL_TO_SKUS[normalized] !== undefined) return normalized
-
-  // 2. Try matching by extracting the model identifier (e.g. "GS-4046" from "GS-4046 E-Drive")
-  for (const key of Object.keys(MODEL_TO_SKUS)) {
-    // Check if the model name starts with the key or contains it
-    if (normalized.startsWith(key) || normalized.includes(key)) return key
-    // Check if the key is contained in the model name without separators
-    const keyClean = key.replace(/[-\s]/g, '')
-    const nameClean = normalized.replace(/[-\s]/g, '')
-    if (nameClean.startsWith(keyClean) || nameClean.includes(keyClean)) return key
+  // Handle compound model names (e.g., "S60J & S80J" -> search both)
+  if (COMPOUND_MODELS[normalized]) {
+    const allSkus: string[] = []
+    for (const subModel of COMPOUND_MODELS[normalized]) {
+      const subSkus = await findMatchingSkuCodes(supabase, subModel)
+      for (const s of subSkus) {
+        if (!allSkus.includes(s)) allSkus.push(s)
+      }
+    }
+    return allSkus
   }
 
-  return undefined
+  // Strip common suffixes for core model identifier: "GS-4046 E-Drive" -> "GS-4046", "Z45XC" -> "Z45XC"
+  // Also try without hyphens/spaces: "GS-4046" -> "GS4046"
+  const variants = new Set<string>()
+  variants.add(normalized)
+  // Remove descriptive suffixes like "E-Drive", "E-drive"
+  const coreModel = normalized.replace(/\s+e[- ]?driv\w*$/i, '').trim()
+  variants.add(coreModel)
+  // Without hyphens
+  variants.add(coreModel.replace(/-/g, ''))
+  // Without spaces and hyphens
+  variants.add(coreModel.replace(/[-\s]/g, ''))
+
+  const matchedSkuCodes: string[] = []
+
+  // Query the skus table: find rows where part_model contains any of our variants (case-insensitive)
+  for (const variant of variants) {
+    if (!variant) continue
+    const { data } = await supabase
+      .from('skus')
+      .select('sku_code, part_model')
+      .ilike('part_model', `%${variant}%`)
+    if (data) {
+      for (const row of data) {
+        if (!matchedSkuCodes.includes(row.sku_code)) {
+          matchedSkuCodes.push(row.sku_code)
+        }
+      }
+    }
+    // Stop if we found matches
+    if (matchedSkuCodes.length > 0) break
+  }
+
+  return matchedSkuCodes
 }
 
 interface ForecastData {
@@ -371,11 +393,8 @@ export async function POST(request: Request) {
         const skuCode = model.modelName.replace('SKU:', '')
         matchingSkus = [skuCode]
       } else {
-        // Fuzzy model name match
-        const matchedKey = findMatchingModelKey(model.modelName)
-        if (matchedKey !== undefined) {
-          matchingSkus = MODEL_TO_SKUS[matchedKey]
-        }
+        // Dynamic DB lookup: find SKUs whose part_model matches the forecast model name
+        matchingSkus = await findMatchingSkuCodes(supabase, model.modelName)
       }
 
       if (!matchingSkus || matchingSkus.length === 0) continue
@@ -385,9 +404,8 @@ export async function POST(request: Request) {
         let weekFoundForAnySku = false
         for (const skuId of matchingSkus) {
           if (existingCombinations.has(`${skuId}_${weekData.weekNumber}`)) {
-            // SKU 229579 requires forecast values multiplied by 8
             // SKU-specific forecast multipliers
-            const multiplier = skuId === '229579' ? 8 : skuId === '60342' ? 2 : 1
+            const multiplier = FORECAST_MULTIPLIERS[skuId] || 1
             updates.push({
               skuId,
               weekNumber: weekData.weekNumber,

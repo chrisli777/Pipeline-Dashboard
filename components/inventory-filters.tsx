@@ -22,6 +22,8 @@ interface InventoryFiltersProps {
   onWarehousesChange: (value: string[]) => void
   selectedSkus: string[]
   onSkusChange: (value: string[]) => void
+  highlightedWeeks: number[]
+  onHighlightedWeeksChange: (value: number[]) => void
   weekRange: { start: number; end: number }
   onWeekRangeChange: (range: { start: number; end: number }) => void
   totalWeeks: number
@@ -56,7 +58,9 @@ function MultiSelect({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const toggleValue = (value: string) => {
+  const toggleValue = (value: string, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
     if (selected.includes(value)) {
       onChange(selected.filter((v) => v !== value))
     } else {
@@ -75,18 +79,26 @@ function MultiSelect({
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen(!open)
+        }}
         className={`${width} flex h-9 items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring`}
       >
         <span className="truncate text-foreground">{displayText}</span>
         <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 max-h-[300px] min-w-[200px] overflow-auto rounded-md border border-border bg-popover p-1 shadow-md">
+        <div
+          className="absolute left-0 top-full z-50 mt-1 max-h-[300px] min-w-[200px] overflow-auto rounded-md border border-border bg-popover p-1 shadow-md"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           {/* Select All / Clear */}
           <button
             type="button"
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
               if (selected.length === options.length) {
                 onChange([])
               } else {
@@ -107,7 +119,7 @@ function MultiSelect({
             <button
               key={opt.value}
               type="button"
-              onClick={() => toggleValue(opt.value)}
+              onClick={(e) => toggleValue(opt.value, e)}
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
             >
               <div className="flex h-4 w-4 items-center justify-center rounded-sm border border-primary">
@@ -132,6 +144,8 @@ export function InventoryFilters({
   onWarehousesChange,
   selectedSkus,
   onSkusChange,
+  highlightedWeeks,
+  onHighlightedWeeksChange,
   weekRange,
   onWeekRangeChange,
   totalWeeks,
@@ -196,6 +210,7 @@ export function InventoryFilters({
     onVendorsChange([])
     onWarehousesChange([])
     onSkusChange([])
+    onHighlightedWeeksChange([])
     onWeekRangeChange({ start: 1, end: totalWeeks })
   }
 
@@ -251,6 +266,18 @@ export function InventoryFilters({
           selected={selectedSkus}
           onChange={onSkusChange}
           width="w-[280px]"
+        />
+      </div>
+
+      {/* Tier 5: Highlighted Weeks */}
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-muted-foreground">Week:</label>
+        <MultiSelect
+          label="Week"
+          options={weekOptions.map((w) => ({ value: w.toString(), label: `W${w}` }))}
+          selected={highlightedWeeks.map(String)}
+          onChange={(vals) => onHighlightedWeeksChange(vals.map(Number).sort((a, b) => a - b))}
+          width="w-[140px]"
         />
       </div>
 
