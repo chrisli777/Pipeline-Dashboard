@@ -121,13 +121,29 @@ export async function POST(request: NextRequest) {
 
       // Iterate through orders and sum qty from order line items
       const orders = wmsData.ResourceList || []
+      console.log(`[v0] Page ${currentPage}: ${orders.length} orders found for SKU ${skuId}, week ${weekNumber}`)
       for (const order of orders) {
-        const orderItems = order.OrderItems?.ResourceList || order.OrderItems || []
+        // OrderItems can be: direct array, { ResourceList: [...] }, or nested
+        const rawOrderItems = order.OrderItems
+        let orderItems: any[] = []
+        if (Array.isArray(rawOrderItems)) {
+          orderItems = rawOrderItems
+        } else if (rawOrderItems?.ResourceList && Array.isArray(rawOrderItems.ResourceList)) {
+          orderItems = rawOrderItems.ResourceList
+        } else if (rawOrderItems && typeof rawOrderItems === 'object') {
+          // Could be a single item wrapped in an object
+          orderItems = [rawOrderItems]
+        }
+        
+        console.log(`[v0] Order ${order.OrderId || order.ReadOnly?.OrderId || 'unknown'}: ${orderItems.length} items, raw type: ${Array.isArray(rawOrderItems) ? 'array' : typeof rawOrderItems}, keys: ${rawOrderItems ? Object.keys(rawOrderItems).slice(0, 5).join(',') : 'null'}`)
+        
         for (const item of orderItems) {
           // Only count items matching our SKU
           const itemSku = item.Sku || item.ItemIdentifier?.Sku || ''
+          const itemQty = item.Qty || item.QtyOrdered || item.QtyShipped || 0
+          console.log(`[v0]   Item SKU: "${itemSku}", Qty: ${itemQty}, matches ${skuId}: ${itemSku.includes(skuId)}`)
           if (itemSku.includes(skuId)) {
-            totalConsumption += item.Qty || item.QtyOrdered || item.QtyShipped || 0
+            totalConsumption += itemQty
           }
         }
       }
