@@ -34,8 +34,7 @@ export interface InventoryAlert {
   weekNumber: number
   weekOf: string
   weeksOnHand: number
-  severity: 'critical' | 'warning' | 'low'
-}
+  }
 
 export type RowType =
   | 'customerForecast'

@@ -245,59 +245,6 @@ export function PipelineDashboard() {
   }, [fetchData])
 
   // Derive inventory alerts from SKU data
-  const alerts: InventoryAlert[] = useMemo(() => {
-    const alertList: InventoryAlert[] = []
-    skus.forEach((sku) => {
-      // Track if we've already found the first problem for each severity
-      let foundCritical = false
-      let foundWarning = false
-      let foundLow = false
-      
-      // Weeks are already sorted by weekNumber, so we iterate in order
-      for (const week of sku.weeks) {
-        // Only show alerts for Week 1 and onwards
-        if (week.weekNumber < 1 || week.weeksOnHand === null) continue
-        
-        if (week.weeksOnHand < 0 && !foundCritical) {
-          alertList.push({
-            skuId: sku.id,
-            partModelNumber: sku.partModelNumber,
-            weekNumber: week.weekNumber,
-            weekOf: week.weekOf,
-            weeksOnHand: week.weeksOnHand,
-            severity: 'critical',
-          })
-          foundCritical = true
-        } else if (week.weeksOnHand >= 0 && week.weeksOnHand < 2 && !foundWarning) {
-          alertList.push({
-            skuId: sku.id,
-            partModelNumber: sku.partModelNumber,
-            weekNumber: week.weekNumber,
-            weekOf: week.weekOf,
-            weeksOnHand: week.weeksOnHand,
-            severity: 'warning',
-          })
-          foundWarning = true
-        } else if (week.weeksOnHand >= 2 && week.weeksOnHand < 4 && !foundLow) {
-          alertList.push({
-            skuId: sku.id,
-            partModelNumber: sku.partModelNumber,
-            weekNumber: week.weekNumber,
-            weekOf: week.weekOf,
-            weeksOnHand: week.weeksOnHand,
-            severity: 'low',
-          })
-          foundLow = true
-        }
-        
-        // Stop early if we've found all three types
-        if (foundCritical && foundWarning && foundLow) break
-      }
-    })
-    
-    return alertList
-  }, [skus])
-
   // 4-tier cascading filter: Customer -> Vendor -> Warehouse -> SKU
   // Empty array = all (no filter applied)
   const filteredSkus = useMemo(() => {
@@ -316,6 +263,27 @@ export function PipelineDashboard() {
     }
     return filtered
   }, [skus, selectedCustomers, selectedVendors, selectedWarehouses, selectedSkus])
+
+  // Stockout forecast: find the first week where inventory runs out per filtered SKU
+  const alerts: InventoryAlert[] = useMemo(() => {
+    const alertList: InventoryAlert[] = []
+    filteredSkus.forEach((sku) => {
+      for (const week of sku.weeks) {
+        if (week.weekNumber < 1 || week.weeksOnHand === null) continue
+        if (week.weeksOnHand <= 0) {
+          alertList.push({
+            skuId: sku.id,
+            partModelNumber: sku.partModelNumber,
+            weekNumber: week.weekNumber,
+            weekOf: week.weekOf,
+            weeksOnHand: week.weeksOnHand,
+          })
+          break
+        }
+      }
+    })
+    return alertList.sort((a, b) => a.weekNumber - b.weekNumber)
+  }, [filteredSkus])
 
   // Handle data changes - update locally and track pending changes
   const handleDataChange = useCallback(
