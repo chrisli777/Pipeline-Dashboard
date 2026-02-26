@@ -13,7 +13,10 @@ export async function createClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
 
+  console.log("[v0] Supabase env check - URL exists:", !!supabaseUrl, "Key exists:", !!supabaseAnonKey)
+
   if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("[v0] Missing env vars. NEXT_PUBLIC_SUPABASE_URL:", !!process.env.NEXT_PUBLIC_SUPABASE_URL, "SUPABASE_URL:", !!process.env.SUPABASE_URL, "NEXT_PUBLIC_SUPABASE_ANON_KEY:", !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, "SUPABASE_ANON_KEY:", !!process.env.SUPABASE_ANON_KEY)
     throw new Error('Supabase URL and Anon Key are required. Check your environment variables.')
   }
 
