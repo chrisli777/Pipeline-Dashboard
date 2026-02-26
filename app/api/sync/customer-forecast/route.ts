@@ -242,7 +242,7 @@ async function extractForecastFromPDF(base64Data: string, mimeType: string): Pro
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 8192,
+      max_tokens: 16384,
       messages: [
         {
           role: 'user',
@@ -285,22 +285,43 @@ Return ONLY valid JSON in this exact format, no other text:
   // Extract JSON from Claude's response (may be wrapped in markdown code blocks)
   let jsonStr = rawText.trim()
   
-  // Try markdown code block first
-  const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/)
+  // Try markdown code block first (greedy to capture the full block)
+  const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*)```/)
   if (jsonMatch) {
     jsonStr = jsonMatch[1].trim()
   }
   
-  // Try to find a JSON object with "models" key
+  // If still not starting with {, find the first { to last }
   if (!jsonStr.startsWith('{')) {
-    const objMatch = rawText.match(/\{[\s\S]*"models"[\s\S]*\}/)
-    if (objMatch) {
-      jsonStr = objMatch[0]
+    const firstBrace = jsonStr.indexOf('{')
+    const lastBrace = jsonStr.lastIndexOf('}')
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      jsonStr = jsonStr.substring(firstBrace, lastBrace + 1)
     }
   }
 
   // Clean up common issues: trailing commas, etc.
   jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1')
+
+  // Handle truncated JSON: if it doesn't end with }, try to close it
+  if (!jsonStr.endsWith('}')) {
+    // Count open brackets to close them
+    let openBraces = 0
+    let openBrackets = 0
+    for (const ch of jsonStr) {
+      if (ch === '{') openBraces++
+      else if (ch === '}') openBraces--
+      else if (ch === '[') openBrackets++
+      else if (ch === ']') openBrackets--
+    }
+    // Remove any trailing incomplete object/entry
+    jsonStr = jsonStr.replace(/,?\s*\{[^}]*$/, '')
+    // Close all open brackets
+    while (openBrackets > 0) { jsonStr += ']'; openBrackets-- }
+    while (openBraces > 0) { jsonStr += '}'; openBraces-- }
+    // Re-clean trailing commas
+    jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1')
+  }
 
   try {
     const parsed = JSON.parse(jsonStr)
