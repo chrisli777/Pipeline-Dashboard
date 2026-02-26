@@ -10,12 +10,8 @@ export async function createClient() {
     // cookies() may not be available in some contexts
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Supabase URL and Anon Key are required. Check your environment variables.')
-  }
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || 'https://wyxzerhrhhxrclqsfpyi.supabase.co'
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5eHplcmhyaGh4cmNscXNmcHlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0NTk5NDMsImV4cCI6MjA4NTAzNTk0M30.9v7eHL7bH-9ev7jFaWhyjiKEeRFujzi8lEzDAHWEJEQ'
 
   return createServerClient(
     supabaseUrl,
