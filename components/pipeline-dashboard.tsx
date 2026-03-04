@@ -8,7 +8,7 @@ import { InventoryFilters } from '@/components/inventory-filters'
 import { InventoryTable } from '@/components/inventory-table'
 import { AIChat } from '@/components/ai-chat'
 import { SyncDialog, SyncConfig } from '@/components/sync-dialog'
-import type { SKUData, InventoryAlert, WeekData } from '@/lib/types'
+import { ROW_LABELS, type SKUData, type InventoryAlert, type WeekData, type RowType } from '@/lib/types'
 
 const TOTAL_WEEKS = 53 // Full year (Week 1: Jan 4 to Week 53: Jan 3)
 
@@ -471,6 +471,7 @@ export function PipelineDashboard() {
 
   // Export Excel with formatting
   const handleExport = async () => {
+    try {
     const XLSX = await import('xlsx')
 
     const ROW_TYPE_ORDER: RowType[] = [
@@ -568,6 +569,10 @@ export function PipelineDashboard() {
     a.download = `inventory-pipeline-${new Date().toISOString().split('T')[0]}.xlsx`
     a.click()
     URL.revokeObjectURL(url)
+    } catch (err: any) {
+      console.log('[v0] Excel export error:', err?.message, err?.stack)
+      alert(`Export failed: ${err?.message}`)
+    }
   }
 
   const handleWmsSync = () => {
