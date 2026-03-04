@@ -469,30 +469,66 @@ export function PipelineDashboard() {
     }
   }, [fetchData])
 
-  // Export PDF (print current pipeline view)
-  const handleExport = () => {
-    // Add print-specific styles
-    const style = document.createElement('style')
-    style.id = 'print-pipeline-style'
-    style.textContent = `
-      @media print {
-        @page { size: landscape; margin: 8mm; }
-        body * { visibility: hidden !important; }
-        main, main * { visibility: visible !important; }
-        main { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; padding: 0 !important; }
-        header, [data-ai-chat], [role="dialog"], nav, footer { display: none !important; }
-        .sticky { position: relative !important; }
-        table { font-size: 7pt !important; border-collapse: collapse !important; width: 100% !important; }
-        th, td { border: 0.5px solid #ccc !important; padding: 1px 2px !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-        .overflow-x-auto { overflow: visible !important; }
-      }
-    `
-    document.head.appendChild(style)
-    window.print()
-    // Clean up after print
-    setTimeout(() => {
-      document.getElementById('print-pipeline-style')?.remove()
-    }, 1000)
+  // Export full pipeline table as PDF
+  const [exporting, setExporting] = useState(false)
+  const handleExport = async () => {
+    const container = document.getElementById('pipeline-table-container')
+    if (!container) return
+    setExporting(true)
+    try {
+      const html2canvas = (await import('html2canvas')).default
+      const { jsPDF } = await import('jspdf')
+
+      // Temporarily expand the container so the full table is visible
+      const origOverflow = container.style.overflow
+      const origWidth = container.style.width
+      const origMaxWidth = container.style.maxWidth
+      container.style.overflow = 'visible'
+      container.style.width = 'max-content'
+      container.style.maxWidth = 'none'
+
+      // Capture the full table
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      })
+
+      // Restore original styles
+      container.style.overflow = origOverflow
+      container.style.width = origWidth
+      container.style.maxWidth = origMaxWidth
+
+      // Calculate PDF dimensions to fit the table
+      const imgWidth = canvas.width
+      const imgHeight = canvas.height
+      // Use landscape, fit width to page
+      const pdfWidth = Math.max(imgWidth * 0.264583 / 2, 297) // at least A4 landscape width in mm
+      const pdfHeight = (imgHeight / imgWidth) * pdfWidth
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: [pdfWidth, pdfHeight + 20],
+      })
+
+      // Add title
+      pdf.setFontSize(12)
+      pdf.text(`Inventory Pipeline - ${new Date().toLocaleDateString()}`, 10, 10)
+
+      // Add table image
+      const pageWidth = pdf.internal.pageSize.getWidth() - 20
+      const ratio = pageWidth / imgWidth
+      const finalHeight = imgHeight * ratio
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 15, pageWidth, finalHeight)
+
+      pdf.save(`inventory-pipeline-${new Date().toISOString().split('T')[0]}.pdf`)
+    } catch (err) {
+      console.error('PDF export failed:', err)
+      alert('PDF export failed. Please try again.')
+    } finally {
+      setExporting(false)
+    }
   }
 
   const handleWmsSync = () => {
@@ -583,9 +619,9 @@ export function PipelineDashboard() {
               )}
               Save
             </Button>
-            <Button variant="outline" size="sm" onClick={handleExport}>
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
               <Download className="mr-1 h-4 w-4" />
-              Export PDF
+              {exporting ? 'Exporting...' : 'Export PDF'}
             </Button>
           </div>
         </div>
