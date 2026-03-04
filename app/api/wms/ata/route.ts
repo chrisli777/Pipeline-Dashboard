@@ -84,9 +84,11 @@ export async function POST(request: Request) {
       wmsToken = process.env.WMS_API_TOKEN_KENT_AMC
     }
 
+    console.log(`[v0] ATA sync: SKU=${skuId}, week=${weekNumber}, warehouse=${skuRow.warehouse}, supplier=${skuRow.supplier_code}, tokenExists=${!!wmsToken}, tokenLength=${wmsToken?.length || 0}`)
+
     if (!wmsToken) {
       return NextResponse.json(
-        { error: 'WMS API token not configured for this SKU' },
+        { error: `WMS API token not configured. warehouse=${skuRow.warehouse}, supplier=${skuRow.supplier_code}` },
         { status: 500 }
       )
     }
@@ -116,8 +118,10 @@ export async function POST(request: Request) {
         },
       })
 
+      console.log(`[v0] ATA WMS response: status=${wmsResponse.status}, page=${pageNum}`)
       if (!wmsResponse.ok) {
         const errorText = await wmsResponse.text()
+        console.log(`[v0] ATA WMS error: ${errorText.slice(0, 300)}`)
         return NextResponse.json(
           { error: `WMS API error: ${wmsResponse.status}`, details: errorText },
           { status: wmsResponse.status }

@@ -75,8 +75,10 @@ export async function POST(request: NextRequest) {
       wmsToken = process.env.WMS_API_TOKEN_KENT_AMC
     }
 
+    console.log(`[v0] Consumption sync: SKU=${skuId}, week=${weekNumber}, warehouse=${skuRow?.warehouse}, supplier=${skuRow?.supplier_code}, tokenExists=${!!wmsToken}, tokenLength=${wmsToken?.length || 0}`)
+
     if (!wmsToken) {
-      return NextResponse.json({ error: 'WMS API token not configured for this SKU' }, { status: 500 })
+      return NextResponse.json({ error: `WMS API token not configured for this SKU. warehouse=${skuRow?.warehouse}, supplier=${skuRow?.supplier_code}` }, { status: 500 })
     }
 
     // Calculate date range for the week (Monday to Friday)
@@ -107,8 +109,10 @@ export async function POST(request: NextRequest) {
         },
       })
 
+      console.log(`[v0] WMS response: status=${wmsResponse.status}, page=${currentPage}`)
       if (!wmsResponse.ok) {
         const errorText = await wmsResponse.text()
+        console.log(`[v0] WMS error response: ${errorText.slice(0, 300)}`)
         return NextResponse.json({ 
           error: `WMS API error: ${wmsResponse.status}`,
           details: errorText 
