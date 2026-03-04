@@ -469,41 +469,103 @@ export function PipelineDashboard() {
     }
   }, [fetchData])
 
-  // Export CSV
-  const handleExport = () => {
-    const headers = [
-      'Part/Model',
-      'Row Type',
-      ...Array.from(
-        { length: weekRange.end - weekRange.start + 1 },
-        (_, i) => `W${weekRange.start + i}`
-      ),
-    ]
-    const rows: string[][] = []
+  // Export Excel with formatting
+  const handleExport = async () => {
+    const XLSX = await import('xlsx')
 
+    const ROW_TYPE_ORDER: RowType[] = [
+      'customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'
+    ]
+
+    const weeks = filteredSkus[0]?.weeks.filter(
+      w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
+    ) || []
+
+    const numWeeks = weeks.length
+
+    // Build the sheet data row by row
+    const sheetData: (string | number | null)[][] = []
+
+    // Header row 1: Part/Model# | Week of: | week numbers
+    sheetData.push(['Part/ Model #', 'Week of:', ...weeks.map(w => w.weekNumber)])
+    // Header row 2: blank | Week #: | week dates
+    sheetData.push(['', 'Week #:', ...weeks.map(w => w.weekOf)])
+
+    // Data rows per SKU
     filteredSkus.forEach((sku) => {
-      const weekData = sku.weeks.filter(
-        (w) => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
+      const skuWeeks = sku.weeks.filter(
+        w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
       )
-      
-      const rowTypes = ['customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'] as const
-      
-      rowTypes.forEach((rowType) => {
-        const row = [
-          sku.partModelNumber,
-          rowType,
-          ...weekData.map((w) => w[rowType]?.toString() ?? ''),
-        ]
-        rows.push(row)
+
+      ROW_TYPE_ORDER.forEach((rowType, idx) => {
+        const label = rowType === 'weeksOnHand' 
+          ? 'Weeks on hand (actual / runout)' 
+          : ROW_LABELS[rowType]
+        
+        const rowData: (string | number | null)[] = []
+        
+        // First column: SKU info only on first row of this SKU group
+        if (idx === 0) {
+          let skuInfo = sku.partModelNumber
+          if (sku.description) skuInfo += `\n${sku.description}`
+          if (sku.category) skuInfo += `\n${sku.category}`
+          const meta: string[] = []
+          if (sku.supplierCode) meta.push(`Vendor: ${sku.supplierCode}`)
+          if (sku.warehouse) meta.push(`WH: ${sku.warehouse}`)
+          if (sku.leadTimeWeeks != null) meta.push(`LT: ${sku.leadTimeWeeks}w`)
+          if (sku.moq != null) meta.push(`MOQ: ${sku.moq}`)
+          if (sku.unitWeight != null && sku.unitWeight > 0) meta.push(`${sku.unitWeight.toLocaleString()} lbs`)
+          if (meta.length > 0) skuInfo += `\n${meta.join('  ')}`
+          rowData.push(skuInfo)
+        } else {
+          rowData.push('')
+        }
+
+        // Second column: row label
+        rowData.push(label)
+
+        // Data columns
+        skuWeeks.forEach(week => {
+          const val = week[rowType]
+          rowData.push(val !== null && val !== undefined ? val : '')
+        })
+
+        sheetData.push(rowData)
       })
     })
-    
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv' })
+
+    // Create workbook and worksheet
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet(sheetData)
+
+    // Set column widths
+    const colWidths: { wch: number }[] = [
+      { wch: 30 }, // Part/Model
+      { wch: 28 }, // Row type label
+    ]
+    for (let i = 0; i < numWeeks; i++) {
+      colWidths.push({ wch: 8 })
+    }
+    ws['!cols'] = colWidths
+
+    // Merge Part/Model cells per SKU (each SKU has ROW_TYPE_ORDER.length rows)
+    const merges: XLSX.Range[] = []
+    filteredSkus.forEach((_, skuIdx) => {
+      const startRow = 2 + skuIdx * ROW_TYPE_ORDER.length // 0-indexed, skip 2 header rows
+      const endRow = startRow + ROW_TYPE_ORDER.length - 1
+      merges.push({ s: { r: startRow, c: 0 }, e: { r: endRow, c: 0 } })
+    })
+    ws['!merges'] = merges
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Pipeline')
+
+    // Write and download
+    const wbOut = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    const blob = new Blob([wbOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `inventory-pipeline-${new Date().toISOString().split('T')[0]}.csv`
+    a.download = `inventory-pipeline-${new Date().toISOString().split('T')[0]}.xlsx`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -598,7 +660,7 @@ export function PipelineDashboard() {
             </Button>
             <Button variant="outline" size="sm" onClick={handleExport}>
               <Download className="mr-1 h-4 w-4" />
-              Export CSV
+              Export Excel
             </Button>
           </div>
         </div>
