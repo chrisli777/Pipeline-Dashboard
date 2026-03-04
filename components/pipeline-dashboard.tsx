@@ -523,9 +523,9 @@ export function PipelineDashboard() {
       pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 15, pageWidth, finalHeight)
 
       pdf.save(`inventory-pipeline-${new Date().toISOString().split('T')[0]}.pdf`)
-    } catch (err) {
-      console.error('PDF export failed:', err)
-      alert('PDF export failed. Please try again.')
+    } catch (err: any) {
+      console.log('[v0] PDF export error:', err?.message, err?.stack)
+      alert(`PDF export failed: ${err?.message}`)
     } finally {
       setExporting(false)
     }
