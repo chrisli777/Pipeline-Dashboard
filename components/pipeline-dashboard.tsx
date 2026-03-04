@@ -469,43 +469,30 @@ export function PipelineDashboard() {
     }
   }, [fetchData])
 
-  // Export CSV
+  // Export PDF (print current pipeline view)
   const handleExport = () => {
-    const headers = [
-      'Part/Model',
-      'Row Type',
-      ...Array.from(
-        { length: weekRange.end - weekRange.start + 1 },
-        (_, i) => `W${weekRange.start + i}`
-      ),
-    ]
-    const rows: string[][] = []
-
-    filteredSkus.forEach((sku) => {
-      const weekData = sku.weeks.filter(
-        (w) => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
-      )
-      
-      const rowTypes = ['customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'] as const
-      
-      rowTypes.forEach((rowType) => {
-        const row = [
-          sku.partModelNumber,
-          rowType,
-          ...weekData.map((w) => w[rowType]?.toString() ?? ''),
-        ]
-        rows.push(row)
-      })
-    })
-    
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `inventory-pipeline-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    // Add print-specific styles
+    const style = document.createElement('style')
+    style.id = 'print-pipeline-style'
+    style.textContent = `
+      @media print {
+        @page { size: landscape; margin: 8mm; }
+        body * { visibility: hidden !important; }
+        main, main * { visibility: visible !important; }
+        main { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; padding: 0 !important; }
+        header, [data-ai-chat], [role="dialog"], nav, footer { display: none !important; }
+        .sticky { position: relative !important; }
+        table { font-size: 7pt !important; border-collapse: collapse !important; width: 100% !important; }
+        th, td { border: 0.5px solid #ccc !important; padding: 1px 2px !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        .overflow-x-auto { overflow: visible !important; }
+      }
+    `
+    document.head.appendChild(style)
+    window.print()
+    // Clean up after print
+    setTimeout(() => {
+      document.getElementById('print-pipeline-style')?.remove()
+    }, 1000)
   }
 
   const handleWmsSync = () => {
@@ -598,7 +585,7 @@ export function PipelineDashboard() {
             </Button>
             <Button variant="outline" size="sm" onClick={handleExport}>
               <Download className="mr-1 h-4 w-4" />
-              Export CSV
+              Export PDF
             </Button>
           </div>
         </div>
