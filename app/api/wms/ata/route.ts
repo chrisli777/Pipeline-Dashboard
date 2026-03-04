@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // Look up the SKU's warehouse from the database to route to the correct WMS token
+    // Look up the SKU's warehouse from the database to route to the correct WMS credentials
     const supabaseForLookup = await createClient()
     const { data: skuRow } = await supabaseForLookup
       .from('skus')
@@ -73,22 +73,14 @@ export async function POST(request: Request) {
       )
     }
 
-    let wmsToken: string | undefined
-    if (skuRow.warehouse === 'Moses Lake') {
-      wmsToken = process.env.WMS_API_TOKEN
-    } else if (skuRow.supplier_code === 'HX') {
-      // Kent HX
-      wmsToken = process.env.WMS_API_TOKEN_KENT_HX
-    } else {
-      // Kent AMC or others
-      wmsToken = process.env.WMS_API_TOKEN_KENT_AMC
-    }
-
-    console.log(`[v0] ATA sync: SKU=${skuId}, week=${weekNumber}, warehouse=${skuRow.warehouse}, supplier=${skuRow.supplier_code}, tokenExists=${!!wmsToken}, tokenLength=${wmsToken?.length || 0}`)
-
-    if (!wmsToken) {
+    // Get a fresh OAuth2 token for the correct warehouse
+    let wmsToken: string
+    try {
+      const { getWmsToken } = await import('@/lib/wms-auth')
+      wmsToken = await getWmsToken(skuRow.warehouse, skuRow.supplier_code)
+    } catch (authError: any) {
       return NextResponse.json(
-        { error: `WMS API token not configured. warehouse=${skuRow.warehouse}, supplier=${skuRow.supplier_code}` },
+        { error: authError.message },
         { status: 500 }
       )
     }
@@ -118,10 +110,8 @@ export async function POST(request: Request) {
         },
       })
 
-      console.log(`[v0] ATA WMS response: status=${wmsResponse.status}, page=${pageNum}`)
       if (!wmsResponse.ok) {
         const errorText = await wmsResponse.text()
-        console.log(`[v0] ATA WMS error: ${errorText.slice(0, 300)}`)
         return NextResponse.json(
           { error: `WMS API error: ${wmsResponse.status}`, details: errorText },
           { status: wmsResponse.status }
