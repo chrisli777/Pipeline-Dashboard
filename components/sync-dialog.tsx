@@ -25,8 +25,6 @@ import type { SKUData } from '@/lib/types'
 // Customer Forecast is synced separately from the Customer Forecast page
 const SYNCABLE_FIELDS = [
   { id: 'actualConsumption', label: 'Actual Consumption' },
-  { id: 'etd', label: 'ETD' },
-  { id: 'eta', label: 'ETA' },
   { id: 'ata', label: 'ATA' },
 ] as const
 
