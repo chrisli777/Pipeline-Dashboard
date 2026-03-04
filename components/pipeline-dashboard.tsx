@@ -440,14 +440,6 @@ export function PipelineDashboard() {
               }
             }
           }
-        } else {
-          // For other fields (etd, eta), just mark as synced
-          // These would connect to different APIs in the future
-          for (const skuId of skuIds) {
-            for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
-              results.push({ success: true })
-            }
-          }
         }
       }
       
