@@ -469,109 +469,206 @@ export function PipelineDashboard() {
     }
   }, [fetchData])
 
-  // Export Excel with formatting
+  // Export Excel with full formatting (colors, merged cells, borders)
+  const [exporting, setExporting] = useState(false)
   const handleExport = async () => {
+    setExporting(true)
     try {
-    const XLSX = await import('xlsx')
+      const ExcelJS = await import('exceljs')
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('Pipeline', { views: [{ state: 'frozen', xSplit: 2, ySplit: 2 }] })
 
-    const ROW_TYPE_ORDER: RowType[] = [
-      'customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'
-    ]
+      const ROW_TYPE_ORDER: RowType[] = [
+        'customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'
+      ]
 
-    const weeks = filteredSkus[0]?.weeks.filter(
-      w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
-    ) || []
-
-    const numWeeks = weeks.length
-
-    // Build the sheet data row by row
-    const sheetData: (string | number | null)[][] = []
-
-    // Header row 1: Part/Model# | Week of: | week numbers
-    sheetData.push(['Part/ Model #', 'Week of:', ...weeks.map(w => w.weekNumber)])
-    // Header row 2: blank | Week #: | week dates
-    sheetData.push(['', 'Week #:', ...weeks.map(w => w.weekOf)])
-
-    // Data rows per SKU
-    filteredSkus.forEach((sku) => {
-      const skuWeeks = sku.weeks.filter(
+      const weeks = filteredSkus[0]?.weeks.filter(
         w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
-      )
+      ) || []
+      const numWeeks = weeks.length
+      const currentWeekNumber = (() => {
+        const now = new Date()
+        const start = new Date(now.getFullYear(), 0, 1)
+        const diff = now.getTime() - start.getTime()
+        return Math.ceil(diff / (7 * 24 * 60 * 60 * 1000))
+      })()
 
-      ROW_TYPE_ORDER.forEach((rowType, idx) => {
-        const label = rowType === 'weeksOnHand' 
-          ? 'Weeks on hand (actual / runout)' 
-          : ROW_LABELS[rowType]
-        
-        const rowData: (string | number | null)[] = []
-        
-        // First column: SKU info only on first row of this SKU group
-        if (idx === 0) {
-          let skuInfo = sku.partModelNumber
-          if (sku.description) skuInfo += `\n${sku.description}`
-          if (sku.category) skuInfo += `\n${sku.category}`
-          const meta: string[] = []
-          if (sku.supplierCode) meta.push(`Vendor: ${sku.supplierCode}`)
-          if (sku.warehouse) meta.push(`WH: ${sku.warehouse}`)
-          if (sku.leadTimeWeeks != null) meta.push(`LT: ${sku.leadTimeWeeks}w`)
-          if (sku.moq != null) meta.push(`MOQ: ${sku.moq}`)
-          if (sku.unitWeight != null && sku.unitWeight > 0) meta.push(`${sku.unitWeight.toLocaleString()} lbs`)
-          if (meta.length > 0) skuInfo += `\n${meta.join('  ')}`
-          rowData.push(skuInfo)
+      // Styles
+      const headerFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }
+      const subHeaderFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } }
+      const currentWeekFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE68A' } }
+      const currentWeekSubFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } }
+      const skuInfoFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBFDBFE' } }
+      const wohRowFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } }
+      const thinBorder: Partial<ExcelJS.Borders> = {
+        top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+        bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+        left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+        right: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+      }
+      const boldFont: Partial<ExcelJS.Font> = { bold: true, size: 10 }
+      const smallFont: Partial<ExcelJS.Font> = { bold: true, size: 8 }
+
+      // Helper: get weeksOnHand cell fill color (matches getCellBackground in inventory-table.tsx)
+      function getWohFill(value: number | null): ExcelJS.FillPattern | null {
+        if (value === null) return null
+        if (value < 0) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDC2626' } }
+        if (value < 1) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF87171' } }
+        if (value < 2) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCA5A5' } }
+        if (value < 4) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFED7AA' } }
+        if (value < 8) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF08A' } }
+        if (value < 16) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF9C3' } }
+        return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } }
+      }
+
+      function getInventoryFill(value: number | null): ExcelJS.FillPattern | null {
+        if (value === null) return null
+        if (value < 0) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDC2626' } }
+        if (value < 10) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFECACA' } }
+        if (value < 30) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF9C3' } }
+        return null
+      }
+
+      // Column widths: col A (Part/Model) = 30, col B (row label) = 30, data cols = 10
+      ws.getColumn(1).width = 30
+      ws.getColumn(2).width = 30
+      for (let i = 0; i < numWeeks; i++) {
+        ws.getColumn(3 + i).width = 10
+      }
+
+      // --- Header Row 1: Part/Model# | Week of: | week numbers ---
+      const headerRow = ws.addRow(['Part/ Model #', 'Week of:', ...weeks.map(w => w.weekNumber)])
+      headerRow.eachCell((cell, colNumber) => {
+        cell.font = boldFont
+        cell.border = thinBorder
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        if (colNumber > 2) {
+          const weekNum = weeks[colNumber - 3]?.weekNumber
+          cell.fill = weekNum === currentWeekNumber ? currentWeekFill : headerFill
         } else {
-          rowData.push('')
+          cell.fill = headerFill
+          cell.alignment = { horizontal: 'left', vertical: 'middle' }
         }
+      })
 
-        // Second column: row label
-        rowData.push(label)
+      // --- Header Row 2: blank | Week #: | week dates ---
+      const subRow = ws.addRow(['', 'Week #:', ...weeks.map(w => w.weekOf)])
+      subRow.eachCell((cell, colNumber) => {
+        cell.font = smallFont
+        cell.border = thinBorder
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        if (colNumber > 2) {
+          const weekNum = weeks[colNumber - 3]?.weekNumber
+          cell.fill = weekNum === currentWeekNumber ? currentWeekSubFill : subHeaderFill
+        } else {
+          cell.fill = subHeaderFill
+          cell.alignment = { horizontal: 'left', vertical: 'middle' }
+        }
+      })
 
-        // Data columns
-        skuWeeks.forEach(week => {
-          const val = week[rowType]
-          rowData.push(val !== null && val !== undefined ? val : '')
+      // --- Data rows per SKU ---
+      filteredSkus.forEach((sku) => {
+        const skuWeeks = sku.weeks.filter(
+          w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
+        )
+        const startRowNum = ws.rowCount + 1
+
+        ROW_TYPE_ORDER.forEach((rowType, idx) => {
+          const label = ROW_LABELS[rowType]
+          const values = skuWeeks.map(w => {
+            const val = w[rowType]
+            return val !== null && val !== undefined ? val : ''
+          })
+
+          // Build SKU info for first row
+          let skuCell = ''
+          if (idx === 0) {
+            let parts: string[] = [sku.partModelNumber]
+            if (sku.description) parts.push(`(${sku.description})`)
+            if (sku.category) parts.push(sku.category)
+            const meta: string[] = []
+            if (sku.supplierCode) meta.push(`Vendor: ${sku.supplierCode}`)
+            if (sku.warehouse) meta.push(`WH: ${sku.warehouse}`)
+            if (sku.leadTimeWeeks != null) meta.push(`LT: ${sku.leadTimeWeeks}w`)
+            if (sku.moq != null) meta.push(`MOQ: ${sku.moq}`)
+            if (sku.unitWeight != null && sku.unitWeight > 0) meta.push(`${sku.unitWeight.toLocaleString()} lbs`)
+            if (meta.length > 0) parts.push(meta.join('  '))
+            skuCell = parts.join('\n')
+          }
+
+          const row = ws.addRow([skuCell, label, ...values])
+
+          // Style each cell in the row
+          row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+            cell.border = thinBorder
+            cell.alignment = { horizontal: colNumber <= 2 ? 'left' : 'center', vertical: 'middle', wrapText: colNumber === 1 }
+            cell.font = { bold: colNumber <= 2, size: colNumber === 1 ? 9 : 8 }
+
+            // SKU info column - blue background
+            if (colNumber === 1 && idx === 0) {
+              cell.fill = skuInfoFill
+              cell.font = { bold: true, size: 9 }
+            }
+
+            // Data cells - apply conditional coloring
+            if (colNumber > 2) {
+              const weekIdx = colNumber - 3
+              const weekNum = skuWeeks[weekIdx]?.weekNumber
+              const val = typeof cell.value === 'number' ? cell.value : null
+
+              // Weeks on hand coloring
+              if (rowType === 'weeksOnHand') {
+                const fill = getWohFill(val)
+                if (fill) {
+                  cell.fill = fill
+                  if (val !== null && val < 1) cell.font = { bold: true, size: 8, color: { argb: 'FFFFFFFF' } }
+                }
+                if (val !== null) cell.numFmt = '0.00'
+              }
+
+              // Actual inventory coloring
+              if (rowType === 'actualInventory') {
+                const fill = getInventoryFill(val)
+                if (fill) {
+                  cell.fill = fill
+                  if (val !== null && val < 0) cell.font = { bold: true, size: 8, color: { argb: 'FFFFFFFF' } }
+                }
+              }
+
+              // Current week highlight (yellow) - only if no other fill applied
+              if (weekNum === currentWeekNumber && !cell.fill) {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } }
+              }
+            }
+
+            // Weeks on hand row base fill
+            if (rowType === 'weeksOnHand' && colNumber <= 2) {
+              cell.fill = wohRowFill
+            }
+          })
         })
 
-        sheetData.push(rowData)
+        // Merge SKU info cells (column A)
+        const endRowNum = ws.rowCount
+        if (endRowNum > startRowNum) {
+          ws.mergeCells(startRowNum, 1, endRowNum, 1)
+        }
       })
-    })
 
-    // Create workbook and worksheet
-    const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.aoa_to_sheet(sheetData)
-
-    // Set column widths
-    const colWidths: { wch: number }[] = [
-      { wch: 30 }, // Part/Model
-      { wch: 28 }, // Row type label
-    ]
-    for (let i = 0; i < numWeeks; i++) {
-      colWidths.push({ wch: 8 })
-    }
-    ws['!cols'] = colWidths
-
-    // Merge Part/Model cells per SKU (each SKU has ROW_TYPE_ORDER.length rows)
-    const merges: XLSX.Range[] = []
-    filteredSkus.forEach((_, skuIdx) => {
-      const startRow = 2 + skuIdx * ROW_TYPE_ORDER.length // 0-indexed, skip 2 header rows
-      const endRow = startRow + ROW_TYPE_ORDER.length - 1
-      merges.push({ s: { r: startRow, c: 0 }, e: { r: endRow, c: 0 } })
-    })
-    ws['!merges'] = merges
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Pipeline')
-
-    // Write and download
-    const wbOut = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
-    const blob = new Blob([wbOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `inventory-pipeline-${new Date().toISOString().split('T')[0]}.xlsx`
-    a.click()
-    URL.revokeObjectURL(url)
+      // Generate and download
+      const buffer = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `inventory-pipeline-${new Date().toISOString().split('T')[0]}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
     } catch (err: any) {
       console.log('[v0] Excel export error:', err?.message, err?.stack)
       alert(`Export failed: ${err?.message}`)
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -663,9 +760,9 @@ export function PipelineDashboard() {
               )}
               Save
             </Button>
-            <Button variant="outline" size="sm" onClick={handleExport}>
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
               <Download className="mr-1 h-4 w-4" />
-              Export Excel
+              {exporting ? 'Exporting...' : 'Export Excel'}
             </Button>
           </div>
         </div>
