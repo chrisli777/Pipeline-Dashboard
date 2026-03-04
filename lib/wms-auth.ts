@@ -1,10 +1,10 @@
 // WMS (3PL Central / Extensiv) OAuth2 token management
-// Each warehouse has its own client credentials and user_login
+// Each warehouse has its own Base64-encoded authorization key and user_login
+// Token endpoint: https://secure-wms.com/AuthServer/api/Token
 
-interface WmsCredentials {
-  clientId: string
-  clientSecret: string
-  userLogin: string
+interface WmsAuthConfig {
+  base64Key: string   // Base64-encoded "ClientID:ClientSecret"
+  userLogin: string   // e.g. "chris.li@whcast.com"
 }
 
 interface TokenCache {
@@ -15,61 +15,65 @@ interface TokenCache {
 // In-memory token cache per warehouse key
 const tokenCache: Record<string, TokenCache> = {}
 
-// Get credentials for a warehouse/supplier combination
-function getCredentials(warehouse: string, supplierCode: string): WmsCredentials | null {
+// Get auth config for a warehouse/supplier combination
+function getAuthConfig(warehouse: string, supplierCode: string): WmsAuthConfig | null {
   if (warehouse === 'Moses Lake') {
-    const clientId = process.env.WMS_CLIENT_ID_MOSES_LAKE
-    const clientSecret = process.env.WMS_CLIENT_SECRET_MOSES_LAKE
+    const base64Key = process.env.WMS_BASE64_KEY_MOSES_LAKE
     const userLogin = process.env.WMS_USER_LOGIN_MOSES_LAKE
-    if (clientId && clientSecret && userLogin) {
-      return { clientId, clientSecret, userLogin }
+    if (base64Key && userLogin) {
+      return { base64Key, userLogin }
     }
   } else if (supplierCode === 'HX') {
     // Kent HX
-    const clientId = process.env.WMS_CLIENT_ID_KENT_HX
-    const clientSecret = process.env.WMS_CLIENT_SECRET_KENT_HX
+    const base64Key = process.env.WMS_BASE64_KEY_KENT_HX
     const userLogin = process.env.WMS_USER_LOGIN_KENT_HX
-    if (clientId && clientSecret && userLogin) {
-      return { clientId, clientSecret, userLogin }
+    if (base64Key && userLogin) {
+      return { base64Key, userLogin }
     }
   } else {
     // Kent AMC
-    const clientId = process.env.WMS_CLIENT_ID_KENT_AMC
-    const clientSecret = process.env.WMS_CLIENT_SECRET_KENT_AMC
+    const base64Key = process.env.WMS_BASE64_KEY_KENT_AMC
     const userLogin = process.env.WMS_USER_LOGIN_KENT_AMC
-    if (clientId && clientSecret && userLogin) {
-      return { clientId, clientSecret, userLogin }
+    if (base64Key && userLogin) {
+      return { base64Key, userLogin }
     }
   }
   return null
 }
 
 // Request a fresh access token from 3PL Central OAuth endpoint
-async function requestNewToken(creds: WmsCredentials): Promise<{ accessToken: string; expiresIn: number }> {
-  const authKey = Buffer.from(`${creds.clientId}:${creds.clientSecret}`).toString('base64')
-
+async function requestNewToken(config: WmsAuthConfig): Promise<{ accessToken: string; expiresIn: number }> {
   const response = await fetch('https://secure-wms.com/AuthServer/api/Token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'Accept': 'application/json',
-      'Authorization': `Basic ${authKey}`,
+      'Accept': 'application/hal+json',
+      'Host': 'secure-wms.com',
+      'Connection': 'keep-alive',
+      'Accept-Encoding': 'gzip, deflate, sdch',
+      'Accept-Language': 'en-US,en;q=0.8',
+      'Authorization': `Basic ${config.base64Key}`,
     },
     body: JSON.stringify({
       grant_type: 'client_credentials',
-      user_login: creds.userLogin,
+      user_login: config.userLogin,
     }),
   })
 
   if (!response.ok) {
     const errorText = await response.text()
-    throw new Error(`WMS OAuth token request failed (${response.status}): ${errorText}`)
+    throw new Error(`WMS OAuth token request failed (${response.status}): ${errorText.slice(0, 300)}`)
   }
 
   const data = await response.json()
+
+  if (!data.access_token) {
+    throw new Error(`WMS OAuth response missing access_token: ${JSON.stringify(data).slice(0, 300)}`)
+  }
+
   return {
     accessToken: data.access_token,
-    // Default to 25 minutes if expires_in is 0 or missing (tokens typically last 30-60 min)
+    // Default to 25 minutes if expires_in is missing (tokens typically last 30 min)
     expiresIn: (data.expires_in && data.expires_in > 0) ? data.expires_in : 1500,
   }
 }
@@ -84,24 +88,14 @@ export async function getWmsToken(warehouse: string, supplierCode: string): Prom
     return cached.accessToken
   }
 
-  // Get credentials for this warehouse
-  const creds = getCredentials(warehouse, supplierCode)
-  if (!creds) {
-    // Fallback: try legacy static token env vars
-    let legacyToken: string | undefined
-    if (warehouse === 'Moses Lake') {
-      legacyToken = process.env.WMS_API_TOKEN
-    } else if (supplierCode === 'HX') {
-      legacyToken = process.env.WMS_API_TOKEN_KENT_HX
-    } else {
-      legacyToken = process.env.WMS_API_TOKEN_KENT_AMC
-    }
-    if (legacyToken) return legacyToken
-    throw new Error(`WMS credentials not configured for warehouse=${warehouse}, supplier=${supplierCode}`)
+  // Get auth config for this warehouse
+  const config = getAuthConfig(warehouse, supplierCode)
+  if (!config) {
+    throw new Error(`WMS OAuth credentials not configured for warehouse=${warehouse}, supplier=${supplierCode}. Set WMS_BASE64_KEY_* and WMS_USER_LOGIN_* env vars.`)
   }
 
   // Request new token
-  const { accessToken, expiresIn } = await requestNewToken(creds)
+  const { accessToken, expiresIn } = await requestNewToken(config)
 
   // Cache it
   tokenCache[cacheKey] = {
