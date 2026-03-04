@@ -55,8 +55,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing skuId or weekNumber' }, { status: 400 })
     }
 
-    // Determine WMS token based on SKU warehouse
-    // Look up the SKU's warehouse from the database to route to the correct WMS token
+    // Look up the SKU's warehouse from the database to route to the correct WMS credentials
     const supabaseForLookup = await createClient()
     const { data: skuRow } = await supabaseForLookup
       .from('skus')
@@ -64,19 +63,17 @@ export async function POST(request: NextRequest) {
       .eq('sku_code', skuId)
       .single()
 
-    let wmsToken: string | undefined
-    if (skuRow?.warehouse === 'Moses Lake') {
-      wmsToken = process.env.WMS_API_TOKEN
-    } else if (skuRow?.supplier_code === 'HX') {
-      // Kent HX
-      wmsToken = process.env.WMS_API_TOKEN_KENT_HX
-    } else {
-      // Kent AMC or others
-      wmsToken = process.env.WMS_API_TOKEN_KENT_AMC
+    if (!skuRow) {
+      return NextResponse.json({ error: `SKU ${skuId} not found in database` }, { status: 400 })
     }
 
-    if (!wmsToken) {
-      return NextResponse.json({ error: 'WMS API token not configured for this SKU' }, { status: 500 })
+    // Get a fresh OAuth2 token for the correct warehouse
+    let wmsToken: string
+    try {
+      const { getWmsToken } = await import('@/lib/wms-auth')
+      wmsToken = await getWmsToken(skuRow.warehouse, skuRow.supplier_code)
+    } catch (authError: any) {
+      return NextResponse.json({ error: authError.message }, { status: 500 })
     }
 
     // Calculate date range for the week (Monday to Friday)
