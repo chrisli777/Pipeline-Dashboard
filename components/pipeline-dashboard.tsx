@@ -469,66 +469,43 @@ export function PipelineDashboard() {
     }
   }, [fetchData])
 
-  // Export full pipeline table as PDF
-  const [exporting, setExporting] = useState(false)
-  const handleExport = async () => {
-    const container = document.getElementById('pipeline-table-container')
-    if (!container) return
-    setExporting(true)
-    try {
-      const html2canvas = (await import('html2canvas')).default
-      const { jsPDF } = await import('jspdf')
+  // Export CSV
+  const handleExport = () => {
+    const headers = [
+      'Part/Model',
+      'Row Type',
+      ...Array.from(
+        { length: weekRange.end - weekRange.start + 1 },
+        (_, i) => `W${weekRange.start + i}`
+      ),
+    ]
+    const rows: string[][] = []
 
-      // Temporarily expand the container so the full table is visible
-      const origOverflow = container.style.overflow
-      const origWidth = container.style.width
-      const origMaxWidth = container.style.maxWidth
-      container.style.overflow = 'visible'
-      container.style.width = 'max-content'
-      container.style.maxWidth = 'none'
-
-      // Capture the full table
-      const canvas = await html2canvas(container, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
+    filteredSkus.forEach((sku) => {
+      const weekData = sku.weeks.filter(
+        (w) => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
+      )
+      
+      const rowTypes = ['customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'] as const
+      
+      rowTypes.forEach((rowType) => {
+        const row = [
+          sku.partModelNumber,
+          rowType,
+          ...weekData.map((w) => w[rowType]?.toString() ?? ''),
+        ]
+        rows.push(row)
       })
-
-      // Restore original styles
-      container.style.overflow = origOverflow
-      container.style.width = origWidth
-      container.style.maxWidth = origMaxWidth
-
-      // Calculate PDF dimensions to fit the table
-      const imgWidth = canvas.width
-      const imgHeight = canvas.height
-      // Use landscape, fit width to page
-      const pdfWidth = Math.max(imgWidth * 0.264583 / 2, 297) // at least A4 landscape width in mm
-      const pdfHeight = (imgHeight / imgWidth) * pdfWidth
-      const pdf = new jsPDF({
-        orientation: 'landscape',
-        unit: 'mm',
-        format: [pdfWidth, pdfHeight + 20],
-      })
-
-      // Add title
-      pdf.setFontSize(12)
-      pdf.text(`Inventory Pipeline - ${new Date().toLocaleDateString()}`, 10, 10)
-
-      // Add table image
-      const pageWidth = pdf.internal.pageSize.getWidth() - 20
-      const ratio = pageWidth / imgWidth
-      const finalHeight = imgHeight * ratio
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 15, pageWidth, finalHeight)
-
-      pdf.save(`inventory-pipeline-${new Date().toISOString().split('T')[0]}.pdf`)
-    } catch (err: any) {
-      console.log('[v0] PDF export error:', err?.message, err?.stack)
-      alert(`PDF export failed: ${err?.message}`)
-    } finally {
-      setExporting(false)
-    }
+    })
+    
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `inventory-pipeline-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const handleWmsSync = () => {
@@ -619,9 +596,9 @@ export function PipelineDashboard() {
               )}
               Save
             </Button>
-            <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
+            <Button variant="outline" size="sm" onClick={handleExport}>
               <Download className="mr-1 h-4 w-4" />
-              {exporting ? 'Exporting...' : 'Export PDF'}
+              Export CSV
             </Button>
           </div>
         </div>

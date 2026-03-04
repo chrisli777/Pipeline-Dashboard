@@ -127,8 +127,8 @@ export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataC
   ) || []
 
   return (
-    <div className="overflow-x-auto" id="pipeline-table-container">
-      <table className="w-full text-sm border-collapse" id="pipeline-table">
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
         <thead>
           {/* Week number row */}
           <tr>
