@@ -20,10 +20,11 @@ export async function POST(request: Request) {
     const supabase = await createClient()
 
     // Fetch all non-delivered containers from dispatch view
+    // Include ON_WATER, CLEARED, and DELIVERING since WMS receipt means delivery
     const { data: containers, error: fetchErr } = await supabase
       .from('v_container_dispatch')
       .select('id, shipment_id, container_number, invoice_number, status')
-      .in('status', ['CLEARED', 'DELIVERING'])
+      .in('status', ['ON_WATER', 'CLEARED', 'DELIVERING'])
 
     if (fetchErr) {
       return NextResponse.json(
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
     if (!containers || containers.length === 0) {
       return NextResponse.json({
         success: true,
-        message: 'No CLEARED/DELIVERING containers to match against.',
+        message: 'No non-delivered containers to match against.',
         totalReferences: referenceNumbers.length,
         deliveryMatches: 0,
         containersChecked: 0,

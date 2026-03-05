@@ -395,7 +395,7 @@ export function PipelineDashboard() {
     
     try {
       const { skuIds, weekStart, weekEnd, fields } = config
-      const results: Array<{ success?: boolean; error?: string }> = []
+      const results: Array<Record<string, any>> = []
       
       // Sync each field type
       // Note: Customer Forecast is synced separately from the Customer Forecast page
@@ -461,13 +461,15 @@ export function PipelineDashboard() {
       if (fields.includes('ata')) {
         const allRefs = new Set<string>()
         for (const r of successfulSyncs) {
-          const refs = (r as any).referenceNumbers
+          const refs = r.referenceNumbers
           if (Array.isArray(refs)) {
             for (const ref of refs) {
               if (ref) allRefs.add(ref)
             }
           }
         }
+
+        console.log('[v0] Delivery sync: collected', allRefs.size, 'unique reference numbers from', successfulSyncs.length, 'ATA results')
 
         if (allRefs.size > 0) {
           try {
@@ -477,12 +479,22 @@ export function PipelineDashboard() {
               body: JSON.stringify({ referenceNumbers: Array.from(allRefs) }),
             })
             const deliveryData = await deliveryRes.json()
-            if (deliveryRes.ok && deliveryData.deliveryMatches > 0) {
-              deliveryMsg = `\n${deliveryData.deliveryMatches} container(s) matched and marked as DELIVERED.`
+            console.log('[v0] Delivery sync response:', deliveryData)
+            if (deliveryRes.ok) {
+              if (deliveryData.deliveryMatches > 0) {
+                deliveryMsg = `\nDelivery sync: ${deliveryData.deliveryMatches} container(s) matched and marked as DELIVERED (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
+              } else {
+                deliveryMsg = `\nDelivery sync: No new matches found (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
+              }
+            } else {
+              deliveryMsg = `\nDelivery sync failed: ${deliveryData.error || 'Unknown error'}`
             }
-          } catch {
-            // Delivery matching is best-effort, don't fail the whole sync
+          } catch (err) {
+            console.error('[v0] Delivery sync error:', err)
+            deliveryMsg = '\nDelivery sync: Failed to connect.'
           }
+        } else {
+          deliveryMsg = '\nDelivery sync: No reference numbers found from WMS receivers.'
         }
       }
       
