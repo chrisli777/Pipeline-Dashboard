@@ -269,47 +269,34 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
           </div>
 
           {/* Status history (audit trail) */}
-          {(() => {
-            // Safely parse status_history - it may be a JSON string, array, or null
-            let rawHistory = tracking?.status_history
-            if (typeof rawHistory === 'string') {
-              try { rawHistory = JSON.parse(rawHistory) } catch { rawHistory = [] }
-            }
-            const historyArr = Array.isArray(rawHistory) ? rawHistory : []
-            // Filter to only entries that have actual content (to_status or notes)
-            const validHistory = historyArr.filter(
-              (entry: any) => entry && (entry.to_status || entry.notes || entry.from_status)
-            )
-            if (validHistory.length === 0) return null
-            return (
-              <div className="px-6 py-4 border-t border-slate-200">
-                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                  Status History
-                </h4>
-                <div className="space-y-2">
-                  {[...validHistory].reverse().map((entry: any, i: number) => (
-                    <div key={i} className="flex items-start gap-2 text-xs">
-                      <div className="w-2 h-2 rounded-full bg-slate-400 mt-1.5 flex-shrink-0" />
-                      <div>
-                        <span className="font-medium text-slate-700">
-                          {entry.from_status ? `${entry.from_status} \u2192 ${entry.to_status}` : entry.to_status}
-                        </span>
-                        <span className="text-slate-400 ml-2">
-                          {entry.changed_at ? formatDateTime(entry.changed_at) : ''}
-                        </span>
-                        {entry.changed_by && (
-                          <span className="text-slate-400 ml-1">by {entry.changed_by}</span>
-                        )}
-                        {entry.notes && (
-                          <div className="text-slate-500 mt-0.5">{entry.notes}</div>
-                        )}
-                      </div>
+          {tracking?.status_history && tracking.status_history.length > 0 && (
+            <div className="px-6 py-4 border-t border-slate-200">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                Status History
+              </h4>
+              <div className="space-y-2">
+                {[...tracking.status_history].reverse().map((entry, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <div className="w-2 h-2 rounded-full bg-slate-400 mt-1.5 flex-shrink-0" />
+                    <div>
+                      <span className="font-medium text-slate-700">
+                        {entry.from_status ? `${entry.from_status} \u2192 ${entry.to_status}` : entry.to_status}
+                      </span>
+                      <span className="text-slate-400 ml-2">
+                        {entry.changed_at ? formatDateTime(entry.changed_at) : ''}
+                      </span>
+                      {entry.changed_by && (
+                        <span className="text-slate-400 ml-1">by {entry.changed_by}</span>
+                      )}
+                      {entry.notes && (
+                        <div className="text-slate-500 mt-0.5">{entry.notes}</div>
+                      )}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-            )
-          })()}
+            </div>
+          )}
         </div>
       )}
     </div>
