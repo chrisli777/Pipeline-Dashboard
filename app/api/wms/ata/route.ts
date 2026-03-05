@@ -98,8 +98,6 @@ export async function POST(request: Request) {
     let totalAta = 0
     let pageNum = 1
     let hasMore = true
-    // Collect all ReferenceNumbers from receivers for delivery matching
-    const referenceNumbers = new Set<string>()
 
     while (hasMore) {
       const wmsUrl = `https://secure-wms.com/inventory/receivers?detail=ReceiveItems&pgsiz=100&pgnum=${pageNum}&rql=${encodedRql}`
@@ -127,13 +125,6 @@ export async function POST(request: Request) {
 
       // Iterate through each receiver and its ReceiveItems
       for (const receiver of receivers) {
-        // Collect ReferenceNumber for delivery matching
-        const ref = (receiver.ReferenceNumber || '').trim()
-        if (ref) {
-          referenceNumbers.add(ref)
-        }
-
-        // ReceiveItems is a direct array on each receiver
         const receiveItems = receiver.ReceiveItems || []
         const items = Array.isArray(receiveItems) ? receiveItems : []
 
@@ -175,87 +166,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // --- Delivery matching step ---
-    // Match ReferenceNumbers from WMS receivers against container_number and
-    // invoice_number in v_container_dispatch, then update matched containers
-    // to DELIVERED in both container_tracking and shipment_tracking
-    let deliveryMatches = 0
-    const matchedContainers: { container_number: string; shipment_id: string; matched_by: string }[] = []
-
-    if (referenceNumbers.size > 0) {
-      const refArray = Array.from(referenceNumbers)
-
-      // Fetch containers with CLEARED or DELIVERING status for this supplier + warehouse
-      const { data: containers } = await supabase
-        .from('v_container_dispatch')
-        .select('id, shipment_id, container_number, invoice_number, status, supplier, warehouse')
-        .eq('supplier', skuRow.supplier_code)
-        .eq('warehouse', skuRow.warehouse)
-        .in('status', ['CLEARED', 'DELIVERING'])
-
-      if (containers && containers.length > 0) {
-        // Build lookup maps (case-insensitive)
-        const byContainerNumber = new Map<string, typeof containers[0]>()
-        const byInvoiceNumber = new Map<string, typeof containers[0]>()
-        for (const c of containers) {
-          if (c.container_number) byContainerNumber.set(c.container_number.toUpperCase(), c)
-          if (c.invoice_number) byInvoiceNumber.set(c.invoice_number.toUpperCase(), c)
-        }
-
-        const matchedIds = new Set<string>()
-        const today = new Date().toISOString().split('T')[0]
-
-        for (const ref of refArray) {
-          const refUpper = ref.toUpperCase()
-
-          // Try matching container_number first, then invoice_number
-          const match = byContainerNumber.get(refUpper) || byInvoiceNumber.get(refUpper)
-          if (match && !matchedIds.has(match.id)) {
-            matchedIds.add(match.id)
-
-            // Update container_tracking to DELIVERED
-            const { error: ctUpdateErr } = await supabase
-              .from('container_tracking')
-              .update({
-                status: 'DELIVERED',
-                delivered_date: today,
-              })
-              .eq('shipment_id', match.shipment_id)
-              .eq('container_number', match.container_number)
-
-            if (!ctUpdateErr) {
-              deliveryMatches++
-              matchedContainers.push({
-                container_number: match.container_number,
-                shipment_id: match.shipment_id,
-                matched_by: byContainerNumber.has(refUpper) ? 'container_number' : 'invoice_number',
-              })
-            }
-
-            // Check if ALL containers for this shipment are now DELIVERED
-            // If so, update shipment_tracking to DELIVERED too
-            const { data: allShipmentContainers } = await supabase
-              .from('container_tracking')
-              .select('id, status')
-              .eq('shipment_id', match.shipment_id)
-
-            if (allShipmentContainers) {
-              const allDelivered = allShipmentContainers.every(c => c.status === 'DELIVERED')
-              if (allDelivered) {
-                await supabase
-                  .from('shipment_tracking')
-                  .update({
-                    status: 'DELIVERED',
-                    delivered_date: today,
-                  })
-                  .eq('shipment_id', match.shipment_id)
-              }
-            }
-          }
-        }
-      }
-    }
-
     return NextResponse.json({
       success: true,
       skuId,
@@ -263,9 +173,6 @@ export async function POST(request: Request) {
       ata: totalAta,
       dateRange: { start, end },
       pagesScanned: pageNum,
-      referenceNumbers: Array.from(referenceNumbers),
-      deliveryMatches,
-      matchedContainers,
     })
   } catch (error) {
     return NextResponse.json(

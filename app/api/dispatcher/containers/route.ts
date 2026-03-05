@@ -57,9 +57,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // Calculate summary
+    // Calculate summary from ALL dispatch-eligible containers (not filtered)
+    const { data: allContainers } = await supabase
+      .from('v_container_dispatch')
+      .select('status, warehouse')
+      .in('status', ['CLEARED', 'DELIVERING', 'DELIVERED'])
+
     const summary = {
-      total: containers?.length || 0,
+      total: allContainers?.length || 0,
       by_status: {
         CLEARED: 0,
         DELIVERING: 0,
@@ -72,7 +77,7 @@ export async function GET(request: Request) {
       } as Record<string, number>,
     }
 
-    for (const c of containers || []) {
+    for (const c of allContainers || []) {
       const s = c.status as string
       if (s in summary.by_status) {
         summary.by_status[s]++

@@ -443,10 +443,9 @@ export function PipelineDashboard() {
         }
       }
       
-      // Count successful syncs and delivery matches
-      const successfulSyncs = results.filter((r: any) => r.success)
-      const failedSyncs = results.filter((r: any) => r.error)
-      const totalDeliveryMatches = results.reduce((sum: number, r: any) => sum + (r.deliveryMatches || 0), 0)
+      // Count successful syncs
+      const successfulSyncs = results.filter(r => r.success)
+      const failedSyncs = results.filter(r => r.error)
       
       // If all syncs failed, don't update anything and show error
       if (failedSyncs.length > 0 && successfulSyncs.length === 0) {
@@ -458,17 +457,11 @@ export function PipelineDashboard() {
       // Refresh data to show updated values
       await fetchData()
       
-      // Build result message
-      let msg = ''
       if (failedSyncs.length > 0) {
-        msg = `Synced ${successfulSyncs.length} records. ${failedSyncs.length} failed.`
+        alert(`Synced ${successfulSyncs.length} records. ${failedSyncs.length} failed.`)
       } else {
-        msg = `Successfully synced ${successfulSyncs.length} records (Weeks ${weekStart}-${weekEnd}).`
+        alert(`Successfully synced ${successfulSyncs.length} records (Weeks ${weekStart}-${weekEnd}).`)
       }
-      if (totalDeliveryMatches > 0) {
-        msg += `\n${totalDeliveryMatches} container(s) matched and marked as DELIVERED.`
-      }
-      alert(msg)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sync data')
     } finally {
