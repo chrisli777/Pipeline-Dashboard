@@ -144,7 +144,48 @@ export async function PATCH(
     let containerUpdates = 0
 
     // When transitioning to CLEARED: update all container_tracking records to CLEARED
+    // Also create missing container_tracking rows for any containers that don't have one yet
     if (status === 'CLEARED' && currentStatus === 'ON_WATER') {
+      // First, ensure container_tracking rows exist for all shipment_containers
+      const { data: shipContainers } = await supabase
+        .from('shipment_containers')
+        .select('id, container_number, container_type')
+        .eq('shipment_id', shipmentId)
+
+      const { data: existingCT } = await supabase
+        .from('container_tracking')
+        .select('container_number')
+        .eq('shipment_id', shipmentId)
+
+      const existingSet = new Set((existingCT || []).map(ct => ct.container_number))
+      const uniqueContainers = new Map<string, { id: string; container_number: string; container_type: string | null }>()
+
+      for (const sc of (shipContainers || [])) {
+        if (sc.container_number && !existingSet.has(sc.container_number) && !uniqueContainers.has(sc.container_number)) {
+          uniqueContainers.set(sc.container_number, sc)
+        }
+      }
+
+      // Insert missing container_tracking records as CLEARED
+      if (uniqueContainers.size > 0) {
+        const newRows = Array.from(uniqueContainers.values()).map(sc => ({
+          shipment_id: shipmentId,
+          container_id: sc.id,
+          container_number: sc.container_number,
+          container_type: sc.container_type,
+          status: 'CLEARED',
+          notes: `Customs cleared. Entry: ${entry_number || 'N/A'}`,
+        }))
+
+        const { data: insertedData } = await supabase
+          .from('container_tracking')
+          .insert(newRows)
+          .select('id')
+
+        containerUpdates += insertedData?.length || 0
+      }
+
+      // Update existing ON_WATER container_tracking records to CLEARED
       const { data: ctData, error: ctError } = await supabase
         .from('container_tracking')
         .update({
@@ -156,7 +197,7 @@ export async function PATCH(
         .select('id')
 
       if (!ctError && ctData) {
-        containerUpdates = ctData.length
+        containerUpdates += ctData.length
       }
     }
 

@@ -455,46 +455,35 @@ export function PipelineDashboard() {
       }
 
       // --- Delivery matching step ---
-      // Collect all unique reference numbers from ATA sync results
-      // and match them against containers in the dispatch view
+      // Call the dedicated delivery-sync endpoint which fetches ALL receivers
+      // from WMS (no SKU filter) in the synced date range and matches
+      // reference numbers against containers
       let deliveryMsg = ''
       if (fields.includes('ata')) {
-        const allRefs = new Set<string>()
-        for (const r of successfulSyncs) {
-          const refs = r.referenceNumbers
-          if (Array.isArray(refs)) {
-            for (const ref of refs) {
-              if (ref) allRefs.add(ref)
-            }
-          }
-        }
-
-        console.log('[v0] Delivery sync: collected', allRefs.size, 'unique reference numbers from', successfulSyncs.length, 'ATA results')
-
-        if (allRefs.size > 0) {
-          try {
-            const deliveryRes = await fetch('/api/dispatcher/sync-delivery', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ referenceNumbers: Array.from(allRefs) }),
-            })
-            const deliveryData = await deliveryRes.json()
-            console.log('[v0] Delivery sync response:', deliveryData)
-            if (deliveryRes.ok) {
-              if (deliveryData.deliveryMatches > 0) {
-                deliveryMsg = `\nDelivery sync: ${deliveryData.deliveryMatches} container(s) matched and marked as DELIVERED (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
-              } else {
-                deliveryMsg = `\nDelivery sync: No new matches found (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
-              }
+        try {
+          const deliveryRes = await fetch('/api/wms/delivery-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ weekStart, weekEnd }),
+          })
+          const deliveryData = await deliveryRes.json()
+          if (deliveryRes.ok) {
+            if (deliveryData.deliveryMatches > 0) {
+              deliveryMsg = `\nDelivery sync: ${deliveryData.deliveryMatches} container(s) matched and marked as DELIVERED (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
+            } else if (deliveryData.totalReferences > 0) {
+              deliveryMsg = `\nDelivery sync: No new matches found (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
             } else {
-              deliveryMsg = `\nDelivery sync failed: ${deliveryData.error || 'Unknown error'}`
+              deliveryMsg = `\nDelivery sync: No reference numbers found from WMS receivers in weeks ${weekStart}-${weekEnd}.`
             }
-          } catch (err) {
-            console.error('[v0] Delivery sync error:', err)
-            deliveryMsg = '\nDelivery sync: Failed to connect.'
+            if (deliveryData.errors?.length) {
+              deliveryMsg += ` (${deliveryData.errors.length} warehouse(s) had errors)`
+            }
+          } else {
+            deliveryMsg = `\nDelivery sync failed: ${deliveryData.error || 'Unknown error'}`
           }
-        } else {
-          deliveryMsg = '\nDelivery sync: No reference numbers found from WMS receivers.'
+        } catch (err) {
+          console.error('Delivery sync error:', err)
+          deliveryMsg = '\nDelivery sync: Failed to connect.'
         }
       }
       

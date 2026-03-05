@@ -105,20 +105,31 @@ export async function GET(request: Request) {
       query = query.eq('supplier', supplier)
     }
 
-    // Search by invoice, BOL, or SKU
+    // Search by invoice, BOL, SKU, or container number
     if (search) {
-      // Find shipments containing matching SKU codes
+      // Find shipments containing matching SKU codes or container numbers
       const { data: skuMatches } = await supabase
         .from('shipment_containers')
         .select('shipment_id')
         .ilike('sku', `%${search}%`)
 
-      const skuShipmentIds = [...new Set(
-        (skuMatches || []).map((r: { shipment_id: string }) => r.shipment_id)
-      )]
+      const { data: containerMatches } = await supabase
+        .from('shipment_containers')
+        .select('shipment_id')
+        .ilike('container_number', `%${search}%`)
 
-      if (skuShipmentIds.length > 0) {
-        const idFilter = skuShipmentIds.map(id => `id.eq.${id}`).join(',')
+      const matchedShipmentIds = new Set<string>()
+      for (const r of (skuMatches || [])) {
+        matchedShipmentIds.add((r as { shipment_id: string }).shipment_id)
+      }
+      for (const r of (containerMatches || [])) {
+        matchedShipmentIds.add((r as { shipment_id: string }).shipment_id)
+      }
+
+      const idArray = [...matchedShipmentIds]
+
+      if (idArray.length > 0) {
+        const idFilter = idArray.map(id => `id.eq.${id}`).join(',')
         query = query.or(
           `invoice_number.ilike.%${search}%,bol_number.ilike.%${search}%,${idFilter}`
         )

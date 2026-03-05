@@ -204,7 +204,7 @@ export default function ShipmentTrackingPage() {
         <div className="relative w-[250px]">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
           <Input
-            placeholder="Search invoice, BOL, or SKU..."
+            placeholder="Search invoice, BOL, container, or SKU..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-8 h-9"
