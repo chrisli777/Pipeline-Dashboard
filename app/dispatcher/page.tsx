@@ -35,12 +35,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
 import {
   Package, Truck, MapPin, RefreshCw, Loader2,
   ChevronDown, ChevronRight, ArrowUpRight,
   CheckCircle2, AlertTriangle, Clock, Calendar,
-  Satellite, XCircle,
 } from 'lucide-react'
 
 type StatusTab = 'ALL' | 'CLEARED' | 'DELIVERING' | 'DELIVERED'
@@ -85,9 +83,6 @@ export default function DispatcherDashboardPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [batchAction, setBatchAction] = useState<'DELIVERING' | 'DELIVERED' | null>(null)
   const [batchDialogOpen, setBatchDialogOpen] = useState(false)
-
-  // WMS Check
-  const [wmsCheckOpen, setWmsCheckOpen] = useState(false)
 
   // Expanded rows
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -287,15 +282,6 @@ export default function DispatcherDashboardPage() {
             />
           </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 border-teal-300 text-teal-700 hover:bg-teal-50 whitespace-nowrap"
-            onClick={() => setWmsCheckOpen(true)}
-          >
-            <Satellite className="h-3.5 w-3.5 mr-1.5" />
-            Check WMS
-          </Button>
         </div>
 
         {/* Batch Action Bar (shows when items selected) */}
@@ -414,14 +400,6 @@ export default function DispatcherDashboardPage() {
           />
         )}
 
-        {/* WMS Delivery Check Dialog */}
-        <WmsCheckDialog
-          open={wmsCheckOpen}
-          onOpenChange={setWmsCheckOpen}
-          defaultSupplier={supplierFilter !== 'ALL' ? supplierFilter : ''}
-          defaultWarehouse={warehouseFilter !== 'ALL' ? warehouseFilter : ''}
-          onMatched={() => fetchContainers()}
-        />
       </div>
     </TooltipProvider>
   )
@@ -670,16 +648,13 @@ function ContainerEditDialog({
     notes: container.notes || '',
   })
 
-  // Determine next status option
-  const nextStatusOptions: { value: ShipmentStatus; label: string }[] = []
-  if (container.status === 'CLEARED') {
-    nextStatusOptions.push({ value: 'DELIVERING', label: 'Mark as Delivering' })
-  } else if (container.status === 'DELIVERING') {
-    nextStatusOptions.push({ value: 'DELIVERED', label: 'Mark as Delivered' })
-    nextStatusOptions.push({ value: 'CLEARED', label: 'Revert to Cleared' })
-  } else if (container.status === 'DELIVERED') {
-    nextStatusOptions.push({ value: 'DELIVERING', label: 'Revert to Delivering' })
-  }
+  // Allow manual status change to any valid status
+  const allStatuses: { value: ShipmentStatus; label: string }[] = [
+    { value: 'CLEARED', label: 'Cleared' },
+    { value: 'DELIVERING', label: 'Delivering' },
+    { value: 'DELIVERED', label: 'Delivered' },
+  ]
+  const nextStatusOptions = allStatuses.filter(s => s.value !== container.status)
 
   const [selectedStatus, setSelectedStatus] = useState<string>('')
 
@@ -690,8 +665,8 @@ function ContainerEditDialog({
     try {
       const updates: Record<string, unknown> = {}
 
-      // Status change
-      if (selectedStatus) {
+      // Status change - only if a real status was selected
+      if (selectedStatus && selectedStatus !== '__keep__') {
         updates.status = selectedStatus
       }
 
@@ -710,12 +685,16 @@ function ContainerEditDialog({
         return
       }
 
+      // Use batch-update endpoint for single container
       const res = await fetch(
-        `/api/shipments/${container.shipment_id}/containers/${encodeURIComponent(container.container_number)}/tracking`,
+        `/api/shipments/${container.shipment_id}/containers/batch-update`,
         {
-          method: 'PATCH',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updates),
+          body: JSON.stringify({
+            container_numbers: [container.container_number],
+            updates,
+          }),
         }
       )
 
@@ -1075,271 +1054,6 @@ function BatchActionDialog({
           <Button onClick={handleSubmit} disabled={loading || eligible.length === 0}>
             {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Update {eligible.length} Container{eligible.length !== 1 ? 's' : ''}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ===================================================
-// WMS Delivery Check Dialog
-// ===================================================
-
-interface WmsMatchResult {
-  container_id: string
-  container_number: string
-  invoice_number: string
-  shipment_id: string
-  matched_by: 'container_number' | 'invoice_number'
-  wms_reference: string
-  status: string
-}
-
-interface WmsUnmatched {
-  container_id: string
-  container_number: string
-  invoice_number: string
-  status: string
-}
-
-interface WmsCheckResponse {
-  matched: WmsMatchResult[]
-  unmatched: WmsUnmatched[]
-  totalReceivers: number
-  updatedCount: number
-  containersChecked: number
-  error?: string
-  message?: string
-}
-
-function WmsCheckDialog({
-  open,
-  onOpenChange,
-  defaultSupplier,
-  defaultWarehouse,
-  onMatched,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  defaultSupplier: string
-  defaultWarehouse: string
-  onMatched: () => void
-}) {
-  const [supplier, setSupplier] = useState(defaultSupplier || '')
-  const [warehouse, setWarehouse] = useState(defaultWarehouse || '')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [results, setResults] = useState<WmsCheckResponse | null>(null)
-
-  // Reset when dialog opens
-  useEffect(() => {
-    if (open) {
-      setSupplier(defaultSupplier || '')
-      setWarehouse(defaultWarehouse || '')
-      setError(null)
-      setResults(null)
-    }
-  }, [open, defaultSupplier, defaultWarehouse])
-
-  // Valid WMS credential combos
-  const validCombos = [
-    { supplier: 'AMC', warehouse: 'Kent' },
-    { supplier: 'HX', warehouse: 'Kent' },
-    { supplier: 'HX', warehouse: 'Moses Lake' },
-  ]
-
-  const isValidCombo = validCombos.some(
-    c => c.supplier === supplier && c.warehouse === warehouse
-  )
-
-  const handleCheck = async () => {
-    if (!supplier || !warehouse) return
-    setLoading(true)
-    setError(null)
-    setResults(null)
-
-    try {
-      const res = await fetch('/api/dispatcher/check-wms-delivery', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ supplier, warehouse }),
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.error || `Failed (${res.status})`)
-        return
-      }
-
-      setResults(data)
-
-      // If matches found, refresh parent data
-      if (data.updatedCount > 0) {
-        onMatched()
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[560px] max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Satellite className="h-5 w-5 text-teal-600" />
-            Check WMS Delivery Status
-          </DialogTitle>
-          <DialogDescription>
-            Match WMS receiver records against container/invoice numbers to auto-mark deliveries
-          </DialogDescription>
-        </DialogHeader>
-
-        {/* Step 1: Select supplier + warehouse */}
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-sm">Supplier</Label>
-              <Select value={supplier} onValueChange={setSupplier}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Select supplier" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="AMC">AMC</SelectItem>
-                  <SelectItem value="HX">HX</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm">Warehouse</Label>
-              <Select value={warehouse} onValueChange={setWarehouse}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Select warehouse" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Kent">Kent</SelectItem>
-                  <SelectItem value="Moses Lake">Moses Lake</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {supplier && warehouse && !isValidCombo && (
-            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-md flex items-start gap-2">
-              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-              No WMS credentials configured for {supplier} at {warehouse}
-            </div>
-          )}
-
-          <Button
-            onClick={handleCheck}
-            disabled={!supplier || !warehouse || !isValidCombo || loading}
-            className="w-full bg-teal-600 hover:bg-teal-700 text-white"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Checking WMS receivers...
-              </>
-            ) : (
-              <>
-                <Satellite className="h-4 w-4 mr-2" />
-                Check Delivery Status
-              </>
-            )}
-          </Button>
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div className="text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-md">{error}</div>
-        )}
-
-        {/* Results */}
-        {results && (
-          <div className="space-y-4 pt-2 border-t border-slate-200">
-            {/* Summary stats */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
-                <div className="text-lg font-bold text-slate-800">{results.containersChecked}</div>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Checked</div>
-              </div>
-              <div className="bg-green-50 rounded-lg px-3 py-2 text-center">
-                <div className="text-lg font-bold text-green-700">{results.matched.length}</div>
-                <div className="text-[10px] text-green-600 uppercase tracking-wider">Matched</div>
-              </div>
-              <div className="bg-slate-50 rounded-lg px-3 py-2 text-center">
-                <div className="text-lg font-bold text-slate-600">{results.totalReceivers}</div>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wider">WMS Records</div>
-              </div>
-            </div>
-
-            {results.updatedCount > 0 && (
-              <div className="text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-md flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                {results.updatedCount} container{results.updatedCount !== 1 ? 's' : ''} updated to DELIVERED
-              </div>
-            )}
-
-            {results.message && results.matched.length === 0 && (
-              <div className="text-sm text-slate-600 bg-slate-50 px-3 py-2 rounded-md">
-                {results.message}
-              </div>
-            )}
-
-            {/* Matched containers */}
-            {results.matched.length > 0 && (
-              <div>
-                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                  Matched Containers ({results.matched.length})
-                </h4>
-                <div className="border border-green-200 rounded-lg divide-y divide-green-100 max-h-[200px] overflow-y-auto">
-                  {results.matched.map((m) => (
-                    <div key={m.container_id} className="flex items-center gap-2 px-3 py-2 bg-green-50/50">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-600 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-xs font-medium text-slate-800">{m.container_number}</span>
-                        <span className="text-[11px] text-slate-400 ml-2">{m.invoice_number}</span>
-                      </div>
-                      <Badge variant="outline" className="text-[10px] h-5 border-green-300 text-green-700 bg-green-50">
-                        {m.matched_by === 'container_number' ? 'Container #' : 'Invoice #'}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Unmatched containers */}
-            {results.unmatched.length > 0 && (
-              <div>
-                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                  Not Found in WMS ({results.unmatched.length})
-                </h4>
-                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-[160px] overflow-y-auto">
-                  {results.unmatched.map((u) => (
-                    <div key={u.container_id} className="flex items-center gap-2 px-3 py-2">
-                      <XCircle className="h-3.5 w-3.5 text-slate-300 flex-shrink-0" />
-                      <span className="text-xs text-slate-600">{u.container_number}</span>
-                      <span className="text-[11px] text-slate-400">{u.invoice_number}</span>
-                      <span className="ml-auto">
-                        <ShipmentStatusBadge status={u.status as ShipmentStatus} size="sm" />
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
           </Button>
         </DialogFooter>
       </DialogContent>

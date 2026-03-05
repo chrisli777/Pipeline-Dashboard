@@ -2,10 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 const CONTAINER_TRANSITIONS: Record<string, string[]> = {
-  'ON_WATER': ['CLEARED'],
-  'CLEARED': ['DELIVERING'],
+  'ON_WATER': ['CLEARED', 'DELIVERING', 'DELIVERED'],
+  'CLEARED': ['DELIVERING', 'DELIVERED'],
   'DELIVERING': ['DELIVERED', 'CLEARED'],
-  'DELIVERED': ['DELIVERING'],
+  'DELIVERED': ['DELIVERING', 'CLEARED'],
   'CLOSED': [],
 }
 
