@@ -14,10 +14,8 @@ export async function POST(request: Request) {
     p_password: password,
   })
 
-  console.log('[v0] Login attempt:', { username, data, error: error?.message })
-
   if (error || !data || data.length === 0) {
-    return NextResponse.json({ error: error?.message || 'Invalid username or password' }, { status: 401 })
+    return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 })
   }
 
   const response = NextResponse.json({ success: true, username: data[0].username })
@@ -26,7 +24,7 @@ export async function POST(request: Request) {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    maxAge: 60 * 60 * 24 * 7, // 7 days
+    // No maxAge = session cookie, expires when browser/tab closes
   })
   return response
 }

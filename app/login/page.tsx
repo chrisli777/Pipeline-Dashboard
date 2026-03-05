@@ -25,11 +25,10 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password }),
       })
 
-      const data = await res.json()
-      console.log('[v0] Login response:', res.status, data)
       if (res.ok) {
         window.location.href = '/'
       } else {
+        const data = await res.json()
         setError(data.error || 'Invalid username or password')
       }
     } catch {
