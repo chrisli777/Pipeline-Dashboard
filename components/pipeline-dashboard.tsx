@@ -474,7 +474,8 @@ export function PipelineDashboard() {
   const handleExport = async () => {
     setExporting(true)
     try {
-      const ExcelJS = await import('exceljs')
+      const ExcelJSModule = await import('exceljs')
+      const ExcelJS = ExcelJSModule.default || ExcelJSModule
       const wb = new ExcelJS.Workbook()
       const ws = wb.addWorksheet('Pipeline', { views: [{ state: 'frozen', xSplit: 2, ySplit: 2 }] })
 
