@@ -2,24 +2,27 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
-  const session = request.cookies.get('whi_session')?.value
+  const session = request.cookies.get('whi_session')
   const isLoginPage = request.nextUrl.pathname === '/login'
+  const isApiAuth = request.nextUrl.pathname.startsWith('/api/auth')
 
-  // Not logged in and not on login page -> redirect to login
-  if (!session && !isLoginPage) {
-    return NextResponse.redirect(new URL('/login', request.url))
+  // Allow login page and auth API
+  if (isLoginPage || isApiAuth) {
+    // If already authenticated, redirect away from login
+    if (isLoginPage && session?.value === 'authenticated') {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
+    return NextResponse.next()
   }
 
-  // Logged in and on login page -> redirect to dashboard
-  if (session && isLoginPage) {
-    return NextResponse.redirect(new URL('/', request.url))
+  // Protect all other routes
+  if (!session || session.value !== 'authenticated') {
+    return NextResponse.redirect(new URL('/login', request.url))
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|icon-.*|apple-icon|icon.svg|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon-light-32x32.png|icon-dark-32x32.png|icon.svg|apple-icon.png).*)'],
 }

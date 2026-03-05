@@ -1,12 +1,14 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Lock, User } from 'lucide-react'
 
 export default function LoginPage() {
+  const router = useRouter()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -25,7 +27,8 @@ export default function LoginPage() {
       })
 
       if (res.ok) {
-        window.location.href = '/'
+        router.push('/')
+        router.refresh()
       } else {
         setError('Invalid username or password')
       }
