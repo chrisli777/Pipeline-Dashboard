@@ -281,6 +281,7 @@ export default function DispatcherDashboardPage() {
               className="h-9 pl-3"
             />
           </div>
+
         </div>
 
         {/* Batch Action Bar (shows when items selected) */}
@@ -398,6 +399,7 @@ export default function DispatcherDashboardPage() {
             }}
           />
         )}
+
       </div>
     </TooltipProvider>
   )
@@ -646,16 +648,13 @@ function ContainerEditDialog({
     notes: container.notes || '',
   })
 
-  // Determine next status option
-  const nextStatusOptions: { value: ShipmentStatus; label: string }[] = []
-  if (container.status === 'CLEARED') {
-    nextStatusOptions.push({ value: 'DELIVERING', label: 'Mark as Delivering' })
-  } else if (container.status === 'DELIVERING') {
-    nextStatusOptions.push({ value: 'DELIVERED', label: 'Mark as Delivered' })
-    nextStatusOptions.push({ value: 'CLEARED', label: 'Revert to Cleared' })
-  } else if (container.status === 'DELIVERED') {
-    nextStatusOptions.push({ value: 'DELIVERING', label: 'Revert to Delivering' })
-  }
+  // Allow manual status change to any valid status
+  const allStatuses: { value: ShipmentStatus; label: string }[] = [
+    { value: 'CLEARED', label: 'Cleared' },
+    { value: 'DELIVERING', label: 'Delivering' },
+    { value: 'DELIVERED', label: 'Delivered' },
+  ]
+  const nextStatusOptions = allStatuses.filter(s => s.value !== container.status)
 
   const [selectedStatus, setSelectedStatus] = useState<string>('')
 
@@ -666,8 +665,8 @@ function ContainerEditDialog({
     try {
       const updates: Record<string, unknown> = {}
 
-      // Status change
-      if (selectedStatus) {
+      // Status change - only if a real status was selected
+      if (selectedStatus && selectedStatus !== '__keep__') {
         updates.status = selectedStatus
       }
 
@@ -686,12 +685,16 @@ function ContainerEditDialog({
         return
       }
 
+      // Use batch-update endpoint for single container
       const res = await fetch(
-        `/api/shipments/${container.shipment_id}/containers/${encodeURIComponent(container.container_number)}/tracking`,
+        `/api/shipments/${container.shipment_id}/containers/batch-update`,
         {
-          method: 'PATCH',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updates),
+          body: JSON.stringify({
+            container_numbers: [container.container_number],
+            updates,
+          }),
         }
       )
 

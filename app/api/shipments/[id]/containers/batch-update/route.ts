@@ -2,10 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 const CONTAINER_TRANSITIONS: Record<string, string[]> = {
-  'ON_WATER': ['CLEARED'],
-  'CLEARED': ['DELIVERING'],
+  'ON_WATER': ['CLEARED', 'DELIVERING', 'DELIVERED'],
+  'CLEARED': ['DELIVERING', 'DELIVERED'],
   'DELIVERING': ['DELIVERED', 'CLEARED'],
-  'DELIVERED': ['DELIVERING'],
+  'DELIVERED': ['DELIVERING', 'CLEARED'],
   'CLOSED': [],
 }
 
@@ -95,11 +95,43 @@ export async function POST(
       (cn: string) => !existingContainers.find(c => c.container_number === cn)
     )
 
+    // Auto-sync parent shipment_tracking status when ALL containers reach a status
+    let shipmentStatusUpdated = false
+    if (targetStatus && ['DELIVERING', 'DELIVERED'].includes(targetStatus)) {
+      const { data: allContainers } = await supabase
+        .from('container_tracking')
+        .select('id, status')
+        .eq('shipment_id', shipmentId)
+
+      if (allContainers && allContainers.length > 0) {
+        const allDelivered = allContainers.every(c => c.status === 'DELIVERED')
+        const allDelivering = allContainers.every(c => c.status === 'DELIVERING' || c.status === 'DELIVERED')
+
+        if (allDelivered) {
+          const today = new Date().toISOString().split('T')[0]
+          await supabase
+            .from('shipment_tracking')
+            .update({ status: 'DELIVERED', delivered_date: today })
+            .eq('shipment_id', shipmentId)
+            .in('status', ['ON_WATER', 'CLEARED', 'DELIVERING'])
+          shipmentStatusUpdated = true
+        } else if (allDelivering && targetStatus === 'DELIVERING') {
+          await supabase
+            .from('shipment_tracking')
+            .update({ status: 'DELIVERING' })
+            .eq('shipment_id', shipmentId)
+            .in('status', ['CLEARED'])
+          shipmentStatusUpdated = true
+        }
+      }
+    }
+
     return NextResponse.json({
       updated: updated || [],
       updatedCount: updated?.length || 0,
       errors: errors.length > 0 ? errors : undefined,
       notFound: notFound.length > 0 ? notFound : undefined,
+      shipmentStatusUpdated,
       message: `Updated ${updated?.length || 0} containers${errors.length > 0 ? `, ${errors.length} skipped` : ''}`,
     })
   } catch (error) {

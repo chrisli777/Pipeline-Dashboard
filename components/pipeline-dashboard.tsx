@@ -395,7 +395,7 @@ export function PipelineDashboard() {
     
     try {
       const { skuIds, weekStart, weekEnd, fields } = config
-      const results: Array<{ success?: boolean; error?: string }> = []
+      const results: Array<Record<string, any>> = []
       
       // Sync each field type
       // Note: Customer Forecast is synced separately from the Customer Forecast page
@@ -453,14 +453,47 @@ export function PipelineDashboard() {
         setSyncing(false)
         return
       }
+
+      // --- Delivery matching step ---
+      // Call the dedicated delivery-sync endpoint which fetches ALL receivers
+      // from WMS (no SKU filter) in the synced date range and matches
+      // reference numbers against containers
+      let deliveryMsg = ''
+      if (fields.includes('ata')) {
+        try {
+          const deliveryRes = await fetch('/api/wms/delivery-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ weekStart, weekEnd }),
+          })
+          const deliveryData = await deliveryRes.json()
+          if (deliveryRes.ok) {
+            if (deliveryData.deliveryMatches > 0) {
+              deliveryMsg = `\nDelivery sync: ${deliveryData.deliveryMatches} container(s) matched and marked as DELIVERED (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
+            } else if (deliveryData.totalReferences > 0) {
+              deliveryMsg = `\nDelivery sync: No new matches found (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
+            } else {
+              deliveryMsg = `\nDelivery sync: No reference numbers found from WMS receivers in weeks ${weekStart}-${weekEnd}.`
+            }
+            if (deliveryData.errors?.length) {
+              deliveryMsg += ` (${deliveryData.errors.length} warehouse(s) had errors)`
+            }
+          } else {
+            deliveryMsg = `\nDelivery sync failed: ${deliveryData.error || 'Unknown error'}`
+          }
+        } catch (err) {
+          console.error('Delivery sync error:', err)
+          deliveryMsg = '\nDelivery sync: Failed to connect.'
+        }
+      }
       
       // Refresh data to show updated values
       await fetchData()
       
       if (failedSyncs.length > 0) {
-        alert(`Synced ${successfulSyncs.length} records. ${failedSyncs.length} failed.`)
+        alert(`Synced ${successfulSyncs.length} records. ${failedSyncs.length} failed.${deliveryMsg}`)
       } else {
-        alert(`Successfully synced ${successfulSyncs.length} records (Weeks ${weekStart}-${weekEnd}).`)
+        alert(`Successfully synced ${successfulSyncs.length} records (Weeks ${weekStart}-${weekEnd}).${deliveryMsg}`)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sync data')
