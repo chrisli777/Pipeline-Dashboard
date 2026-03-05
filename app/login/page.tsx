@@ -1,15 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Lock, User } from 'lucide-react'
+import { Lock, Mail } from 'lucide-react'
 
 export default function LoginPage() {
-  const router = useRouter()
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -20,17 +19,19 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+      const supabase = createClient()
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       })
 
-      if (res.ok) {
-        window.location.href = '/'
-      } else {
-        setError('Invalid username or password')
+      if (authError) {
+        setError('Invalid email or password')
+        return
       }
+
+      // Hard redirect to let middleware pick up the new session
+      window.location.href = '/'
     } catch {
       setError('Network error. Please try again.')
     } finally {
@@ -53,17 +54,17 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username" className="text-sm font-medium text-slate-700">
-                Username
+              <Label htmlFor="email" className="text-sm font-medium text-slate-700">
+                Email
               </Label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                 <Input
-                  id="username"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter username"
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter email"
                   className="pl-10"
                   autoFocus
                   required

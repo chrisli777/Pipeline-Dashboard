@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import { LayoutDashboard, FileText, Ship, Truck, BarChart3, ChevronLeft, ChevronRight, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -38,13 +38,12 @@ const menuItems = [
 
 export function Sidebar() {
   const pathname = usePathname()
-  const router = useRouter()
   const [collapsed, setCollapsed] = useState(true)
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' })
-    router.push('/login')
-    router.refresh()
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    window.location.href = '/login'
   }
 
   return (
