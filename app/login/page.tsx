@@ -51,7 +51,7 @@ export default function LoginPage() {
               <rect x="32" y="4" width="4" height="6" rx="1" opacity="0.5" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">WHI SCM Dashboard</h1>
+          <h1 className="text-2xl font-bold text-slate-900">SCM E2E Control Tower</h1>
           <p className="text-sm text-slate-500 mt-1">Sign in to access the pipeline dashboard</p>
         </CardHeader>
         <CardContent className="px-8 pb-8 pt-4">
