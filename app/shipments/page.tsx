@@ -343,18 +343,4 @@ function StatsCard({
   )
 }
 
-function SupplierCard({ supplier, count, color }: { supplier: string; count: number; color: string }) {
-  const colorMap: Record<string, string> = {
-    blue: 'bg-blue-50 border-blue-200',
-    green: 'bg-green-50 border-green-200',
-    orange: 'bg-orange-50 border-orange-200',
-    purple: 'bg-purple-50 border-purple-200',
-  }
 
-  return (
-    <div className={`rounded-lg border px-3 py-2 text-center ${colorMap[color] || colorMap.blue}`}>
-      <div className="text-sm font-bold text-slate-700">{supplier}</div>
-      <div className="text-xs text-slate-500">{count} active</div>
-    </div>
-  )
-}
