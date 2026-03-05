@@ -20,15 +20,18 @@ export default function LoginPage() {
 
     try {
       const supabase = createClient()
-      // Supabase requires email format, append domain automatically
-      const email = username.includes('@') ? username : `${username}@whi.com`
+      // Map username to email - Supabase requires email format
+      const USERS: Record<string, string> = {
+        'whi': 'chris.li@whcast.com',
+      }
+      const email = username.includes('@') ? username : (USERS[username.toLowerCase()] ?? `${username}@whcast.com`)
       const { error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (authError) {
-        setError('Invalid email or password')
+        setError('Invalid username or password')
         return
       }
 
