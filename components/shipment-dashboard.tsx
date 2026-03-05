@@ -240,7 +240,8 @@ export function ShipmentDashboard() {
       const q = searchQuery.toLowerCase()
       list = list.filter(s =>
         s.invoice_number?.toLowerCase().includes(q) ||
-        s.bol_number?.toLowerCase().includes(q)
+        s.bol_number?.toLowerCase().includes(q) ||
+        s.containers?.some(c => c.container_number?.toLowerCase().includes(q))
       )
     }
     return list
@@ -378,7 +379,7 @@ export function ShipmentDashboard() {
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search invoice or BOL..."
+              placeholder="Search invoice, BOL, or container..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
