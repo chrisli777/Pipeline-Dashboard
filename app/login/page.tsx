@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,24 +18,17 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const supabase = createClient()
-      // Map username to email - Supabase requires email format
-      const USERS: Record<string, string> = {
-        'whi': 'chris.li@whcast.com',
-      }
-      const email = username.includes('@') ? username : (USERS[username.toLowerCase()] ?? `${username}@whcast.com`)
-      const { error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
       })
 
-      if (authError) {
+      if (res.ok) {
+        window.location.href = '/'
+      } else {
         setError('Invalid username or password')
-        return
       }
-
-      // Hard redirect to let middleware pick up the new session
-      window.location.href = '/'
     } catch {
       setError('Network error. Please try again.')
     } finally {

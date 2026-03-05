@@ -1,12 +1,25 @@
-import { updateSession } from '@/lib/supabase/middleware'
-import { type NextRequest } from 'next/server'
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
-  return await updateSession(request)
+export function middleware(request: NextRequest) {
+  const session = request.cookies.get('whi_session')?.value
+  const isLoginPage = request.nextUrl.pathname === '/login'
+
+  // Not logged in and not on login page -> redirect to login
+  if (!session && !isLoginPage) {
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
+
+  // Logged in and on login page -> redirect to dashboard
+  if (session && isLoginPage) {
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  return NextResponse.next()
 }
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|icon-light-32x32.png|icon-dark-32x32.png|icon.svg|apple-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|icon-.*|apple-icon|icon.svg|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
