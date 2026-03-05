@@ -165,16 +165,6 @@ export default function ShipmentTrackingPage() {
         </div>
       )}
 
-      {/* Supplier Summary */}
-      {stats && (
-        <div className="grid grid-cols-4 gap-3">
-          <SupplierCard supplier="AMC" count={stats.amc_active} color="blue" />
-          <SupplierCard supplier="HX" count={stats.hx_active} color="green" />
-          <SupplierCard supplier="TJJSH" count={stats.tjjsh_active} color="orange" />
-          <SupplierCard supplier="CLARK" count={stats.clark_active} color="purple" />
-        </div>
-      )}
-
       {/* Filters — 5-stage tabs */}
       <div className="flex flex-col md:flex-row gap-3">
         {/* Status tabs */}
