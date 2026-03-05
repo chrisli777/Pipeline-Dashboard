@@ -8,7 +8,7 @@ import { InventoryFilters } from '@/components/inventory-filters'
 import { InventoryTable } from '@/components/inventory-table'
 import { AIChat } from '@/components/ai-chat'
 import { SyncDialog, SyncConfig } from '@/components/sync-dialog'
-import type { SKUData, InventoryAlert, WeekData } from '@/lib/types'
+import { ROW_LABELS, type SKUData, type InventoryAlert, type WeekData, type RowType } from '@/lib/types'
 
 const TOTAL_WEEKS = 53 // Full year (Week 1: Jan 4 to Week 53: Jan 3)
 
@@ -469,43 +469,205 @@ export function PipelineDashboard() {
     }
   }, [fetchData])
 
-  // Export CSV
-  const handleExport = () => {
-    const headers = [
-      'Part/Model',
-      'Row Type',
-      ...Array.from(
-        { length: weekRange.end - weekRange.start + 1 },
-        (_, i) => `W${weekRange.start + i}`
-      ),
-    ]
-    const rows: string[][] = []
+  // Export Excel with full formatting (colors, merged cells, borders)
+  const [exporting, setExporting] = useState(false)
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const ExcelJSModule = await import('exceljs')
+      const ExcelJS = ExcelJSModule.default || ExcelJSModule
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('Pipeline', { views: [{ state: 'frozen', xSplit: 2, ySplit: 2 }] })
 
-    filteredSkus.forEach((sku) => {
-      const weekData = sku.weeks.filter(
-        (w) => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
-      )
-      
-      const rowTypes = ['customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'] as const
-      
-      rowTypes.forEach((rowType) => {
-        const row = [
-          sku.partModelNumber,
-          rowType,
-          ...weekData.map((w) => w[rowType]?.toString() ?? ''),
-        ]
-        rows.push(row)
+      const ROW_TYPE_ORDER: RowType[] = [
+        'customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'
+      ]
+
+      const weeks = filteredSkus[0]?.weeks.filter(
+        w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
+      ) || []
+      const numWeeks = weeks.length
+      const currentWeekNumber = (() => {
+        const now = new Date()
+        const start = new Date(now.getFullYear(), 0, 1)
+        const diff = now.getTime() - start.getTime()
+        return Math.ceil(diff / (7 * 24 * 60 * 60 * 1000))
+      })()
+
+      // Styles - using 'as const' objects instead of ExcelJS type annotations
+      const solidFill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
+      const headerFill = solidFill('FFDBEAFE')
+      const subHeaderFill = solidFill('FFEFF6FF')
+      const currentWeekFill = solidFill('FFFDE68A')
+      const currentWeekSubFill = solidFill('FFFEF3C7')
+      const skuInfoFill = solidFill('FFBFDBFE')
+      const wohRowFill = solidFill('FFEFF6FF')
+      const borderSide = { style: 'thin' as const, color: { argb: 'FFD1D5DB' } }
+      const thinBorder = { top: borderSide, bottom: borderSide, left: borderSide, right: borderSide }
+      const boldFont = { bold: true, size: 10 }
+      const smallFont = { bold: true, size: 8 }
+
+      // Helper: get weeksOnHand cell fill color
+      function getWohFill(value: number | null) {
+        if (value === null) return null
+        if (value < 0) return solidFill('FFDC2626')
+        if (value < 1) return solidFill('FFF87171')
+        if (value < 2) return solidFill('FFFCA5A5')
+        if (value < 4) return solidFill('FFFED7AA')
+        if (value < 8) return solidFill('FFFEF08A')
+        if (value < 16) return solidFill('FFFEF9C3')
+        return solidFill('FFDCFCE7')
+      }
+
+      function getInventoryFill(value: number | null) {
+        if (value === null) return null
+        if (value < 0) return solidFill('FFDC2626')
+        if (value < 10) return solidFill('FFFECACA')
+        if (value < 30) return solidFill('FFFEF9C3')
+        return null
+      }
+
+      // Column widths: col A (Part/Model) = 30, col B (row label) = 30, data cols = 10
+      ws.getColumn(1).width = 30
+      ws.getColumn(2).width = 30
+      for (let i = 0; i < numWeeks; i++) {
+        ws.getColumn(3 + i).width = 10
+      }
+
+      // --- Header Row 1: Part/Model# | Week of: | week numbers ---
+      const headerRow = ws.addRow(['Part/ Model #', 'Week of:', ...weeks.map(w => w.weekNumber)])
+      headerRow.eachCell((cell, colNumber) => {
+        cell.font = boldFont
+        cell.border = thinBorder
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        if (colNumber > 2) {
+          const weekNum = weeks[colNumber - 3]?.weekNumber
+          cell.fill = weekNum === currentWeekNumber ? currentWeekFill : headerFill
+        } else {
+          cell.fill = headerFill
+          cell.alignment = { horizontal: 'left', vertical: 'middle' }
+        }
       })
-    })
-    
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `inventory-pipeline-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+
+      // --- Header Row 2: blank | Week #: | week dates ---
+      const subRow = ws.addRow(['', 'Week #:', ...weeks.map(w => w.weekOf)])
+      subRow.eachCell((cell, colNumber) => {
+        cell.font = smallFont
+        cell.border = thinBorder
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        if (colNumber > 2) {
+          const weekNum = weeks[colNumber - 3]?.weekNumber
+          cell.fill = weekNum === currentWeekNumber ? currentWeekSubFill : subHeaderFill
+        } else {
+          cell.fill = subHeaderFill
+          cell.alignment = { horizontal: 'left', vertical: 'middle' }
+        }
+      })
+
+      // --- Data rows per SKU ---
+      filteredSkus.forEach((sku) => {
+        const skuWeeks = sku.weeks.filter(
+          w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
+        )
+        const startRowNum = ws.rowCount + 1
+
+        ROW_TYPE_ORDER.forEach((rowType, idx) => {
+          const label = ROW_LABELS[rowType]
+          const values = skuWeeks.map(w => {
+            const val = w[rowType]
+            return val !== null && val !== undefined ? val : ''
+          })
+
+          // Build SKU info for first row
+          let skuCell = ''
+          if (idx === 0) {
+            let parts: string[] = [sku.partModelNumber]
+            if (sku.description) parts.push(`(${sku.description})`)
+            if (sku.category) parts.push(sku.category)
+            const meta: string[] = []
+            if (sku.supplierCode) meta.push(`Vendor: ${sku.supplierCode}`)
+            if (sku.warehouse) meta.push(`WH: ${sku.warehouse}`)
+            if (sku.leadTimeWeeks != null) meta.push(`LT: ${sku.leadTimeWeeks}w`)
+            if (sku.moq != null) meta.push(`MOQ: ${sku.moq}`)
+            if (sku.unitWeight != null && sku.unitWeight > 0) meta.push(`${sku.unitWeight.toLocaleString()} lbs`)
+            if (meta.length > 0) parts.push(meta.join('  '))
+            skuCell = parts.join('\n')
+          }
+
+          const row = ws.addRow([skuCell, label, ...values])
+
+          // Style each cell in the row
+          row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+            cell.border = thinBorder
+            cell.alignment = { horizontal: colNumber <= 2 ? 'left' : 'center', vertical: 'middle', wrapText: colNumber === 1 }
+            cell.font = { bold: colNumber <= 2, size: colNumber === 1 ? 9 : 8 }
+
+            // SKU info column - blue background
+            if (colNumber === 1 && idx === 0) {
+              cell.fill = skuInfoFill
+              cell.font = { bold: true, size: 9 }
+            }
+
+            // Data cells - apply conditional coloring
+            if (colNumber > 2) {
+              const weekIdx = colNumber - 3
+              const weekNum = skuWeeks[weekIdx]?.weekNumber
+              const val = typeof cell.value === 'number' ? cell.value : null
+
+              // Weeks on hand coloring
+              if (rowType === 'weeksOnHand') {
+                const fill = getWohFill(val)
+                if (fill) {
+                  cell.fill = fill
+                  if (val !== null && val < 1) cell.font = { bold: true, size: 8, color: { argb: 'FFFFFFFF' } }
+                }
+                if (val !== null) cell.numFmt = '0.00'
+              }
+
+              // Actual inventory coloring
+              if (rowType === 'actualInventory') {
+                const fill = getInventoryFill(val)
+                if (fill) {
+                  cell.fill = fill
+                  if (val !== null && val < 0) cell.font = { bold: true, size: 8, color: { argb: 'FFFFFFFF' } }
+                }
+              }
+
+              // Current week highlight (yellow) - only if no other fill applied
+              if (weekNum === currentWeekNumber && !cell.fill) {
+                cell.fill = solidFill('FFFFFBEB')
+              }
+            }
+
+            // Weeks on hand row base fill
+            if (rowType === 'weeksOnHand' && colNumber <= 2) {
+              cell.fill = wohRowFill
+            }
+          })
+        })
+
+        // Merge SKU info cells (column A)
+        const endRowNum = ws.rowCount
+        if (endRowNum > startRowNum) {
+          ws.mergeCells(startRowNum, 1, endRowNum, 1)
+        }
+      })
+
+      // Generate and download
+      const buffer = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `inventory-pipeline-${new Date().toISOString().split('T')[0]}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      console.log('[v0] Excel export error:', err?.message, err?.stack)
+      alert(`Export failed: ${err?.message}`)
+    } finally {
+      setExporting(false)
+    }
   }
 
   const handleWmsSync = () => {
@@ -596,9 +758,9 @@ export function PipelineDashboard() {
               )}
               Save
             </Button>
-            <Button variant="outline" size="sm" onClick={handleExport}>
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
               <Download className="mr-1 h-4 w-4" />
-              Export CSV
+              {exporting ? 'Exporting...' : 'Export Excel'}
             </Button>
           </div>
         </div>
