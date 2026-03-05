@@ -493,39 +493,36 @@ export function PipelineDashboard() {
         return Math.ceil(diff / (7 * 24 * 60 * 60 * 1000))
       })()
 
-      // Styles
-      const headerFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }
-      const subHeaderFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } }
-      const currentWeekFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE68A' } }
-      const currentWeekSubFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } }
-      const skuInfoFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBFDBFE' } }
-      const wohRowFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFF6FF' } }
-      const thinBorder: Partial<ExcelJS.Borders> = {
-        top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
-        bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
-        left: { style: 'thin', color: { argb: 'FFD1D5DB' } },
-        right: { style: 'thin', color: { argb: 'FFD1D5DB' } },
-      }
-      const boldFont: Partial<ExcelJS.Font> = { bold: true, size: 10 }
-      const smallFont: Partial<ExcelJS.Font> = { bold: true, size: 8 }
+      // Styles - using 'as const' objects instead of ExcelJS type annotations
+      const solidFill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
+      const headerFill = solidFill('FFDBEAFE')
+      const subHeaderFill = solidFill('FFEFF6FF')
+      const currentWeekFill = solidFill('FFFDE68A')
+      const currentWeekSubFill = solidFill('FFFEF3C7')
+      const skuInfoFill = solidFill('FFBFDBFE')
+      const wohRowFill = solidFill('FFEFF6FF')
+      const borderSide = { style: 'thin' as const, color: { argb: 'FFD1D5DB' } }
+      const thinBorder = { top: borderSide, bottom: borderSide, left: borderSide, right: borderSide }
+      const boldFont = { bold: true, size: 10 }
+      const smallFont = { bold: true, size: 8 }
 
-      // Helper: get weeksOnHand cell fill color (matches getCellBackground in inventory-table.tsx)
-      function getWohFill(value: number | null): ExcelJS.FillPattern | null {
+      // Helper: get weeksOnHand cell fill color
+      function getWohFill(value: number | null) {
         if (value === null) return null
-        if (value < 0) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDC2626' } }
-        if (value < 1) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF87171' } }
-        if (value < 2) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCA5A5' } }
-        if (value < 4) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFED7AA' } }
-        if (value < 8) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF08A' } }
-        if (value < 16) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF9C3' } }
-        return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } }
+        if (value < 0) return solidFill('FFDC2626')
+        if (value < 1) return solidFill('FFF87171')
+        if (value < 2) return solidFill('FFFCA5A5')
+        if (value < 4) return solidFill('FFFED7AA')
+        if (value < 8) return solidFill('FFFEF08A')
+        if (value < 16) return solidFill('FFFEF9C3')
+        return solidFill('FFDCFCE7')
       }
 
-      function getInventoryFill(value: number | null): ExcelJS.FillPattern | null {
+      function getInventoryFill(value: number | null) {
         if (value === null) return null
-        if (value < 0) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDC2626' } }
-        if (value < 10) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFECACA' } }
-        if (value < 30) return { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF9C3' } }
+        if (value < 0) return solidFill('FFDC2626')
+        if (value < 10) return solidFill('FFFECACA')
+        if (value < 30) return solidFill('FFFEF9C3')
         return null
       }
 
@@ -637,7 +634,7 @@ export function PipelineDashboard() {
 
               // Current week highlight (yellow) - only if no other fill applied
               if (weekNum === currentWeekNumber && !cell.fill) {
-                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } }
+                cell.fill = solidFill('FFFFFBEB')
               }
             }
 
