@@ -98,6 +98,8 @@ export async function POST(request: Request) {
     let totalAta = 0
     let pageNum = 1
     let hasMore = true
+    // Also collect ReferenceNumbers for delivery matching
+    const referenceNumbers: string[] = []
 
     while (hasMore) {
       const wmsUrl = `https://secure-wms.com/inventory/receivers?detail=ReceiveItems&pgsiz=100&pgnum=${pageNum}&rql=${encodedRql}`
@@ -125,6 +127,12 @@ export async function POST(request: Request) {
 
       // Iterate through each receiver and its ReceiveItems
       for (const receiver of receivers) {
+        // Collect ReferenceNumber for delivery matching
+        const ref = (receiver.ReferenceNumber || '').trim()
+        if (ref && !referenceNumbers.includes(ref)) {
+          referenceNumbers.push(ref)
+        }
+
         const receiveItems = receiver.ReceiveItems || []
         const items = Array.isArray(receiveItems) ? receiveItems : []
 
@@ -173,6 +181,7 @@ export async function POST(request: Request) {
       ata: totalAta,
       dateRange: { start, end },
       pagesScanned: pageNum,
+      referenceNumbers,
     })
   } catch (error) {
     return NextResponse.json(

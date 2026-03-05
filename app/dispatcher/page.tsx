@@ -39,7 +39,6 @@ import {
   Package, Truck, MapPin, RefreshCw, Loader2,
   ChevronDown, ChevronRight, ArrowUpRight,
   CheckCircle2, AlertTriangle, Clock, Calendar,
-  Satellite,
 } from 'lucide-react'
 
 type StatusTab = 'ALL' | 'CLEARED' | 'DELIVERING' | 'DELIVERED'
@@ -88,9 +87,6 @@ export default function DispatcherDashboardPage() {
   // Expanded rows
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
-  // Sync delivery
-  const [syncing, setSyncing] = useState(false)
-
   const fetchContainers = useCallback(async () => {
     setLoading(true)
     try {
@@ -128,30 +124,6 @@ export default function DispatcherDashboardPage() {
 
   useEffect(() => {
     fetchContainers()
-  }, [fetchContainers])
-
-  const handleSyncDelivery = useCallback(async () => {
-    setSyncing(true)
-    try {
-      const res = await fetch('/api/dispatcher/sync-delivery', { method: 'POST' })
-      const data = await res.json()
-
-      if (!res.ok) {
-        alert(`Sync failed: ${data.error || 'Unknown error'}`)
-        return
-      }
-
-      if (data.deliveryMatches > 0) {
-        alert(`Synced! ${data.deliveryMatches} container(s) matched and marked as DELIVERED.\n(Checked ${data.totalReferences} WMS reference numbers against ${data.containersChecked} containers)`)
-        fetchContainers()
-      } else {
-        alert(`No new deliveries found.\n(Checked ${data.totalReferences} WMS reference numbers against ${data.containersChecked || 0} containers)`)
-      }
-    } catch (err) {
-      alert(`Sync error: ${err instanceof Error ? err.message : 'Unknown error'}`)
-    } finally {
-      setSyncing(false)
-    }
   }, [fetchContainers])
 
   // Reset selection when filters change
@@ -310,20 +282,6 @@ export default function DispatcherDashboardPage() {
             />
           </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 whitespace-nowrap"
-            onClick={handleSyncDelivery}
-            disabled={syncing}
-          >
-            {syncing ? (
-              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-            ) : (
-              <Satellite className="h-3.5 w-3.5 mr-1.5" />
-            )}
-            {syncing ? 'Syncing...' : 'Sync Delivery'}
-          </Button>
         </div>
 
         {/* Batch Action Bar (shows when items selected) */}

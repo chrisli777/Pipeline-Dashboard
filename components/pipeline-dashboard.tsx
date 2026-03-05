@@ -453,14 +453,46 @@ export function PipelineDashboard() {
         setSyncing(false)
         return
       }
+
+      // --- Delivery matching step ---
+      // Collect all unique reference numbers from ATA sync results
+      // and match them against containers in the dispatch view
+      let deliveryMsg = ''
+      if (fields.includes('ata')) {
+        const allRefs = new Set<string>()
+        for (const r of successfulSyncs) {
+          const refs = (r as any).referenceNumbers
+          if (Array.isArray(refs)) {
+            for (const ref of refs) {
+              if (ref) allRefs.add(ref)
+            }
+          }
+        }
+
+        if (allRefs.size > 0) {
+          try {
+            const deliveryRes = await fetch('/api/dispatcher/sync-delivery', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ referenceNumbers: Array.from(allRefs) }),
+            })
+            const deliveryData = await deliveryRes.json()
+            if (deliveryRes.ok && deliveryData.deliveryMatches > 0) {
+              deliveryMsg = `\n${deliveryData.deliveryMatches} container(s) matched and marked as DELIVERED.`
+            }
+          } catch {
+            // Delivery matching is best-effort, don't fail the whole sync
+          }
+        }
+      }
       
       // Refresh data to show updated values
       await fetchData()
       
       if (failedSyncs.length > 0) {
-        alert(`Synced ${successfulSyncs.length} records. ${failedSyncs.length} failed.`)
+        alert(`Synced ${successfulSyncs.length} records. ${failedSyncs.length} failed.${deliveryMsg}`)
       } else {
-        alert(`Successfully synced ${successfulSyncs.length} records (Weeks ${weekStart}-${weekEnd}).`)
+        alert(`Successfully synced ${successfulSyncs.length} records (Weeks ${weekStart}-${weekEnd}).${deliveryMsg}`)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sync data')
