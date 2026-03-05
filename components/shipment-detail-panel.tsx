@@ -270,9 +270,15 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
 
           {/* Status history (audit trail) */}
           {(() => {
+            // Safely parse status_history - it may be a JSON string, array, or null
+            let rawHistory = tracking?.status_history
+            if (typeof rawHistory === 'string') {
+              try { rawHistory = JSON.parse(rawHistory) } catch { rawHistory = [] }
+            }
+            const historyArr = Array.isArray(rawHistory) ? rawHistory : []
             // Filter to only entries that have actual content (to_status or notes)
-            const validHistory = (tracking?.status_history || []).filter(
-              (entry: any) => entry.to_status || entry.notes || entry.from_status
+            const validHistory = historyArr.filter(
+              (entry: any) => entry && (entry.to_status || entry.notes || entry.from_status)
             )
             if (validHistory.length === 0) return null
             return (

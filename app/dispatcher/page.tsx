@@ -579,11 +579,20 @@ function ContainerRow({
             </div>
 
             {/* Status History */}
+            {(() => {
+              let rawHist = container.status_history
+              if (typeof rawHist === 'string') {
+                try { rawHist = JSON.parse(rawHist) } catch { rawHist = [] }
+              }
+              const histArr = (Array.isArray(rawHist) ? rawHist : []).filter(
+                (e: any) => e && (e.to_status || e.notes || e.from_status)
+              )
+              if (histArr.length === 0) return null
+              return (
             <div>
               <h5 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Status History</h5>
-              {container.status_history && container.status_history.length > 0 ? (
                 <div className="space-y-1.5">
-                  {[...container.status_history].reverse().slice(0, 5).map((entry, i) => (
+                  {[...histArr].reverse().slice(0, 5).map((entry: any, i: number) => (
                     <div key={i} className="flex items-start gap-2 text-xs">
                       <div className="w-1.5 h-1.5 rounded-full bg-slate-400 mt-1.5 flex-shrink-0" />
                       <div>
@@ -602,9 +611,9 @@ function ContainerRow({
                     </div>
                   ))}
                 </div>
-              ) : (
-                <p className="text-xs text-slate-400">No history</p>
-              )}
+            </div>
+              )
+            })()}
 
               {/* Shipment info */}
               <div className="mt-3 pt-2 border-t border-slate-200 text-xs text-slate-500 space-y-1">
