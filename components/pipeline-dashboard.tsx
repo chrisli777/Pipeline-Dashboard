@@ -418,24 +418,6 @@ export function PipelineDashboard() {
               }
             }
           }
-        } else if (field === 'etd') {
-          // Sync ETD from WMS open orders API
-          for (const skuId of skuIds) {
-            for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
-              try {
-                const res = await fetch('/api/wms/etd', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ skuId, weekNumber }),
-                })
-                const data = await res.json()
-                results.push(data)
-                await new Promise(resolve => setTimeout(resolve, 200))
-              } catch (err) {
-                results.push({ error: 'Request failed' })
-              }
-            }
-          }
         } else if (field === 'ata') {
           // Sync ATA from WMS inventory API
           // If ATA differs from expected (ETD from 5 weeks prior), rollover diff to next week

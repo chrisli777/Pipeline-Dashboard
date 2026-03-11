@@ -23,9 +23,9 @@ import type { SKUData } from '@/lib/types'
 
 // Syncable fields (excluding defect, actualInventory, weeksOnHand)
 // Customer Forecast is synced separately from the Customer Forecast page
+// ETD is manually entered, not synced
 const SYNCABLE_FIELDS = [
   { id: 'actualConsumption', label: 'Actual Consumption' },
-  { id: 'etd', label: 'ETD' },
   { id: 'ata', label: 'ATA (rollover if diff from ETD)' },
 ] as const
 
