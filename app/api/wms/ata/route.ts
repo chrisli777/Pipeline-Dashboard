@@ -158,6 +158,18 @@ export async function POST(request: Request) {
 
     // Update the ata in database
     const supabase = await createClient()
+    
+    // First get the current ETA for this week to calculate rollover
+    const { data: currentRow } = await supabase
+      .from('inventory_data')
+      .select('eta')
+      .eq('sku_id', skuId)
+      .eq('week_number', weekNumber)
+      .single()
+    
+    const currentEta = currentRow?.eta || 0
+    
+    // Update ATA for current week
     const { error: updateError } = await supabase
       .from('inventory_data')
       .update({
@@ -174,14 +186,61 @@ export async function POST(request: Request) {
       )
     }
 
+    // Calculate rollover: diff = ETA - ATA
+    // If ETA=10, ATA=5 → diff=5 → next week ETA += 5 (carry over)
+    // If ETA=5, ATA=10 → diff=-5 → next week ETA -= 5 (over-delivered)
+    const rolloverDiff = currentEta - totalAta
+    let rolloverApplied = false
+    let nextWeekEtaBefore = 0
+    let nextWeekEtaAfter = 0
+
+    if (rolloverDiff !== 0) {
+      const nextWeek = weekNumber + 1
+      
+      // Get next week's current ETA
+      const { data: nextWeekRow } = await supabase
+        .from('inventory_data')
+        .select('eta')
+        .eq('sku_id', skuId)
+        .eq('week_number', nextWeek)
+        .single()
+      
+      if (nextWeekRow) {
+        nextWeekEtaBefore = nextWeekRow.eta || 0
+        nextWeekEtaAfter = Math.max(0, nextWeekEtaBefore + rolloverDiff) // Don't go negative
+        
+        // Update next week's ETA with rollover
+        const { error: rolloverError } = await supabase
+          .from('inventory_data')
+          .update({
+            eta: nextWeekEtaAfter,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('sku_id', skuId)
+          .eq('week_number', nextWeek)
+        
+        if (!rolloverError) {
+          rolloverApplied = true
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       skuId,
       weekNumber,
       ata: totalAta,
+      eta: currentEta,
       dateRange: { start, end },
       pagesScanned: pageNum,
       referenceNumbers,
+      rollover: rolloverDiff !== 0 ? {
+        diff: rolloverDiff,
+        nextWeek: weekNumber + 1,
+        nextWeekEtaBefore,
+        nextWeekEtaAfter,
+        applied: rolloverApplied,
+      } : null,
     })
   } catch (error) {
     return NextResponse.json(
