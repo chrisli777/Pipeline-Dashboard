@@ -5,7 +5,7 @@ export interface WeekData {
   customerForecast: number | null
   actualConsumption: number | null
   etd: number | null // ETD (departure from origin)
-  ata: number | null // ATA (actual arrival to warehouse, defaults to ETD from 5 weeks prior)
+  ata: number | null // ATA (actual arrival to warehouse, defaults to ETD from 4 weeks prior)
   defect: number | null
   actualInventory: number | null
   weeksOnHand: number | null

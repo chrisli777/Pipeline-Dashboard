@@ -120,11 +120,11 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
     
     // ATA display logic:
     // - If ATA is synced from WMS (non-zero value), use that value
-    // - If ATA is null or 0, default to ETD from 5 weeks prior (expected arrival)
+    // - If ATA is null or 0, default to ETD from 4 weeks prior (expected arrival)
     // Rollover is handled in backend when ATA is synced
     for (const w of sku.allWeeks) {
       if (w.ata === null || w.ata === 0) {
-        const sourceWeek = w.weekNumber - 5
+        const sourceWeek = w.weekNumber - 4
         const sourceEtd = etdByWeek.get(sourceWeek)
         w.ata = sourceEtd ?? 0
       }
@@ -420,7 +420,7 @@ export function PipelineDashboard() {
           }
         } else if (field === 'ata') {
           // Sync ATA from WMS inventory API
-          // If ATA differs from expected (ETD from 5 weeks prior), rollover diff to next week
+          // If ATA differs from expected (ETD from 4 weeks prior), rollover diff to next week
           for (const skuId of skuIds) {
             for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
               try {
