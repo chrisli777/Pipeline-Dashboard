@@ -159,8 +159,8 @@ export async function POST(request: Request) {
     // Update the ata in database
     const supabase = await createClient()
     
-    // Get expected arrival from 4 weeks prior ETD (the expected quantity to arrive this week)
-    const sourceWeek = weekNumber - 4
+    // Get expected arrival from 5 weeks prior ETD (the expected quantity to arrive this week)
+    const sourceWeek = weekNumber - 5
     const { data: sourceRow } = await supabase
       .from('inventory_data')
       .select('etd')
@@ -171,7 +171,7 @@ export async function POST(request: Request) {
     const expectedArrival = sourceRow?.etd || 0
     
     // Calculate rollover: diff = expected - actual
-    // Example: expected=10 (ETD from 4 wks ago), ATA=5 → diff=5
+    // Example: expected=10 (ETD from 5 wks ago), ATA=5 → diff=5
     // - This week ATA: stays at 5 (actual synced value)
     // - Next week ATA: add diff to next week's expected arrival
     const rolloverDiff = expectedArrival - totalAta
@@ -212,7 +212,7 @@ export async function POST(request: Request) {
       if (nextWeekRow) {
         nextWeekAtaBefore = nextWeekRow.ata || 0
         
-        // If next week ATA is 0/null, it will default to ETD from 4 weeks prior in frontend
+        // If next week ATA is 0/null, it will default to ETD from 5 weeks prior in frontend
         // We add the rollover diff to whatever is there
         nextWeekAtaAfter = Math.max(0, nextWeekAtaBefore + rolloverDiff) // Don't go negative
         
