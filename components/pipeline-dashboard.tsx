@@ -91,8 +91,7 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       customerForecast: row.customer_forecast !== null ? Number(row.customer_forecast) : null,
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
-      eta: row.eta != null ? Number(row.eta) : null,
-      ata: row.ata != null ? Number(row.ata) : null,
+      ata: row.ata != null ? Number(row.ata) : null, // ATA from database (synced from WMS)
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
       weeksOnHand: 0, // Will be calculated after sorting
@@ -113,12 +112,22 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       }
     }
     
-    // ETA and ATA values are calculated in the backend during sync
-    // No frontend auto-calculation - use database values directly
-    // If eta/ata is null, default to 0 for display
+    // Build ETD lookup map for ATA default calculation
+    const etdByWeek = new Map<number, number | null>()
     for (const w of sku.allWeeks) {
-      if (w.eta === null) w.eta = 0
-      if (w.ata === null) w.ata = 0
+      etdByWeek.set(w.weekNumber, w.etd)
+    }
+    
+    // ATA display logic:
+    // - If ATA is synced from WMS (not null), use that value
+    // - If ATA is null, default to ETD from 4 weeks prior (expected arrival)
+    // Rollover is handled in backend when ATA is synced
+    for (const w of sku.allWeeks) {
+      if (w.ata === null) {
+        const sourceWeek = w.weekNumber - 4
+        const sourceEtd = etdByWeek.get(sourceWeek)
+        w.ata = sourceEtd ?? 0
+      }
     }
 
     // Calculate actual inventory for display weeks starting from week 2
@@ -411,7 +420,6 @@ export function PipelineDashboard() {
           }
         } else if (field === 'etd') {
           // Sync ETD from WMS open orders API
-          // After ETD sync, auto-sync ETA (ETA = ETD from 4 weeks prior)
           for (const skuId of skuIds) {
             for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
               try {
@@ -428,24 +436,9 @@ export function PipelineDashboard() {
               }
             }
           }
-          // After ETD sync, auto-sync ETA for all SKUs in the affected range
-          // ETA for week N = ETD from week N-4, so we need to sync ETA for weekStart+4 to weekEnd+4
-          try {
-            await fetch('/api/inventory/sync-eta', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                skuIds, 
-                weekStart: weekStart + 4, 
-                weekEnd: weekEnd + 4 
-              }),
-            })
-          } catch (err) {
-            console.error('ETA sync error:', err)
-          }
         } else if (field === 'ata') {
-          // Sync from WMS inventory API for ATA
-          // Server handles rollover logic (ETA - ATA diff goes to next week)
+          // Sync ATA from WMS inventory API
+          // If ATA differs from expected (ETD from 4 weeks prior), rollover diff to next week
           for (const skuId of skuIds) {
             for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
               try {

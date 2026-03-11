@@ -114,7 +114,6 @@ const ROW_TYPE_ORDER: RowType[] = [
   'customerForecast',
   'actualConsumption',
   'etd',
-  'eta',
   'ata',
   'defect',
   'actualInventory',
