@@ -191,11 +191,19 @@ export async function POST(request: Request) {
       }
     }
     
-    // Update ATA for current week
+    // Calculate rollover: diff = ETA - ATA
+    // Example: ETA=10, ATA=5 → diff=5
+    // - This week ETA: 10 → 5 (subtract diff, so ETA = ATA)
+    // - Next week ETA: += 5 (add diff, rollover the shortfall)
+    const rolloverDiff = currentEta - totalAta
+    const thisWeekEtaAfter = totalAta // This week's ETA becomes ATA (actual)
+    
+    // Update ATA and adjust ETA for current week
     const { error: updateError } = await supabase
       .from('inventory_data')
       .update({
         ata: totalAta,
+        eta: thisWeekEtaAfter, // Adjust ETA to match ATA
         updated_at: new Date().toISOString(),
       })
       .eq('sku_id', skuId)
@@ -208,10 +216,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // Calculate rollover: diff = ETA - ATA
-    // If ETA=10, ATA=5 → diff=5 → next week ETA += 5 (carry over)
-    // If ETA=5, ATA=10 → diff=-5 → next week ETA -= 5 (over-delivered)
-    const rolloverDiff = currentEta - totalAta
+    // Rollover diff to next week's ETA
     let rolloverApplied = false
     let nextWeekEtaBefore = 0
     let nextWeekEtaAfter = 0
@@ -219,7 +224,7 @@ export async function POST(request: Request) {
     if (rolloverDiff !== 0) {
       const nextWeek = weekNumber + 1
       
-      // Get next week's current ETA
+      // Get next week's current ETA (or calculate from ETD if 0)
       const { data: nextWeekRow } = await supabase
         .from('inventory_data')
         .select('eta')
@@ -229,6 +234,21 @@ export async function POST(request: Request) {
       
       if (nextWeekRow) {
         nextWeekEtaBefore = nextWeekRow.eta || 0
+        
+        // If next week ETA is 0, calculate from 4 weeks prior ETD
+        if (nextWeekEtaBefore === 0) {
+          const sourceWeek = nextWeek - 4
+          const { data: sourceRow } = await supabase
+            .from('inventory_data')
+            .select('etd')
+            .eq('sku_id', skuId)
+            .eq('week_number', sourceWeek)
+            .single()
+          if (sourceRow?.etd) {
+            nextWeekEtaBefore = sourceRow.etd
+          }
+        }
+        
         nextWeekEtaAfter = Math.max(0, nextWeekEtaBefore + rolloverDiff) // Don't go negative
         
         // Update next week's ETA with rollover
@@ -252,7 +272,8 @@ export async function POST(request: Request) {
       skuId,
       weekNumber,
       ata: totalAta,
-      eta: currentEta,
+      etaBefore: currentEta,
+      etaAfter: thisWeekEtaAfter,
       dateRange: { start, end },
       pagesScanned: pageNum,
       referenceNumbers,
