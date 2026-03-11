@@ -119,11 +119,11 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
     }
     
     // ATA display logic:
-    // - If ATA is synced from WMS (not null), use that value
-    // - If ATA is null, default to ETD from 4 weeks prior (expected arrival)
+    // - If ATA is synced from WMS (non-zero value), use that value
+    // - If ATA is null or 0, default to ETD from 4 weeks prior (expected arrival)
     // Rollover is handled in backend when ATA is synced
     for (const w of sku.allWeeks) {
-      if (w.ata === null) {
+      if (w.ata === null || w.ata === 0) {
         const sourceWeek = w.weekNumber - 4
         const sourceEtd = etdByWeek.get(sourceWeek)
         w.ata = sourceEtd ?? 0
