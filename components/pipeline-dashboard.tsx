@@ -113,24 +113,12 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       }
     }
     
-    // Calculate ETA: ETA for week N = ETD from 4 weeks prior (week N-4)
-    // Build a map of weekNumber -> ETD for quick lookup
-    const etdByWeek = new Map<number, number | null>()
+    // ETA and ATA values are calculated in the backend during sync
+    // No frontend auto-calculation - use database values directly
+    // If eta/ata is null, default to 0 for display
     for (const w of sku.allWeeks) {
-      etdByWeek.set(w.weekNumber, w.etd)
-    }
-    for (const w of sku.allWeeks) {
-      const sourceWeek = w.weekNumber - 4
-      const sourceEtd = etdByWeek.get(sourceWeek)
-      // Only auto-calculate if eta is truly null from DB (not set)
-      // If eta is 0, it means it was explicitly set (e.g., after ATA sync rollover)
-      if (w.eta === null) {
-        w.eta = sourceEtd != null ? sourceEtd : 0
-      }
-      // ATA defaults to ETA only if truly null from DB
-      if (w.ata === null) {
-        w.ata = w.eta
-      }
+      if (w.eta === null) w.eta = 0
+      if (w.ata === null) w.ata = 0
     }
 
     // Calculate actual inventory for display weeks starting from week 2
@@ -421,9 +409,43 @@ export function PipelineDashboard() {
               }
             }
           }
+        } else if (field === 'etd') {
+          // Sync ETD from WMS open orders API
+          // After ETD sync, auto-sync ETA (ETA = ETD from 4 weeks prior)
+          for (const skuId of skuIds) {
+            for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
+              try {
+                const res = await fetch('/api/wms/etd', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ skuId, weekNumber }),
+                })
+                const data = await res.json()
+                results.push(data)
+                await new Promise(resolve => setTimeout(resolve, 200))
+              } catch (err) {
+                results.push({ error: 'Request failed' })
+              }
+            }
+          }
+          // After ETD sync, auto-sync ETA for all SKUs in the affected range
+          // ETA for week N = ETD from week N-4, so we need to sync ETA for weekStart+4 to weekEnd+4
+          try {
+            await fetch('/api/inventory/sync-eta', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                skuIds, 
+                weekStart: weekStart + 4, 
+                weekEnd: weekEnd + 4 
+              }),
+            })
+          } catch (err) {
+            console.error('ETA sync error:', err)
+          }
         } else if (field === 'ata') {
           // Sync from WMS inventory API for ATA
-          // Server determines correct token per SKU
+          // Server handles rollover logic (ETA - ATA diff goes to next week)
           for (const skuId of skuIds) {
             for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
               try {
