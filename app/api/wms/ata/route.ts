@@ -160,6 +160,7 @@ export async function POST(request: Request) {
     const supabase = await createClient()
     
     // First get the current ETA for this week to calculate rollover
+    // If ETA is 0 or null, calculate it from 4 weeks prior ETD (same as frontend logic)
     const { data: currentRow } = await supabase
       .from('inventory_data')
       .select('eta')
@@ -167,7 +168,28 @@ export async function POST(request: Request) {
       .eq('week_number', weekNumber)
       .single()
     
-    const currentEta = currentRow?.eta || 0
+    let currentEta = currentRow?.eta || 0
+    
+    // If ETA is 0, calculate from 4 weeks prior ETD
+    if (currentEta === 0) {
+      const sourceWeek = weekNumber - 4
+      const { data: sourceRow } = await supabase
+        .from('inventory_data')
+        .select('etd')
+        .eq('sku_id', skuId)
+        .eq('week_number', sourceWeek)
+        .single()
+      
+      if (sourceRow?.etd) {
+        currentEta = sourceRow.etd
+        // Save the calculated ETA to database for this week
+        await supabase
+          .from('inventory_data')
+          .update({ eta: currentEta, updated_at: new Date().toISOString() })
+          .eq('sku_id', skuId)
+          .eq('week_number', weekNumber)
+      }
+    }
     
     // Update ATA for current week
     const { error: updateError } = await supabase
