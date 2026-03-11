@@ -33,7 +33,7 @@ export interface InventoryAlert {
   weekNumber: number
   weekOf: string
   weeksOnHand: number
-  }
+}
 
 export type RowType =
   | 'customerForecast'
@@ -48,7 +48,7 @@ export const ROW_LABELS: Record<RowType, string> = {
   customerForecast: 'Customer Forecast',
   actualConsumption: 'Actual Consumption',
   etd: 'ETD (departure from origin)',
-  ata: 'ATA (arrival, defaults to ETD-4wks)',
+  ata: 'ATA (actual arrival)',
   defect: 'Defect',
   actualInventory: 'Actual inventory on hand',
   weeksOnHand: 'Weeks on hand (actual / runout)',
