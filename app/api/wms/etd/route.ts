@@ -138,12 +138,44 @@ export async function POST(request: Request) {
       )
     }
 
+    // ETD -> ETA: Update ETA 4 weeks later (transit time ~4 weeks)
+    // When ETD is synced for week N, set ETA for week N+4
+    const etaWeekNumber = weekNumber + 4
+    let etaUpdated = false
+    
+    // Check if ETA week row exists
+    const { data: etaRow } = await supabase
+      .from('inventory_data')
+      .select('id, eta')
+      .eq('sku_id', skuId)
+      .eq('week_number', etaWeekNumber)
+      .single()
+
+    if (etaRow) {
+      // Update ETA for that week
+      const { error: etaError } = await supabase
+        .from('inventory_data')
+        .update({
+          eta: totalEtd,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('sku_id', skuId)
+        .eq('week_number', etaWeekNumber)
+
+      etaUpdated = !etaError
+    }
+
     return NextResponse.json({
       success: true,
       skuId,
       weekNumber,
       etd: totalEtd,
       dateRange: { start: startStr, end: endStr },
+      etaSync: {
+        etaWeekNumber,
+        etaValue: totalEtd,
+        updated: etaUpdated,
+      },
     })
   } catch (error) {
     return NextResponse.json(
