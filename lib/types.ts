@@ -47,8 +47,8 @@ export type RowType =
 export const ROW_LABELS: Record<RowType, string> = {
   customerForecast: 'Customer Forecast',
   actualConsumption: 'Actual Consumption',
-  etd: 'ETD (departure from origin)',
-  ata: 'ATA (actual arrival)',
+  etd: 'ETD',
+  ata: 'ATA',
   defect: 'Defect',
   actualInventory: 'Actual inventory on hand',
   weeksOnHand: 'Weeks on hand (actual / runout)',
