@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     customerForecast: 'customer_forecast',
     actualConsumption: 'actual_consumption',
     etd: 'etd',
-    eta: 'ata',
+    eta: 'eta',
     ata: 'ata',
     inTransit: 'in_transit',
     defect: 'defect',
