@@ -128,6 +128,10 @@ export async function POST(request: Request) {
       
       // Iterate through each receiver and its ReceiveItems
       for (const receiver of receivers) {
+        // Debug: Log receiver-level fields to find ReceiverType
+        console.log('[v0] Receiver keys:', Object.keys(receiver))
+        console.log('[v0] ReceiverType field:', receiver.ReceiverType)
+        
         // Collect ReferenceNumber for delivery matching
         const ref = (receiver.ReferenceNumber || '').trim()
         if (ref && !referenceNumbers.includes(ref)) {
@@ -137,6 +141,7 @@ export async function POST(request: Request) {
         // Check receiverType: Id=1 = Return/defect, Id=0 = Standard ATA
         // ReceiverType is an object like { Name: "Return", Id: 1 }
         const receiverTypeId = receiver.ReceiverType?.Id ?? receiver.receiverType?.Id ?? 0
+        console.log('[v0] receiverTypeId:', receiverTypeId)
 
         const receiveItems = receiver.ReceiveItems || []
         const items = Array.isArray(receiveItems) ? receiveItems : []
