@@ -126,11 +126,6 @@ export async function POST(request: Request) {
       // wmsData should have ResourceList (array of receivers)
       const receivers = wmsData.ResourceList || []
       
-      // Debug: Log first receiver structure to see available fields
-      if (receivers.length > 0 && pageNum === 1) {
-        console.log('[v0] First receiver structure:', JSON.stringify(receivers[0], null, 2))
-      }
-
       // Iterate through each receiver and its ReceiveItems
       for (const receiver of receivers) {
         // Collect ReferenceNumber for delivery matching
@@ -139,8 +134,9 @@ export async function POST(request: Request) {
           referenceNumbers.push(ref)
         }
 
-        // Check receiverType: 1 = defect/return, other = normal ATA
-        const receiverType = receiver.ReceiverType ?? receiver.receiverType ?? 0
+        // Check receiverType: Id=1 = Return/defect, Id=0 = Standard ATA
+        // ReceiverType is an object like { Name: "Return", Id: 1 }
+        const receiverTypeId = receiver.ReceiverType?.Id ?? receiver.receiverType?.Id ?? 0
 
         const receiveItems = receiver.ReceiveItems || []
         const items = Array.isArray(receiveItems) ? receiveItems : []
@@ -151,11 +147,11 @@ export async function POST(request: Request) {
           // Match by checking if the WMS SKU starts with our target SKU ID
           if (itemSku === skuId || itemSku === `${skuId}GT` || itemSku.startsWith(skuId)) {
             const qty = item.Qty || 0
-            if (receiverType === 1) {
-              // ReceiverType 1 = defect/return, add to defect
+            if (receiverTypeId === 1) {
+              // ReceiverType Id=1 = Return/defect, add to defect
               totalDefect += qty
             } else {
-              // Normal receiver, add to ATA
+              // ReceiverType Id=0 = Standard, add to ATA
               totalAta += qty
             }
           }
