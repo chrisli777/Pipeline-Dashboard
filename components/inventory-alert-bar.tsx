@@ -6,6 +6,7 @@ import type { InventoryAlert } from '@/lib/types'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -56,6 +57,9 @@ export function InventoryAlertBar({ alerts }: InventoryAlertBarProps) {
               <AlertTriangle className="h-5 w-5" />
               Stockout Forecast
             </DialogTitle>
+            <DialogDescription>
+              SKUs with projected inventory stockout based on current consumption rates.
+            </DialogDescription>
           </DialogHeader>
           <div className="overflow-auto flex-1">
             <Table>
