@@ -429,6 +429,7 @@ export function PipelineDashboard() {
           }
         } else if (field === 'eta') {
           // Sync ETA from ETD (6 weeks prior) - batch update
+          console.log('[v0] ETA sync started', { skuIds, weekStart, weekEnd })
           try {
             const res = await fetch('/api/inventory/sync-eta', {
               method: 'POST',
@@ -436,12 +437,14 @@ export function PipelineDashboard() {
               body: JSON.stringify({ skuIds, weekStart, weekEnd }),
             })
             const data = await res.json()
+            console.log('[v0] ETA sync response', data)
             if (data.success) {
               results.push({ success: true, updatedCount: data.updatedCount })
             } else {
               results.push({ error: data.error })
             }
           } catch (err) {
+            console.error('[v0] ETA sync error', err)
             results.push({ error: 'ETA sync request failed' })
           }
         } else if (field === 'ata') {
