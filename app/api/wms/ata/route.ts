@@ -94,79 +94,74 @@ export async function POST(request: Request) {
     const rql = `readOnly.status==1;arrivalDate=ge=${start};arrivalDate=lt=${end}`
     const encodedRql = encodeURIComponent(rql)
     
-    // Paginate through all results
-    let totalAta = 0
-    let totalDefect = 0
-    let pageNum = 1
-    let hasMore = true
-    // Also collect ReferenceNumbers for delivery matching
-    const referenceNumbers: string[] = []
+    // Helper function to fetch receivers with specific receiverType
+    // receiverType is a separate URL param: 0=Normal, 1=Return, 2=ASN
+    async function fetchReceiversByType(receiverType: number): Promise<{ total: number; refs: string[] }> {
+      let total = 0
+      let pageNum = 1
+      let hasMore = true
+      const refs: string[] = []
 
-    while (hasMore) {
-      // detail=ReceiveItems,ReceiverType to get both the items and receiver type info
-      const wmsUrl = `https://secure-wms.com/inventory/receivers?detail=ReceiveItems,ReceiverType&pgsiz=100&pgnum=${pageNum}&rql=${encodedRql}`
+      while (hasMore) {
+        const wmsUrl = `https://secure-wms.com/inventory/receivers?detail=ReceiveItems&receiverType=${receiverType}&pgsiz=100&pgnum=${pageNum}&rql=${encodedRql}`
 
-      const wmsResponse = await fetch(wmsUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${wmsToken}`,
-          'Accept': 'application/json',
-        },
-      })
+        const wmsResponse = await fetch(wmsUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${wmsToken}`,
+            'Accept': 'application/json',
+          },
+        })
 
-      if (!wmsResponse.ok) {
-        const errorText = await wmsResponse.text()
-        return NextResponse.json(
-          { error: `WMS API error: ${wmsResponse.status}`, details: errorText },
-          { status: wmsResponse.status }
-        )
-      }
-
-      const wmsData = await wmsResponse.json()
-
-      // wmsData should have ResourceList (array of receivers)
-      const receivers = wmsData.ResourceList || []
-      
-      // Iterate through each receiver and its ReceiveItems
-      for (const receiver of receivers) {
-        // Collect ReferenceNumber for delivery matching
-        const ref = (receiver.ReferenceNumber || '').trim()
-        if (ref && !referenceNumbers.includes(ref)) {
-          referenceNumbers.push(ref)
+        if (!wmsResponse.ok) {
+          const errorText = await wmsResponse.text()
+          throw new Error(`WMS API error: ${wmsResponse.status} - ${errorText}`)
         }
 
-        // Check receiverType: Id=1 = Return/defect, Id=0 = Standard ATA
-        // ReceiverType is an object like { Name: "Return", Id: 1 }
-        const receiverTypeId = receiver.ReceiverType?.Id ?? receiver.receiverType?.Id ?? 0
+        const wmsData = await wmsResponse.json()
+        const receivers = wmsData.ResourceList || []
 
-        const receiveItems = receiver.ReceiveItems || []
-        const items = Array.isArray(receiveItems) ? receiveItems : []
+        for (const receiver of receivers) {
+          // Collect ReferenceNumber for delivery matching
+          const ref = (receiver.ReferenceNumber || '').trim()
+          if (ref && !refs.includes(ref)) {
+            refs.push(ref)
+          }
 
-        for (const item of items) {
-          // SKU in WMS has "GT" suffix (e.g. "61415GT" for SKU "61415")
-          const itemSku = item.ItemIdentifier?.Sku || ''
-          // Match by checking if the WMS SKU starts with our target SKU ID
-          if (itemSku === skuId || itemSku === `${skuId}GT` || itemSku.startsWith(skuId)) {
-            const qty = item.Qty || 0
-            if (receiverTypeId === 1) {
-              // ReceiverType Id=1 = Return/defect, add to defect
-              totalDefect += qty
-            } else {
-              // ReceiverType Id=0 = Standard, add to ATA
-              totalAta += qty
+          const receiveItems = receiver.ReceiveItems || []
+          const items = Array.isArray(receiveItems) ? receiveItems : []
+
+          for (const item of items) {
+            // SKU in WMS has "GT" suffix (e.g. "61415GT" for SKU "61415")
+            const itemSku = item.ItemIdentifier?.Sku || ''
+            // Match by checking if the WMS SKU starts with our target SKU ID
+            if (itemSku === skuId || itemSku === `${skuId}GT` || itemSku.startsWith(skuId)) {
+              const qty = item.Qty || 0
+              total += qty
             }
           }
         }
+
+        // Check if there are more pages
+        const totalResults = wmsData.TotalResults || 0
+        if (pageNum * 100 >= totalResults || receivers.length === 0) {
+          hasMore = false
+        } else {
+          pageNum++
+        }
       }
 
-      // Check if there are more pages
-      const totalResults = wmsData.TotalResults || 0
-      if (pageNum * 100 >= totalResults || receivers.length === 0) {
-        hasMore = false
-      } else {
-        pageNum++
-      }
+      return { total, refs }
     }
+
+    // Fetch ATA (receiverType=0, Normal receivers)
+    const { total: totalAta, refs: ataRefs } = await fetchReceiversByType(0)
+
+    // Fetch Defect (receiverType=1, Return receivers)
+    const { total: totalDefect, refs: defectRefs } = await fetchReceiversByType(1)
+
+    // Combine reference numbers
+    const referenceNumbers = [...new Set([...ataRefs, ...defectRefs])]
 
     // Update ATA and Defect in database - save synced values directly
     const supabase = await createClient()
@@ -195,7 +190,6 @@ export async function POST(request: Request) {
       ata: totalAta,
       defect: totalDefect,
       dateRange: { start, end },
-      pagesScanned: pageNum,
       referenceNumbers,
     })
   } catch (error) {
