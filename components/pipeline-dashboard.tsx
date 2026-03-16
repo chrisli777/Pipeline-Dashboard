@@ -161,44 +161,39 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       }
       
       // Use synced ATA to consume ETA week by week from the beginning
-      // Whatever ETA is left over (not consumed) will be shown as future ATA
+      // Collect remaining ETA (not consumed) into an array
       let remainingAta = totalSyncedAta
-      let partialConsumeWeekIndex = -1
-      let partialRemainder = 0
+      const remainingEtaList: number[] = []
       
       for (let i = 0; i < sku.allWeeks.length; i++) {
         const weekEta = sku.allWeeks[i].eta ?? 0
         if (remainingAta >= weekEta) {
           // Fully consumed this week's ETA
           remainingAta -= weekEta
+          // No remaining ETA for this week
         } else {
-          // Partially consumed - record where we stopped and how much ETA is left
-          partialConsumeWeekIndex = i
-          partialRemainder = weekEta - remainingAta // Unconsumed portion of this week's ETA
+          // Partially consumed or not consumed at all
+          const unconsumed = weekEta - remainingAta
+          remainingEtaList.push(unconsumed)
           remainingAta = 0
-          break
         }
       }
       
-      // For weeks after lastSyncedWeek, calculate future ATA
-      // Future ATA = unconsumed ETA that should still arrive
+      // If there's overflow ATA (more arrived than expected), add it to first future week
+      if (remainingAta > 0) {
+        remainingEtaList.unshift(remainingAta)
+      }
+      
+      // For weeks after lastSyncedWeek, display remaining ETA in order
+      // Week 12 gets first remaining ETA, Week 13 gets second, etc.
+      let remainingIndex = 0
       for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
-        const weekEta = sku.allWeeks[i].eta ?? 0
-        
-        if (partialConsumeWeekIndex === -1) {
-          // All ETA was consumed by synced ATA (over-delivery)
-          // Remaining synced ATA carries over - but for display, show 0 or the overflow
-          sku.allWeeks[i].ata = remainingAta > 0 ? remainingAta : 0
-          remainingAta = 0 // Only apply overflow once
-        } else if (i < partialConsumeWeekIndex) {
-          // This week's ETA was fully consumed, ATA = 0
-          sku.allWeeks[i].ata = 0
-        } else if (i === partialConsumeWeekIndex) {
-          // Partial consumption week - show only the unconsumed portion
-          sku.allWeeks[i].ata = partialRemainder
+        if (remainingIndex < remainingEtaList.length) {
+          sku.allWeeks[i].ata = remainingEtaList[remainingIndex]
+          remainingIndex++
         } else {
-          // Week after partial consumption - full ETA as ATA
-          sku.allWeeks[i].ata = weekEta
+          // No more remaining ETA, future weeks get 0
+          sku.allWeeks[i].ata = 0
         }
       }
     }
