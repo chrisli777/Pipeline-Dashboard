@@ -91,6 +91,7 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       customerForecast: row.customer_forecast !== null ? Number(row.customer_forecast) : null,
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
+      eta: row.eta != null ? Number(row.eta) : null, // ETA from database (synced = ETD from 6 weeks prior)
       ata: row.ata != null ? Number(row.ata) : null, // ATA from database (synced from WMS)
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
@@ -112,21 +113,29 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       }
     }
     
-    // Build ETD lookup map for ATA default calculation
+    // Build ETD lookup map for ETA/ATA default calculation
     const etdByWeek = new Map<number, number | null>()
     for (const w of sku.allWeeks) {
       etdByWeek.set(w.weekNumber, w.etd)
     }
     
+    // ETA display logic:
+    // - If ETA is synced (not null), use that value
+    // - If ETA is null, default to ETD from 6 weeks prior
+    for (const w of sku.allWeeks) {
+      if (w.eta === null) {
+        const sourceWeek = w.weekNumber - 6
+        const sourceEtd = etdByWeek.get(sourceWeek)
+        w.eta = sourceEtd ?? 0
+      }
+    }
+    
     // ATA display logic:
-    // - If ATA is synced from WMS (including 0), use that value directly
-    // - If ATA is null (never synced), default to ETD from 4 weeks prior
-    // Rollover is handled in backend when ATA is synced
+    // - If ATA is synced from WMS (not null), use that value directly
+    // - If ATA is null (never synced), default to ETA
     for (const w of sku.allWeeks) {
       if (w.ata === null) {
-        const sourceWeek = w.weekNumber - 4
-        const sourceEtd = etdByWeek.get(sourceWeek)
-        w.ata = sourceEtd ?? 0
+        w.ata = w.eta ?? 0
       }
     }
 
@@ -418,9 +427,25 @@ export function PipelineDashboard() {
               }
             }
           }
+        } else if (field === 'eta') {
+          // Sync ETA from ETD (6 weeks prior) - batch update
+          try {
+            const res = await fetch('/api/inventory/sync-eta', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ skuIds, weekStart, weekEnd }),
+            })
+            const data = await res.json()
+            if (data.success) {
+              results.push({ success: true, updatedCount: data.updatedCount })
+            } else {
+              results.push({ error: data.error })
+            }
+          } catch (err) {
+            results.push({ error: 'ETA sync request failed' })
+          }
         } else if (field === 'ata') {
           // Sync ATA from WMS inventory API
-          // If ATA differs from expected (ETD from 4 weeks prior), rollover diff to next week
           for (const skuId of skuIds) {
             for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
               try {
@@ -451,47 +476,14 @@ export function PipelineDashboard() {
         setSyncing(false)
         return
       }
-
-      // --- Delivery matching step ---
-      // Call the dedicated delivery-sync endpoint which fetches ALL receivers
-      // from WMS (no SKU filter) in the synced date range and matches
-      // reference numbers against containers
-      let deliveryMsg = ''
-      if (fields.includes('ata')) {
-        try {
-          const deliveryRes = await fetch('/api/wms/delivery-sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ weekStart, weekEnd }),
-          })
-          const deliveryData = await deliveryRes.json()
-          if (deliveryRes.ok) {
-            if (deliveryData.deliveryMatches > 0) {
-              deliveryMsg = `\nDelivery sync: ${deliveryData.deliveryMatches} container(s) matched and marked as DELIVERED (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
-            } else if (deliveryData.totalReferences > 0) {
-              deliveryMsg = `\nDelivery sync: No new matches found (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
-            } else {
-              deliveryMsg = `\nDelivery sync: No reference numbers found from WMS receivers in weeks ${weekStart}-${weekEnd}.`
-            }
-            if (deliveryData.errors?.length) {
-              deliveryMsg += ` (${deliveryData.errors.length} warehouse(s) had errors)`
-            }
-          } else {
-            deliveryMsg = `\nDelivery sync failed: ${deliveryData.error || 'Unknown error'}`
-          }
-        } catch (err) {
-          console.error('Delivery sync error:', err)
-          deliveryMsg = '\nDelivery sync: Failed to connect.'
-        }
-      }
       
       // Refresh data to show updated values
       await fetchData()
       
       if (failedSyncs.length > 0) {
-        alert(`Synced ${successfulSyncs.length} records. ${failedSyncs.length} failed.${deliveryMsg}`)
+        alert(`Synced ${successfulSyncs.length} records. ${failedSyncs.length} failed.`)
       } else {
-        alert(`Successfully synced ${successfulSyncs.length} records (Weeks ${weekStart}-${weekEnd}).${deliveryMsg}`)
+        alert(`Successfully synced ${successfulSyncs.length} records (Weeks ${weekStart}-${weekEnd}).`)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sync data')

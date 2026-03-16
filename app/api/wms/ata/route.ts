@@ -156,27 +156,9 @@ export async function POST(request: Request) {
       }
     }
 
-    // Update the ata in database
+    // Update the ata in database - just save the synced value directly
     const supabase = await createClient()
     
-    // Get expected arrival from 4 weeks prior ETD (the expected quantity to arrive this week)
-    const sourceWeek = weekNumber - 4
-    const { data: sourceRow } = await supabase
-      .from('inventory_data')
-      .select('etd')
-      .eq('sku_id', skuId)
-      .eq('week_number', sourceWeek)
-      .single()
-    
-    const expectedArrival = sourceRow?.etd || 0
-    
-    // Calculate rollover: diff = expected - actual
-    // Example: expected=10 (ETD from 4 wks ago), ATA=5 → diff=5
-    // - This week ATA: stays at 5 (actual synced value)
-    // - Next week ATA: add diff to next week's expected arrival
-    const rolloverDiff = expectedArrival - totalAta
-    
-    // Update ATA for current week
     const { error: updateError } = await supabase
       .from('inventory_data')
       .update({
@@ -193,61 +175,14 @@ export async function POST(request: Request) {
       )
     }
 
-    // Rollover diff to next week's ATA (add to what would be expected next week)
-    let rolloverApplied = false
-    let nextWeekAtaBefore = 0
-    let nextWeekAtaAfter = 0
-
-    if (rolloverDiff !== 0) {
-      const nextWeek = weekNumber + 1
-      
-      // Get next week's current ATA (if any)
-      const { data: nextWeekRow } = await supabase
-        .from('inventory_data')
-        .select('ata')
-        .eq('sku_id', skuId)
-        .eq('week_number', nextWeek)
-        .single()
-      
-      if (nextWeekRow) {
-        nextWeekAtaBefore = nextWeekRow.ata || 0
-        
-        // If next week ATA is 0/null, it will default to ETD from 4 weeks prior in frontend
-        // We add the rollover diff to whatever is there
-        nextWeekAtaAfter = Math.max(0, nextWeekAtaBefore + rolloverDiff) // Don't go negative
-        
-        // Update next week's ATA with rollover
-        const { error: rolloverError } = await supabase
-          .from('inventory_data')
-          .update({
-            ata: nextWeekAtaAfter,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('sku_id', skuId)
-          .eq('week_number', nextWeek)
-        
-        if (!rolloverError) {
-          rolloverApplied = true
-        }
-      }
-    }
-
     return NextResponse.json({
       success: true,
       skuId,
       weekNumber,
       ata: totalAta,
-      expectedArrival,
       dateRange: { start, end },
       pagesScanned: pageNum,
       referenceNumbers,
-      rollover: rolloverDiff !== 0 ? {
-        diff: rolloverDiff,
-        nextWeek: weekNumber + 1,
-        nextWeekAtaBefore,
-        nextWeekAtaAfter,
-        applied: rolloverApplied,
-      } : null,
     })
   } catch (error) {
     return NextResponse.json(
