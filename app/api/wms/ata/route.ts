@@ -125,6 +125,11 @@ export async function POST(request: Request) {
 
       // wmsData should have ResourceList (array of receivers)
       const receivers = wmsData.ResourceList || []
+      
+      // Debug: Log first receiver structure to see available fields
+      if (receivers.length > 0 && pageNum === 1) {
+        console.log('[v0] First receiver structure:', JSON.stringify(receivers[0], null, 2))
+      }
 
       // Iterate through each receiver and its ReceiveItems
       for (const receiver of receivers) {
