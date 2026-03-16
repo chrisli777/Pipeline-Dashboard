@@ -162,20 +162,27 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       
       // Use synced ATA to consume ETA week by week from the beginning
       // Collect remaining ETA (not consumed) into an array
+      // Important: once remainingAta is exhausted, ALL subsequent ETA values (including 0) go into the list
       let remainingAta = totalSyncedAta
       const remainingEtaList: number[] = []
+      let ataExhausted = false
       
       for (let i = 0; i < sku.allWeeks.length; i++) {
         const weekEta = sku.allWeeks[i].eta ?? 0
-        if (remainingAta >= weekEta) {
+        
+        if (ataExhausted) {
+          // ATA already exhausted, add all remaining ETA (including 0) to the list
+          remainingEtaList.push(weekEta)
+        } else if (remainingAta >= weekEta) {
           // Fully consumed this week's ETA
           remainingAta -= weekEta
           // No remaining ETA for this week
         } else {
-          // Partially consumed or not consumed at all
+          // Partially consumed - add unconsumed portion
           const unconsumed = weekEta - remainingAta
           remainingEtaList.push(unconsumed)
           remainingAta = 0
+          ataExhausted = true
         }
       }
       
