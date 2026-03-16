@@ -130,12 +130,76 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       }
     }
     
-    // ATA display logic:
-    // - If ATA is synced from WMS (not null), use that value directly
-    // - If ATA is null (never synced), default to ETA
-    for (const w of sku.allWeeks) {
-      if (w.ata === null) {
-        w.ata = w.eta ?? 0
+    // ATA display logic with rollover:
+    // Goal: ETA total must equal ATA total
+    // 1. Find the last synced ATA week (last week where ata is not null in DB)
+    // 2. Sum all synced ATA values up to that week
+    // 3. Use synced ATA total to "consume" ETA week by week from the beginning
+    // 4. Whatever ETA is not yet consumed shows as future ATA
+    
+    // Find last synced week (last week with non-null ATA in database)
+    let lastSyncedWeekIndex = -1
+    for (let i = sku.allWeeks.length - 1; i >= 0; i--) {
+      if (sku.allWeeks[i].ata !== null) {
+        lastSyncedWeekIndex = i
+        break
+      }
+    }
+    
+    if (lastSyncedWeekIndex === -1) {
+      // No synced ATA yet - just use ETA as ATA for all weeks
+      for (const w of sku.allWeeks) {
+        if (w.ata === null) {
+          w.ata = w.eta ?? 0
+        }
+      }
+    } else {
+      // Calculate total synced ATA (all weeks up to and including lastSyncedWeek)
+      let totalSyncedAta = 0
+      for (let i = 0; i <= lastSyncedWeekIndex; i++) {
+        totalSyncedAta += sku.allWeeks[i].ata ?? 0
+      }
+      
+      // Use synced ATA to consume ETA week by week from the beginning
+      // Whatever ETA is left over (not consumed) will be shown as future ATA
+      let remainingAta = totalSyncedAta
+      let partialConsumeWeekIndex = -1
+      let partialRemainder = 0
+      
+      for (let i = 0; i < sku.allWeeks.length; i++) {
+        const weekEta = sku.allWeeks[i].eta ?? 0
+        if (remainingAta >= weekEta) {
+          // Fully consumed this week's ETA
+          remainingAta -= weekEta
+        } else {
+          // Partially consumed - record where we stopped and how much ETA is left
+          partialConsumeWeekIndex = i
+          partialRemainder = weekEta - remainingAta // Unconsumed portion of this week's ETA
+          remainingAta = 0
+          break
+        }
+      }
+      
+      // For weeks after lastSyncedWeek, calculate future ATA
+      // Future ATA = unconsumed ETA that should still arrive
+      for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
+        const weekEta = sku.allWeeks[i].eta ?? 0
+        
+        if (partialConsumeWeekIndex === -1) {
+          // All ETA was consumed by synced ATA (over-delivery)
+          // Remaining synced ATA carries over - but for display, show 0 or the overflow
+          sku.allWeeks[i].ata = remainingAta > 0 ? remainingAta : 0
+          remainingAta = 0 // Only apply overflow once
+        } else if (i < partialConsumeWeekIndex) {
+          // This week's ETA was fully consumed, ATA = 0
+          sku.allWeeks[i].ata = 0
+        } else if (i === partialConsumeWeekIndex) {
+          // Partial consumption week - show only the unconsumed portion
+          sku.allWeeks[i].ata = partialRemainder
+        } else {
+          // Week after partial consumption - full ETA as ATA
+          sku.allWeeks[i].ata = weekEta
+        }
       }
     }
 
