@@ -154,14 +154,16 @@ export async function POST(request: Request) {
       return { total, refs }
     }
 
-    // Fetch ATA (receiverType=0, Normal receivers)
-    const { total: totalAta, refs: ataRefs } = await fetchReceiversByType(0)
+    // Fetch ATA (all non-return types: 0=Normal, 2=ASN)
+    const { total: ataNormal, refs: normalRefs } = await fetchReceiversByType(0)
+    const { total: ataAsn, refs: asnRefs } = await fetchReceiversByType(2)
+    const totalAta = ataNormal + ataAsn
 
-    // Fetch Defect (receiverType=1, Return receivers)
+    // Fetch Defect (receiverType=1, Return receivers only)
     const { total: totalDefect, refs: defectRefs } = await fetchReceiversByType(1)
 
-    // Combine reference numbers
-    const referenceNumbers = [...new Set([...ataRefs, ...defectRefs])]
+    // Combine reference numbers from all types
+    const referenceNumbers = [...new Set([...normalRefs, ...asnRefs, ...defectRefs])]
 
     // Update ATA and Defect in database - save synced values directly
     const supabase = await createClient()
