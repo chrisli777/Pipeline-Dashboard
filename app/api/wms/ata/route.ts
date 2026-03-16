@@ -103,7 +103,8 @@ export async function POST(request: Request) {
     const referenceNumbers: string[] = []
 
     while (hasMore) {
-      const wmsUrl = `https://secure-wms.com/inventory/receivers?detail=ReceiveItems&pgsiz=100&pgnum=${pageNum}&rql=${encodedRql}`
+      // detail=ReceiveItems,ReceiverType to get both the items and receiver type info
+      const wmsUrl = `https://secure-wms.com/inventory/receivers?detail=ReceiveItems,ReceiverType&pgsiz=100&pgnum=${pageNum}&rql=${encodedRql}`
 
       const wmsResponse = await fetch(wmsUrl, {
         method: 'GET',
