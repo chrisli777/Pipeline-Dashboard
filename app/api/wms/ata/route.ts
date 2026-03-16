@@ -96,6 +96,7 @@ export async function POST(request: Request) {
     
     // Paginate through all results
     let totalAta = 0
+    let totalDefect = 0
     let pageNum = 1
     let hasMore = true
     // Also collect ReferenceNumbers for delivery matching
@@ -133,6 +134,9 @@ export async function POST(request: Request) {
           referenceNumbers.push(ref)
         }
 
+        // Check receiverType: 1 = defect/return, other = normal ATA
+        const receiverType = receiver.ReceiverType ?? receiver.receiverType ?? 0
+
         const receiveItems = receiver.ReceiveItems || []
         const items = Array.isArray(receiveItems) ? receiveItems : []
 
@@ -142,7 +146,13 @@ export async function POST(request: Request) {
           // Match by checking if the WMS SKU starts with our target SKU ID
           if (itemSku === skuId || itemSku === `${skuId}GT` || itemSku.startsWith(skuId)) {
             const qty = item.Qty || 0
-            totalAta += qty
+            if (receiverType === 1) {
+              // ReceiverType 1 = defect/return, add to defect
+              totalDefect += qty
+            } else {
+              // Normal receiver, add to ATA
+              totalAta += qty
+            }
           }
         }
       }
@@ -156,13 +166,14 @@ export async function POST(request: Request) {
       }
     }
 
-    // Update the ata in database - just save the synced value directly
+    // Update ATA and Defect in database - save synced values directly
     const supabase = await createClient()
     
     const { error: updateError } = await supabase
       .from('inventory_data')
       .update({
         ata: totalAta,
+        defect: totalDefect,
         updated_at: new Date().toISOString(),
       })
       .eq('sku_id', skuId)
@@ -180,6 +191,7 @@ export async function POST(request: Request) {
       skuId,
       weekNumber,
       ata: totalAta,
+      defect: totalDefect,
       dateRange: { start, end },
       pagesScanned: pageNum,
       referenceNumbers,
