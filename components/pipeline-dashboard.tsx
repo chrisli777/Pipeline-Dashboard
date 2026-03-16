@@ -120,10 +120,10 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
     }
     
     // ETA display logic:
-    // - If ETA is synced (not null), use that value
-    // - If ETA is null, default to ETD from 6 weeks prior
+    // - If ETA has a non-zero synced value, use that value
+    // - If ETA is null or 0, auto-calculate from ETD 6 weeks prior
     for (const w of sku.allWeeks) {
-      if (w.eta === null) {
+      if (w.eta === null || w.eta === 0) {
         const sourceWeek = w.weekNumber - 6
         const sourceEtd = etdByWeek.get(sourceWeek)
         w.eta = sourceEtd ?? 0
