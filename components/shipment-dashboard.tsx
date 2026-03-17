@@ -256,7 +256,7 @@ export function ShipmentDashboard() {
       <div className="flex items-center justify-center h-screen">
         <div className="flex flex-col items-center gap-3">
 <Loader2 className="h-12 w-12 animate-spin text-blue-700 mx-auto mb-4" />
-<p className="text-muted-foreground">Thinking...</p>
+<p className="text-muted-foreground">Loading shipments...</p>
         </div>
       </div>
     )

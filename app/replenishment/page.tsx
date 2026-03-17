@@ -84,7 +84,7 @@ export default function ReplenishmentPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-        <span className="ml-3 text-slate-500">Thinking...</span>
+        <span className="ml-3 text-slate-500">Loading classification data...</span>
       </div>
     )
   }
@@ -93,7 +93,7 @@ export default function ReplenishmentPage() {
     return (
       <div className="p-6">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <h3 className="text-red-800 font-medium">Error</h3>
+          <h3 className="text-red-800 font-medium">Error loading data</h3>
           <p className="text-red-600 text-sm mt-1">{error}</p>
           <p className="text-red-500 text-xs mt-2">
             Make sure migrations 014 and 015 have been executed on Supabase.

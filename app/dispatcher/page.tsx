@@ -350,7 +350,7 @@ export default function DispatcherDashboardPage() {
           {loading ? (
             <div className="flex items-center justify-center py-20 text-slate-400">
               <Loader2 className="h-5 w-5 animate-spin mr-2" />
-              Thinking...
+              Loading containers...
             </div>
           ) : containers.length === 0 ? (
             <div className="text-center py-16 text-slate-400">

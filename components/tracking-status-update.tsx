@@ -265,7 +265,7 @@ export function TrackingStatusUpdate({
             {loadingContainers ? (
               <div className="flex items-center justify-center py-4 text-slate-400">
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Thinking...
+                Loading containers...
               </div>
             ) : containerList.length === 0 ? (
               <div className="flex items-center gap-2 py-3 px-3 bg-amber-50 text-amber-700 rounded-md text-sm">
