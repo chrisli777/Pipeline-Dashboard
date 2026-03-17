@@ -749,7 +749,11 @@ export function PipelineDashboard() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `inventory-pipeline-${new Date().toISOString().split('T')[0]}.xlsx`
+      // Auto-name based on Vendor and Warehouse filters
+      const vendorPart = selectedVendors.length > 0 ? selectedVendors.join('-') : 'All'
+      const warehousePart = selectedWarehouses.length > 0 ? selectedWarehouses.join('-') : 'All'
+      const filename = `${vendorPart}_${warehousePart}.xlsx`
+      a.download = filename
       a.click()
       URL.revokeObjectURL(url)
     } catch (err: any) {
