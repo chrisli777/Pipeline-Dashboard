@@ -193,14 +193,32 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       
       // For weeks after lastSyncedWeek, display remaining ETA in order
       // Week 12 gets first remaining ETA, Week 13 gets second, etc.
+      // BUT: when we encounter a 0 in remainingEtaList, it means this batch is complete
+      // After that, directly sync ATA = ETA for remaining weeks
       let remainingIndex = 0
+      let batchComplete = false
+      
       for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
-        if (remainingIndex < remainingEtaList.length) {
-          sku.allWeeks[i].ata = remainingEtaList[remainingIndex]
+        const weekEta = sku.allWeeks[i].eta ?? 0
+        
+        if (batchComplete) {
+          // Batch is complete, directly use this week's ETA as ATA
+          sku.allWeeks[i].ata = weekEta
+        } else if (remainingIndex < remainingEtaList.length) {
+          const remainingValue = remainingEtaList[remainingIndex]
+          
+          if (remainingValue === 0) {
+            // Encountered 0 - this batch is complete
+            // Set this week's ATA to 0, then switch to direct ETA sync
+            sku.allWeeks[i].ata = 0
+            batchComplete = true
+          } else {
+            sku.allWeeks[i].ata = remainingValue
+          }
           remainingIndex++
         } else {
-          // No more remaining ETA, future weeks get 0
-          sku.allWeeks[i].ata = 0
+          // No more remaining ETA, use this week's ETA directly
+          sku.allWeeks[i].ata = weekEta
         }
       }
     }
