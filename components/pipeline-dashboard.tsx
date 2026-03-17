@@ -752,7 +752,7 @@ export function PipelineDashboard() {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-blue-700 mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading inventory data...</p>
+          <p className="text-muted-foreground">Thinking...</p>
         </div>
       </div>
     )
