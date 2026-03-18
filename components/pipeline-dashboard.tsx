@@ -78,7 +78,7 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
 
     const sku = skuMap.get(row.sku_id)!
     
-    // Format week date - show Monday of the week (week_start_date is Sunday, Monday is 1 day after)
+    // Format week date - show Monday of the week (week_start_date is Sunday, Monday is +1 day)
     const weekDate = new Date(row.week_start_date)
     weekDate.setDate(weekDate.getDate() + 1)
     const month = weekDate.toLocaleDateString('en-US', { month: 'short' })
