@@ -78,10 +78,10 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
 
     const sku = skuMap.get(row.sku_id)!
     
-    // Format week date - show previous week's Sunday (week_start_date - 7 days)
+    // Format week date - show previous week's Monday (week_start_date - 6 days)
     // Parse date parts directly to avoid timezone issues
     const [year, monthNum, dayNum] = row.week_start_date.split('-').map(Number)
-    const weekDate = new Date(year, monthNum - 1, dayNum - 7) // Subtract 7 days
+    const weekDate = new Date(year, monthNum - 1, dayNum - 6) // Subtract 6 days to get Monday
     const month = weekDate.toLocaleDateString('en-US', { month: 'short' })
     const day = weekDate.getDate()
     const weekOf = `${month} ${day}`
