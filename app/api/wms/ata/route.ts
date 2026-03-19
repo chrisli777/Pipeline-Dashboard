@@ -166,26 +166,14 @@ export async function POST(request: Request) {
     const referenceNumbers = [...new Set([...normalRefs, ...asnRefs, ...defectRefs])]
 
     // Update ATA and Defect in database
-    // ATA: replace with synced value
-    // Defect: add synced return qty to existing defect value
+    // Both ATA and Defect: replace with synced value (not cumulative)
     const supabase = await createClient()
-    
-    // First get existing defect value
-    const { data: existingData } = await supabase
-      .from('inventory_data')
-      .select('defect')
-      .eq('sku_id', skuId)
-      .eq('week_number', weekNumber)
-      .single()
-    
-    const existingDefect = existingData?.defect || 0
-    const newDefect = existingDefect + totalDefect
     
     const { error: updateError } = await supabase
       .from('inventory_data')
       .update({
         ata: totalAta,
-        defect: newDefect,
+        defect: totalDefect,
         updated_at: new Date().toISOString(),
       })
       .eq('sku_id', skuId)
@@ -203,9 +191,7 @@ export async function POST(request: Request) {
       skuId,
       weekNumber,
       ata: totalAta,
-      defect: newDefect,
-      syncedReturn: totalDefect,
-      existingDefect,
+      defect: totalDefect,
       dateRange: { start, end },
       referenceNumbers,
     })
