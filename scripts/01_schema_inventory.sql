@@ -1,9 +1,10 @@
 -- Create SKUs table
 CREATE TABLE IF NOT EXISTS skus (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id TEXT PRIMARY KEY,
   part_model TEXT NOT NULL,
   description TEXT,
   category TEXT DEFAULT 'COUNTERWEIGHT',
+  supplier_code TEXT DEFAULT 'HX',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -90,13 +91,40 @@ INSERT INTO weeks (week_number, week_start_date, year) VALUES
   (52, '2026-12-21', 2026)
 ON CONFLICT (week_number) DO NOTHING;
 
--- Insert sample SKUs
-INSERT INTO skus (id, part_model, description, category) VALUES
-  ('a1b2c3d4-e5f6-7890-abcd-ef1234567890', '1272762 / T80 (Control Side)', '15.26 sq ft / 970 lbs', 'COUNTERWEIGHT'),
-  ('b2c3d4e5-f6a7-8901-bcde-f12345678901', '1272913 / T60 (Engine Side)', '15.26 sq ft / 970 lbs', 'COUNTERWEIGHT'),
-  ('c3d4e5f6-a7b8-9012-cdef-123456789012', '61415 / Z80', '17.83 sq ft / 6594 lbs', 'COUNTERWEIGHT'),
-  ('d4e5f6a7-b8c9-0123-def0-234567890123', '824433 / Z62', '19.9 sq ft / 6360 lbs', 'COUNTERWEIGHT')
-ON CONFLICT DO NOTHING;
+-- ============================================================
+-- SKU Data - All suppliers
+-- ============================================================
+
+-- HX Counterweight SKUs
+INSERT INTO skus (id, part_model, description, category, supplier_code) VALUES
+  ('1272762', '1272762 / T80 (Control Side)', '15.26 sq ft / 970 lbs', 'COUNTERWEIGHT', 'HX'),
+  ('1272913', '1272913 / T60 (Engine Side)', '15.26 sq ft / 970 lbs', 'COUNTERWEIGHT', 'HX'),
+  ('61415', '61415 / Z80', '17.83 sq ft / 6594 lbs', 'COUNTERWEIGHT', 'HX'),
+  ('824433', '824433 / Z62', '19.9 sq ft / 6360 lbs', 'COUNTERWEIGHT', 'HX'),
+  ('1282199', '1282199 / HX New', '', 'COUNTERWEIGHT', 'HX')
+ON CONFLICT (id) DO UPDATE SET 
+  part_model = EXCLUDED.part_model,
+  description = EXCLUDED.description,
+  category = EXCLUDED.category,
+  supplier_code = EXCLUDED.supplier_code;
+
+-- AMC Linkset SKUs (GS-4046 E-Drive)
+INSERT INTO skus (id, part_model, description, category, supplier_code) VALUES
+  ('132517', '132517 / GS-4046 E-Driv', 'WLDMT,OUTER #1 (Weight: 773.8kg, Qty: 10pcs/Package)', 'LINKSET', 'AMC'),
+  ('132383', '132383 / GS-4046 E-Driv', 'WLDMT,OUTER #4, RIGHT (Weight: 1360kg, Qty: 60pcs/Package)', 'LINKSET', 'AMC'),
+  ('132385', '132385 / GS-4046 E-Driv', 'WLDMT,OUTER #4, LEFT (Weight: 1360kg, Qty: 60pcs/Package)', 'LINKSET', 'AMC'),
+  ('1299483', '1299483 / GS-4046 E-Driv', 'WELDMENT, LOWER LINK XX32.46 (Weight: 1050kg, Qty: 10pcs/Package)', 'LINKSET', 'AMC'),
+  ('1264224', '1264224 / GS-4046 E-Driv', 'WLDMT, LNK, INNER #2 NEW (Weight: 1420kg, Qty: 20pcs/Package)', 'LINKSET', 'AMC'),
+  ('1260200', '1260200 / GS-4046 E-Driv', 'WLDMT, LNK, INNER #2 (Weight: 1420kg, Qty: 20pcs/Package)', 'LINKSET', 'AMC'),
+  ('229579', '229579 / GS-4046 E-Driv', 'WLDMT, LNK, OUTER #2,3,4,5 (Weight: 1735kg, Qty: 50pcs/Package)', 'LINKSET', 'AMC'),
+  ('1260307', '1260307 / GS-4046 E-Driv', 'WLDMT,LNK,INNER #3,4046 (Weight: 1242kg, Qty: 8pcs/Package)', 'LINKSET', 'AMC'),
+  ('1260198', '1260198 / GS-4046 E-Driv', 'WLDMT,LNK,INNER #5,4046 (Weight: 2240kg, Qty: 20pcs/Package)', 'LINKSET', 'AMC'),
+  ('132525', '132525 / GS-4046 E-Driv', 'WLDMT, LNK, INNER #4, 2646 (Weight: 482kg, Qty: 8pcs/Package)', 'LINKSET', 'AMC')
+ON CONFLICT (id) DO UPDATE SET 
+  part_model = EXCLUDED.part_model,
+  description = EXCLUDED.description,
+  category = EXCLUDED.category,
+  supplier_code = EXCLUDED.supplier_code;
 
 -- Function to calculate actual_consumption (uses customer_forecast if NULL)
 CREATE OR REPLACE FUNCTION get_actual_consumption(p_actual_consumption NUMERIC, p_customer_forecast NUMERIC)
@@ -187,27 +215,35 @@ FROM skus s
 CROSS JOIN weeks w
 ON CONFLICT (sku_id, week_number) DO NOTHING;
 
--- Create view for easy querying with calculated fields
-CREATE OR REPLACE VIEW inventory_view AS
-SELECT 
+-- ============================================================
+-- Dashboard View - includes supplier_code and calculated fields
+-- ============================================================
+DROP VIEW IF EXISTS inventory_dashboard;
+CREATE VIEW inventory_dashboard AS
+SELECT
   i.id,
   i.sku_id,
   s.part_model,
   s.description,
   s.category,
+  s.supplier_code,
   i.week_number,
   w.week_start_date,
   i.customer_forecast,
-  get_actual_consumption(i.actual_consumption, i.customer_forecast) as actual_consumption,
+  COALESCE(i.actual_consumption, i.customer_forecast) as actual_consumption,
   i.actual_consumption IS NOT NULL as consumption_is_manual,
+  CASE
+    WHEN i.actual_consumption IS NOT NULL THEN 'manual'
+    ELSE 'forecast'
+  END as consumption_source,
   i.etd,
+  i.eta,
   i.ata,
   i.defect,
   i.actual_inventory,
-  CASE 
-    WHEN get_actual_consumption(i.actual_consumption, i.customer_forecast) > 0 
-    THEN ROUND(i.actual_inventory / get_actual_consumption(i.actual_consumption, i.customer_forecast), 2)
-    ELSE 99.99
+  CASE
+    WHEN COALESCE(i.actual_consumption, i.customer_forecast, 0) = 0 THEN NULL
+    ELSE ROUND(i.actual_inventory / NULLIF(COALESCE(i.actual_consumption, i.customer_forecast), 0), 2)
   END as weeks_on_hand
 FROM inventory_data i
 JOIN skus s ON i.sku_id = s.id

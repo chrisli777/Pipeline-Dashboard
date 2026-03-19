@@ -94,74 +94,98 @@ export async function POST(request: Request) {
     const rql = `readOnly.status==1;arrivalDate=ge=${start};arrivalDate=lt=${end}`
     const encodedRql = encodeURIComponent(rql)
     
-    // Paginate through all results
-    let totalAta = 0
-    let pageNum = 1
-    let hasMore = true
-    // Also collect ReferenceNumbers for delivery matching
-    const referenceNumbers: string[] = []
+    // Helper function to fetch receivers with specific receiverType
+    // receiverType is a separate URL param: 0=Normal, 1=Return, 2=ASN
+    async function fetchReceiversByType(receiverType: number): Promise<{ total: number; refs: string[] }> {
+      let total = 0
+      let pageNum = 1
+      let hasMore = true
+      const refs: string[] = []
 
-    while (hasMore) {
-      const wmsUrl = `https://secure-wms.com/inventory/receivers?detail=ReceiveItems&pgsiz=100&pgnum=${pageNum}&rql=${encodedRql}`
+      while (hasMore) {
+        const wmsUrl = `https://secure-wms.com/inventory/receivers?detail=ReceiveItems&receiverType=${receiverType}&pgsiz=100&pgnum=${pageNum}&rql=${encodedRql}`
 
-      const wmsResponse = await fetch(wmsUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${wmsToken}`,
-          'Accept': 'application/json',
-        },
-      })
+        const wmsResponse = await fetch(wmsUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${wmsToken}`,
+            'Accept': 'application/json',
+          },
+        })
 
-      if (!wmsResponse.ok) {
-        const errorText = await wmsResponse.text()
-        return NextResponse.json(
-          { error: `WMS API error: ${wmsResponse.status}`, details: errorText },
-          { status: wmsResponse.status }
-        )
-      }
-
-      const wmsData = await wmsResponse.json()
-
-      // wmsData should have ResourceList (array of receivers)
-      const receivers = wmsData.ResourceList || []
-
-      // Iterate through each receiver and its ReceiveItems
-      for (const receiver of receivers) {
-        // Collect ReferenceNumber for delivery matching
-        const ref = (receiver.ReferenceNumber || '').trim()
-        if (ref && !referenceNumbers.includes(ref)) {
-          referenceNumbers.push(ref)
+        if (!wmsResponse.ok) {
+          const errorText = await wmsResponse.text()
+          throw new Error(`WMS API error: ${wmsResponse.status} - ${errorText}`)
         }
 
-        const receiveItems = receiver.ReceiveItems || []
-        const items = Array.isArray(receiveItems) ? receiveItems : []
+        const wmsData = await wmsResponse.json()
+        const receivers = wmsData.ResourceList || []
 
-        for (const item of items) {
-          // SKU in WMS has "GT" suffix (e.g. "61415GT" for SKU "61415")
-          const itemSku = item.ItemIdentifier?.Sku || ''
-          // Match by checking if the WMS SKU starts with our target SKU ID
-          if (itemSku === skuId || itemSku === `${skuId}GT` || itemSku.startsWith(skuId)) {
-            const qty = item.Qty || 0
-            totalAta += qty
+        for (const receiver of receivers) {
+          // Collect ReferenceNumber for delivery matching
+          const ref = (receiver.ReferenceNumber || '').trim()
+          if (ref && !refs.includes(ref)) {
+            refs.push(ref)
+          }
+
+          const receiveItems = receiver.ReceiveItems || []
+          const items = Array.isArray(receiveItems) ? receiveItems : []
+
+          for (const item of items) {
+            // SKU in WMS has "GT" suffix (e.g. "61415GT" for SKU "61415")
+            const itemSku = item.ItemIdentifier?.Sku || ''
+            // Match by checking if the WMS SKU starts with our target SKU ID
+            if (itemSku === skuId || itemSku === `${skuId}GT` || itemSku.startsWith(skuId)) {
+              const qty = item.Qty || 0
+              total += qty
+            }
           }
         }
+
+        // Check if there are more pages
+        const totalResults = wmsData.TotalResults || 0
+        if (pageNum * 100 >= totalResults || receivers.length === 0) {
+          hasMore = false
+        } else {
+          pageNum++
+        }
       }
 
-      // Check if there are more pages
-      const totalResults = wmsData.TotalResults || 0
-      if (pageNum * 100 >= totalResults || receivers.length === 0) {
-        hasMore = false
-      } else {
-        pageNum++
-      }
+      return { total, refs }
     }
 
-    // Update the ata in database
+    // Fetch ATA (all non-return types: 0=Normal, 2=ASN)
+    const { total: ataNormal, refs: normalRefs } = await fetchReceiversByType(0)
+    const { total: ataAsn, refs: asnRefs } = await fetchReceiversByType(2)
+    const totalAta = ataNormal + ataAsn
+
+    // Fetch Defect (receiverType=1, Return receivers only)
+    const { total: totalDefect, refs: defectRefs } = await fetchReceiversByType(1)
+
+    // Combine reference numbers from all types
+    const referenceNumbers = [...new Set([...normalRefs, ...asnRefs, ...defectRefs])]
+
+    // Update ATA and Defect in database
+    // ATA: replace with synced value
+    // Defect: add synced return qty to existing defect value
     const supabase = await createClient()
+    
+    // First get existing defect value
+    const { data: existingData } = await supabase
+      .from('inventory_data')
+      .select('defect')
+      .eq('sku_id', skuId)
+      .eq('week_number', weekNumber)
+      .single()
+    
+    const existingDefect = existingData?.defect || 0
+    const newDefect = existingDefect + totalDefect
+    
     const { error: updateError } = await supabase
       .from('inventory_data')
       .update({
         ata: totalAta,
+        defect: newDefect,
         updated_at: new Date().toISOString(),
       })
       .eq('sku_id', skuId)
@@ -179,8 +203,10 @@ export async function POST(request: Request) {
       skuId,
       weekNumber,
       ata: totalAta,
+      defect: newDefect,
+      syncedReturn: totalDefect,
+      existingDefect,
       dateRange: { start, end },
-      pagesScanned: pageNum,
       referenceNumbers,
     })
   } catch (error) {

@@ -78,9 +78,10 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
 
     const sku = skuMap.get(row.sku_id)!
     
-    // Format week date - show Friday of the week (week_start_date is Sunday, Friday is 2 days before)
-    const weekDate = new Date(row.week_start_date)
-    weekDate.setDate(weekDate.getDate() - 1)
+    // Format week date - show previous week's Monday (week_start_date - 6 days)
+    // Parse date parts directly to avoid timezone issues
+    const [year, monthNum, dayNum] = row.week_start_date.split('-').map(Number)
+    const weekDate = new Date(year, monthNum - 1, dayNum - 6) // Subtract 6 days to get Monday
     const month = weekDate.toLocaleDateString('en-US', { month: 'short' })
     const day = weekDate.getDate()
     const weekOf = `${month} ${day}`
@@ -91,8 +92,8 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       customerForecast: row.customer_forecast !== null ? Number(row.customer_forecast) : null,
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
-      eta: row.eta != null && Number(row.eta) !== 0 ? Number(row.eta) : null,
-      ata: row.ata != null && Number(row.ata) !== 0 ? Number(row.ata) : null,
+      eta: row.eta != null ? Number(row.eta) : null, // ETA from database (synced = ETD from 6 weeks prior)
+      ata: row.ata != null ? Number(row.ata) : null, // ATA from database (synced from WMS)
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
       weeksOnHand: 0, // Will be calculated after sorting
@@ -113,22 +114,113 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       }
     }
     
-    // Calculate ETA: ETA for week N = ETD from 4 weeks prior (week N-4)
-    // Build a map of weekNumber -> ETD for quick lookup
+    // Build ETD lookup map for ETA/ATA default calculation
     const etdByWeek = new Map<number, number | null>()
     for (const w of sku.allWeeks) {
       etdByWeek.set(w.weekNumber, w.etd)
     }
+    
+    // ETA display logic:
+    // - If ETA has a value (including 0), preserve it (could be manual input)
+    // - If ETA is null (never set), auto-calculate from ETD 6 weeks prior
     for (const w of sku.allWeeks) {
-      const sourceWeek = w.weekNumber - 4
-      const sourceEtd = etdByWeek.get(sourceWeek)
-      // Only auto-calculate if eta was not manually set in the database (i.e. was 0 or null from DB)
-      if (w.eta === 0 || w.eta === null) {
-        w.eta = sourceEtd != null ? sourceEtd : 0
+      if (w.eta === null) {
+        const sourceWeek = w.weekNumber - 6
+        const sourceEtd = etdByWeek.get(sourceWeek)
+        w.eta = sourceEtd ?? 0
       }
-      // ATA defaults to ETA when no other data source is present
-      if (w.ata === 0 || w.ata === null) {
-        w.ata = w.eta
+    }
+    
+    // ATA display logic with rollover:
+    // Goal: ETA total must equal ATA total
+    // 1. Find the last synced ATA week (last week where ata is not null in DB)
+    // 2. Sum all synced ATA values up to that week
+    // 3. Use synced ATA total to "consume" ETA week by week from the beginning
+    // 4. Whatever ETA is not yet consumed shows as future ATA
+    
+    // Find last synced week (last week with non-null ATA in database)
+    let lastSyncedWeekIndex = -1
+    for (let i = sku.allWeeks.length - 1; i >= 0; i--) {
+      if (sku.allWeeks[i].ata !== null) {
+        lastSyncedWeekIndex = i
+        break
+      }
+    }
+    
+    if (lastSyncedWeekIndex === -1) {
+      // No synced ATA yet - just use ETA as ATA for all weeks
+      for (const w of sku.allWeeks) {
+        if (w.ata === null) {
+          w.ata = w.eta ?? 0
+        }
+      }
+    } else {
+      // Calculate total synced ATA (all weeks up to and including lastSyncedWeek)
+      let totalSyncedAta = 0
+      for (let i = 0; i <= lastSyncedWeekIndex; i++) {
+        totalSyncedAta += sku.allWeeks[i].ata ?? 0
+      }
+      
+      // Use synced ATA to consume ETA week by week from the beginning
+      // Collect remaining ETA (not consumed) into an array
+      // Important: once remainingAta is exhausted, ALL subsequent ETA values (including 0) go into the list
+      let remainingAta = totalSyncedAta
+      const remainingEtaList: number[] = []
+      let ataExhausted = false
+      
+      for (let i = 0; i < sku.allWeeks.length; i++) {
+        const weekEta = sku.allWeeks[i].eta ?? 0
+        
+        if (ataExhausted) {
+          // ATA already exhausted, add all remaining ETA (including 0) to the list
+          remainingEtaList.push(weekEta)
+        } else if (remainingAta >= weekEta) {
+          // Fully consumed this week's ETA
+          remainingAta -= weekEta
+          // No remaining ETA for this week
+        } else {
+          // Partially consumed - add unconsumed portion
+          const unconsumed = weekEta - remainingAta
+          remainingEtaList.push(unconsumed)
+          remainingAta = 0
+          ataExhausted = true
+        }
+      }
+      
+      // If there's overflow ATA (more arrived than expected), add it to first future week
+      if (remainingAta > 0) {
+        remainingEtaList.unshift(remainingAta)
+      }
+      
+      // For weeks after lastSyncedWeek, display remaining ETA in order
+      // Week 12 gets first remaining ETA, Week 13 gets second, etc.
+      // BUT: when we encounter a 0 in remainingEtaList, it means this batch is complete
+      // After that, directly sync ATA = ETA for remaining weeks
+      let remainingIndex = 0
+      let batchComplete = false
+      
+      for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
+        const weekEta = sku.allWeeks[i].eta ?? 0
+        
+        if (batchComplete) {
+          // Batch is complete, directly use this week's ETA as ATA
+          sku.allWeeks[i].ata = weekEta
+        } else if (remainingIndex < remainingEtaList.length) {
+          const remainingValue = remainingEtaList[remainingIndex]
+          
+          if (remainingValue === 0) {
+            // Encountered 0 - this batch is complete
+            // Set this week's ATA to 0, then switch to direct ETA sync
+            sku.allWeeks[i].ata = 0
+            batchComplete = true
+          } else {
+            sku.allWeeks[i].ata = remainingValue
+          }
+          remainingIndex++
+        } else {
+          // No more remaining ETA, use this week's ETA directly
+          sku.allWeeks[i].ata = weekEta
+        }
       }
     }
 
@@ -421,8 +513,7 @@ export function PipelineDashboard() {
             }
           }
         } else if (field === 'ata') {
-          // Sync from WMS inventory API for ATA
-          // Server determines correct token per SKU
+          // Sync ATA from WMS inventory API
           for (const skuId of skuIds) {
             for (let weekNumber = weekStart; weekNumber <= weekEnd; weekNumber++) {
               try {
@@ -453,47 +544,14 @@ export function PipelineDashboard() {
         setSyncing(false)
         return
       }
-
-      // --- Delivery matching step ---
-      // Call the dedicated delivery-sync endpoint which fetches ALL receivers
-      // from WMS (no SKU filter) in the synced date range and matches
-      // reference numbers against containers
-      let deliveryMsg = ''
-      if (fields.includes('ata')) {
-        try {
-          const deliveryRes = await fetch('/api/wms/delivery-sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ weekStart, weekEnd }),
-          })
-          const deliveryData = await deliveryRes.json()
-          if (deliveryRes.ok) {
-            if (deliveryData.deliveryMatches > 0) {
-              deliveryMsg = `\nDelivery sync: ${deliveryData.deliveryMatches} container(s) matched and marked as DELIVERED (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
-            } else if (deliveryData.totalReferences > 0) {
-              deliveryMsg = `\nDelivery sync: No new matches found (checked ${deliveryData.totalReferences} refs against ${deliveryData.containersChecked} containers).`
-            } else {
-              deliveryMsg = `\nDelivery sync: No reference numbers found from WMS receivers in weeks ${weekStart}-${weekEnd}.`
-            }
-            if (deliveryData.errors?.length) {
-              deliveryMsg += ` (${deliveryData.errors.length} warehouse(s) had errors)`
-            }
-          } else {
-            deliveryMsg = `\nDelivery sync failed: ${deliveryData.error || 'Unknown error'}`
-          }
-        } catch (err) {
-          console.error('Delivery sync error:', err)
-          deliveryMsg = '\nDelivery sync: Failed to connect.'
-        }
-      }
       
       // Refresh data to show updated values
       await fetchData()
       
       if (failedSyncs.length > 0) {
-        alert(`Synced ${successfulSyncs.length} records. ${failedSyncs.length} failed.${deliveryMsg}`)
+        alert(`Synced ${successfulSyncs.length} records. ${failedSyncs.length} failed.`)
       } else {
-        alert(`Successfully synced ${successfulSyncs.length} records (Weeks ${weekStart}-${weekEnd}).${deliveryMsg}`)
+        alert(`Successfully synced ${successfulSyncs.length} records (Weeks ${weekStart}-${weekEnd}).`)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sync data')
@@ -692,7 +750,11 @@ export function PipelineDashboard() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `inventory-pipeline-${new Date().toISOString().split('T')[0]}.xlsx`
+      // Auto-name based on Vendor and Warehouse filters
+      const vendorPart = selectedVendors.length > 0 ? selectedVendors.join('-') : 'All'
+      const warehousePart = selectedWarehouses.length > 0 ? selectedWarehouses.join('-') : 'All'
+      const filename = `${vendorPart}_${warehousePart}.xlsx`
+      a.download = filename
       a.click()
       URL.revokeObjectURL(url)
     } catch (err: any) {

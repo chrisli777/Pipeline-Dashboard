@@ -5,7 +5,7 @@ export interface WeekData {
   customerForecast: number | null
   actualConsumption: number | null
   etd: number | null // ETD (departure from origin)
-  eta: number | null // ETA (estimated arrival)
+  eta: number | null // ETA (expected arrival, defaults to ETD from 6 weeks prior)
   ata: number | null // ATA (actual arrival to warehouse)
   defect: number | null
   actualInventory: number | null
@@ -34,7 +34,7 @@ export interface InventoryAlert {
   weekNumber: number
   weekOf: string
   weeksOnHand: number
-  }
+}
 
 export type RowType =
   | 'customerForecast'
@@ -49,9 +49,9 @@ export type RowType =
 export const ROW_LABELS: Record<RowType, string> = {
   customerForecast: 'Customer Forecast',
   actualConsumption: 'Actual Consumption',
-  etd: 'ETD (departure from origin)',
-  eta: 'ETA (estimated arrival)',
-  ata: 'ATA (arrival to warehouse)',
+  etd: 'ETD',
+  eta: 'ETA',
+  ata: 'ATA',
   defect: 'Defect',
   actualInventory: 'Actual inventory on hand',
   weeksOnHand: 'Weeks on hand (actual / runout)',
