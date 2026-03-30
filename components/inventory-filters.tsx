@@ -199,7 +199,7 @@ export function InventoryFilters({
     const set = new Set<string>()
     skus.forEach((sku) => {
       if (!sku.warehouse) return
-      if (selectedCustomers.length > 0 && !selectedCustomers.includes(sku.customerCode || '')) return
+      if (selectedCustomers.length > 0 && !selectedCustomers.includes(sku.customerCode || '__unassigned__')) return
       if (selectedVendors.length > 0 && !selectedVendors.includes(sku.supplierCode || '')) return
       set.add(sku.warehouse)
     })
@@ -209,7 +209,7 @@ export function InventoryFilters({
   // SKUs filtered by selected customers, vendors, warehouses
   const filteredSkuOptions = useMemo(() => {
     return skus.filter((sku) => {
-      if (selectedCustomers.length > 0 && !selectedCustomers.includes(sku.customerCode || '')) return false
+      if (selectedCustomers.length > 0 && !selectedCustomers.includes(sku.customerCode || '__unassigned__')) return false
       if (selectedVendors.length > 0 && !selectedVendors.includes(sku.supplierCode || '')) return false
       if (selectedWarehouses.length > 0 && !selectedWarehouses.includes(sku.warehouse || '')) return false
       return true
