@@ -152,14 +152,25 @@ export function InventoryFilters({
 }: InventoryFiltersProps) {
   const weekOptions = Array.from({ length: totalWeeks }, (_, i) => i + 1)
 
-  const ALL_CUSTOMERS = ['CLARK', 'GENIE']
+  // Build unique customer list from actual SKU data (including null as "Unassigned")
+  const allCustomers = useMemo(() => {
+    const set = new Set<string>()
+    skus.forEach((sku) => {
+      set.add(sku.customerCode || '__unassigned__')
+    })
+    return Array.from(set).sort((a, b) => {
+      if (a === '__unassigned__') return 1
+      if (b === '__unassigned__') return -1
+      return a.localeCompare(b)
+    })
+  }, [skus])
 
-  // Build vendor -> customer mapping
+  // Build vendor -> customer mapping (include null as unassigned)
   const vendorToCustomer = useMemo(() => {
     const map = new Map<string, string>()
     skus.forEach((sku) => {
-      if (sku.supplierCode && sku.customerCode) {
-        map.set(sku.supplierCode, sku.customerCode)
+      if (sku.supplierCode) {
+        map.set(sku.supplierCode, sku.customerCode || '__unassigned__')
       }
     })
     return map
@@ -226,7 +237,10 @@ export function InventoryFilters({
         <label className="text-sm text-muted-foreground">Customer:</label>
         <MultiSelect
           label="Customer"
-          options={ALL_CUSTOMERS.map((c) => ({ value: c, label: c }))}
+          options={allCustomers.map((c) => ({ 
+            value: c, 
+            label: c === '__unassigned__' ? 'Unassigned' : c 
+          }))}
           selected={selectedCustomers}
           onChange={onCustomersChange}
           width="w-[150px]"

@@ -342,7 +342,7 @@ export function PipelineDashboard() {
   const filteredSkus = useMemo(() => {
     let filtered = skus
     if (selectedCustomers.length > 0) {
-      filtered = filtered.filter((sku) => selectedCustomers.includes(sku.customerCode || ''))
+      filtered = filtered.filter((sku) => selectedCustomers.includes(sku.customerCode || '__unassigned__'))
     }
     if (selectedVendors.length > 0) {
       filtered = filtered.filter((sku) => selectedVendors.includes(sku.supplierCode || ''))
