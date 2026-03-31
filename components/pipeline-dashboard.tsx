@@ -317,15 +317,7 @@ export function PipelineDashboard() {
         throw new Error(data.error)
       }
 
-      console.log('[v0] Raw inventory data count:', data.inventoryData?.length || 0)
-      console.log('[v0] Raw skus count:', data.skus?.length || 0)
-      const uniqueSkuIds = new Set(data.inventoryData?.map((r: any) => r.sku_id) || [])
-      console.log('[v0] Unique SKU IDs in data:', uniqueSkuIds.size, [...uniqueSkuIds])
-      
       const transformedData = transformDatabaseData(data.inventoryData || [], data.skus || [])
-      console.log('[v0] Transformed SKUs count:', transformedData.length)
-      console.log('[v0] HX SKUs:', transformedData.filter(s => s.supplierCode === 'HX').map(s => s.id))
-      
       setSkus(transformedData)
       setLoading(false)
     } catch (err) {

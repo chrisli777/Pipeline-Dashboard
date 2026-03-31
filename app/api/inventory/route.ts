@@ -9,6 +9,7 @@ export async function GET() {
     .from('skus')
     .select('*')
     .order('part_model')
+    .limit(1000)
 
   if (skusError) {
     return NextResponse.json({ error: skusError.message }, { status: 500 })
@@ -19,17 +20,20 @@ export async function GET() {
     .from('weeks')
     .select('*')
     .order('week_number')
+    .limit(100)
 
   if (weeksError) {
     return NextResponse.json({ error: weeksError.message }, { status: 500 })
   }
 
   // Fetch inventory data from the view
+  // Note: Supabase default limit is 1000 rows, we need more for all SKUs × weeks
   const { data: inventoryData, error: inventoryError } = await supabase
     .from('inventory_dashboard')
     .select('*')
     .order('part_model')
     .order('week_number')
+    .limit(10000)
 
   if (inventoryError) {
     return NextResponse.json({ error: inventoryError.message }, { status: 500 })
