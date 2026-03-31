@@ -282,8 +282,8 @@ export function PipelineDashboard() {
   const [syncing, setSyncing] = useState(false)
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedCustomers, setSelectedCustomers] = useState<string[]>(['GENIE'])
-  const [selectedVendors, setSelectedVendors] = useState<string[]>(['HX'])
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([])
+  const [selectedVendors, setSelectedVendors] = useState<string[]>([])
   const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([])
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
   const [highlightedWeeks, setHighlightedWeeks] = useState<number[]>(() => [getDefaultWeek()])
@@ -342,7 +342,7 @@ export function PipelineDashboard() {
   const filteredSkus = useMemo(() => {
     let filtered = skus
     if (selectedCustomers.length > 0) {
-      filtered = filtered.filter((sku) => selectedCustomers.includes(sku.customerCode || ''))
+      filtered = filtered.filter((sku) => selectedCustomers.includes(sku.customerCode || '__unassigned__'))
     }
     if (selectedVendors.length > 0) {
       filtered = filtered.filter((sku) => selectedVendors.includes(sku.supplierCode || ''))
