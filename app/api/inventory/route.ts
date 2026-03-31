@@ -39,5 +39,11 @@ export async function GET() {
     return NextResponse.json({ error: inventoryError.message }, { status: 500 })
   }
 
+  // Debug: log counts
+  const uniqueSkuIds = [...new Set(inventoryData?.map((r: any) => r.sku_id) || [])]
+  console.log('[v0] API inventory data rows:', inventoryData?.length)
+  console.log('[v0] API unique SKU IDs:', uniqueSkuIds.length, uniqueSkuIds)
+  console.log('[v0] API SKUs count:', skus?.length)
+
   return NextResponse.json({ skus, weeks, inventoryData })
 }
