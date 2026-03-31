@@ -29,24 +29,35 @@ export async function GET() {
     return NextResponse.json({ error: weeksError.message }, { status: 500 })
   }
 
-  // Fetch inventory data from the view
-  // Note: Supabase default limit is 1000 rows, we need more for all SKUs × weeks
-  const { data: inventoryData, error: inventoryError } = await supabase
-    .from('inventory_dashboard')
-    .select('*')
-    .order('part_model')
-    .order('week_number')
-    .limit(10000)
+  // Fetch inventory data from the view using pagination
+  // Supabase has a server-side limit of 1000 rows per request
+  const PAGE_SIZE = 1000
+  let allInventoryData: any[] = []
+  let page = 0
+  let hasMore = true
 
-  if (inventoryError) {
-    return NextResponse.json({ error: inventoryError.message }, { status: 500 })
+  while (hasMore) {
+    const { data: pageData, error: pageError } = await supabase
+      .from('inventory_dashboard')
+      .select('*')
+      .order('sku_id')
+      .order('week_number')
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+
+    if (pageError) {
+      return NextResponse.json({ error: pageError.message }, { status: 500 })
+    }
+
+    if (pageData && pageData.length > 0) {
+      allInventoryData = [...allInventoryData, ...pageData]
+      page++
+      hasMore = pageData.length === PAGE_SIZE
+    } else {
+      hasMore = false
+    }
   }
 
-  // Debug: log counts
-  const uniqueSkuIds = [...new Set(inventoryData?.map((r: any) => r.sku_id) || [])]
-  console.log('[v0] API inventory data rows:', inventoryData?.length)
-  console.log('[v0] API unique SKU IDs:', uniqueSkuIds.length, uniqueSkuIds)
-  console.log('[v0] API SKUs count:', skus?.length)
+  const inventoryData = allInventoryData
 
   return NextResponse.json({ skus, weeks, inventoryData })
 }
