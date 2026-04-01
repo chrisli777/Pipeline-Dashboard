@@ -165,6 +165,33 @@ export async function POST(request: Request) {
       etaUpdated = !etaError
     }
 
+    // ETA -> ATA Rollover: For past/current weeks, copy ETA to ATA
+    // This handles the case where shipments have arrived but ATA wasn't synced from WMS
+    // Calculate current week number
+    const today = new Date()
+    const diffTime = today.getTime() - WEEK1_MONDAY.getTime()
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+    const currentWeekNumber = Math.floor(diffDays / 7) + 1
+
+    let ataRollovers = 0
+    
+    // If the ETA week is <= current week, the shipment should have arrived
+    // Copy ETA value to ATA for that week
+    if (etaWeekNumber <= currentWeekNumber && totalEtd > 0 && etaRow) {
+      const { error: ataError } = await supabase
+        .from('inventory_data')
+        .update({
+          ata: totalEtd,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('sku_id', skuId)
+        .eq('week_number', etaWeekNumber)
+
+      if (!ataError) {
+        ataRollovers++
+      }
+    }
+
     return NextResponse.json({
       success: true,
       skuId,
@@ -175,6 +202,10 @@ export async function POST(request: Request) {
         etaWeekNumber,
         etaValue: totalEtd,
         updated: etaUpdated,
+      },
+      ataRollover: {
+        currentWeek: currentWeekNumber,
+        rolledOver: ataRollovers,
       },
     })
   } catch (error) {
