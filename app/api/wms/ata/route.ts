@@ -165,24 +165,17 @@ export async function POST(request: Request) {
     // Combine reference numbers from all types
     const referenceNumbers = [...new Set([...normalRefs, ...asnRefs, ...defectRefs])]
 
-    // Update ATA in database
-    // Only update defect if WMS actually returned defect data (totalDefect > 0)
-    // This preserves manually entered defect values
+    // Update ATA and Defect in database
+    // Both ATA and Defect: replace with synced value (not cumulative)
     const supabase = await createClient()
-    
-    const updateData: { ata: number; defect?: number; updated_at: string } = {
-      ata: totalAta,
-      updated_at: new Date().toISOString(),
-    }
-    
-    // Only overwrite defect if we found defect data in WMS
-    if (totalDefect > 0) {
-      updateData.defect = totalDefect
-    }
     
     const { error: updateError } = await supabase
       .from('inventory_data')
-      .update(updateData)
+      .update({
+        ata: totalAta,
+        defect: totalDefect,
+        updated_at: new Date().toISOString(),
+      })
       .eq('sku_id', skuId)
       .eq('week_number', weekNumber)
 
