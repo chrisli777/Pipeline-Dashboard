@@ -199,33 +199,44 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
         remainingEtaList.unshift(remainingAta)
       }
       
-      // For weeks after lastSyncedWeek, display remaining ETA in order
-      // Week 12 gets first remaining ETA, Week 13 gets second, etc.
-      // BUT: when we encounter a 0 in remainingEtaList, it means this batch is complete
-      // After that, directly sync ATA = ETA for remaining weeks
+      // For weeks after lastSyncedWeek, apply rollover logic:
+      // 1. Use remainingEtaList to fill ATA for current batch
+      // 2. When ETA = 0, it marks the end of a batch - set ATA = 0
+      // 3. After batch ends, directly sync ATA = ETA for new batch
       let remainingIndex = 0
       let batchComplete = false
       
       for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
         const weekEta = sku.allWeeks[i].eta ?? 0
         
-        if (batchComplete) {
-          // Batch is complete, directly use this week's ETA as ATA
+        // Check if this week's ETA = 0 (batch end marker)
+        if (weekEta === 0) {
+          // Batch ends here - set ATA to 0
+          sku.allWeeks[i].ata = 0
+          batchComplete = true
+          // Skip any remaining rollover values for this batch
+          while (remainingIndex < remainingEtaList.length && remainingEtaList[remainingIndex] !== 0) {
+            remainingIndex++
+          }
+          if (remainingIndex < remainingEtaList.length) {
+            remainingIndex++ // Skip the 0 in remainingEtaList too
+          }
+        } else if (batchComplete) {
+          // After batch is complete, directly use ETA as ATA for new batch
           sku.allWeeks[i].ata = weekEta
         } else if (remainingIndex < remainingEtaList.length) {
+          // Still in rollover mode - use remaining ETA values
           const remainingValue = remainingEtaList[remainingIndex]
-          
           if (remainingValue === 0) {
-            // Encountered 0 - this batch is complete
-            // Set this week's ATA to 0, then switch to direct ETA sync
-            sku.allWeeks[i].ata = 0
+            // Reached end of rollover list for this batch
             batchComplete = true
+            sku.allWeeks[i].ata = weekEta // Start new batch with ETA
           } else {
             sku.allWeeks[i].ata = remainingValue
           }
           remainingIndex++
         } else {
-          // No more remaining ETA, use this week's ETA directly
+          // No more remaining ETA in rollover list, use ETA directly
           sku.allWeeks[i].ata = weekEta
         }
       }
