@@ -158,31 +158,51 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       // No synced ATA yet - ATA already defaults to ETA in the data loading above
       // Nothing more to do
     } else {
-      // Calculate total synced ATA (all weeks up to and including lastSyncedWeek)
+      // Calculate total synced ATA and total ETA up to lastSyncedWeek
       // Use rawAtaFromDb for synced weeks (the actual synced values from WMS)
       let totalSyncedAta = 0
+      let totalEtaUpToSynced = 0
       for (let i = 0; i <= lastSyncedWeekIndex; i++) {
         // Use the raw database ATA value for synced weeks
         totalSyncedAta += sku.allWeeks[i].rawAtaFromDb ?? 0
+        totalEtaUpToSynced += sku.allWeeks[i].eta ?? 0
         // Also set the display ATA to the synced value
         sku.allWeeks[i].ata = sku.allWeeks[i].rawAtaFromDb ?? 0
       }
       
-      // SIMPLIFIED ROLLOVER LOGIC
-      // Core rule: ETA total = ATA total (absolute requirement)
-      // 
-      // For future weeks (after lastSyncedWeek):
-      // - ATA = ETA directly (to ensure totals match)
-      // - Exception: if this batch's ETA is done (ETA=0), ATA=0
-      //
-      // The rollover is already handled by the synced ATA values:
-      // - Synced ATA reflects actual arrivals
-      // - Future ATA = Future ETA ensures the totals balance
+      // ROLLOVER LOGIC
+      // remainingSyncedAta = totalSyncedAta - totalEtaUpToSynced
+      // This represents how much "extra" ATA arrived beyond what was expected (ETA) up to synced week
+      // - If positive: more arrived than expected, this consumes future weeks' ETA
+      // - If negative: less arrived than expected, future weeks keep their ETA as ATA
+      // - If zero: exactly matched, future weeks keep their ETA as ATA
       
+      let remainingSyncedAta = totalSyncedAta - totalEtaUpToSynced
+      let batchEnded = false
+      
+      // Process weeks AFTER lastSyncedWeek to calculate rollover ATA
       for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
         const weekEta = sku.allWeeks[i].eta ?? 0
-        // Future weeks: ATA = ETA to maintain ETA total = ATA total
-        sku.allWeeks[i].ata = weekEta
+        
+        if (batchEnded) {
+          // After batch ends, new batch: ATA = ETA directly
+          sku.allWeeks[i].ata = weekEta
+        } else if (weekEta === 0) {
+          // Batch end marker - set ATA = 0 and start new batch
+          sku.allWeeks[i].ata = 0
+          batchEnded = true
+        } else if (remainingSyncedAta >= weekEta) {
+          // This week's ETA is fully consumed by remaining synced ATA
+          remainingSyncedAta -= weekEta
+          sku.allWeeks[i].ata = 0  // Already arrived via earlier syncs
+        } else if (remainingSyncedAta > 0) {
+          // Partially consumed - ATA = remaining ETA not yet arrived
+          sku.allWeeks[i].ata = weekEta - remainingSyncedAta
+          remainingSyncedAta = 0
+        } else {
+          // No more synced ATA to consume - ATA = ETA (not yet arrived)
+          sku.allWeeks[i].ata = weekEta
+        }
       }
     }
 
