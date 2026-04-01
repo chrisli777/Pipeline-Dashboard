@@ -199,6 +199,16 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       let remainingIndex = 0
       let batchComplete = false
       
+      // Debug: log rollover info for specific SKUs
+      if (sku.id === '824433' || sku.id === '61415') {
+        console.log(`[v0] ATA Rollover for ${sku.id}:`, {
+          lastSyncedWeekIndex,
+          totalSyncedAta,
+          remainingEtaList: remainingEtaList.slice(0, 20),
+          futureWeeksCount: sku.allWeeks.length - lastSyncedWeekIndex - 1,
+        })
+      }
+      
       for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
         const weekEta = sku.allWeeks[i].eta ?? 0
         
