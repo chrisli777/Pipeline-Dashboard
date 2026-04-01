@@ -211,19 +211,40 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       }
       
       // For weeks after lastSyncedWeek, apply rollover logic:
-      // 1. Use remainingEtaList to fill ATA for current batch
-      // 2. When ETA = 0, it marks the end of a batch - set ATA = 0
-      // 3. After batch ends, directly sync ATA = ETA for new batch
+      // 1. Use remainingEtaList to fill ATA for current batch only
+      // 2. When ETA = 0, it marks the end of current batch - set ATA = 0
+      // 3. After batch ends (first ETA=0), ALL subsequent weeks use ATA = ETA directly
       
-      // Debug: log rollover info
-      if (sku.id === '824433' || sku.id === '61415') {
-        console.log(`[v0] SKU ${sku.id} rollover:`, {
-          lastSyncedWeekIndex,
-          totalSyncedAta,
-          remainingEtaList,
-          futureWeeksCount: sku.allWeeks.length - lastSyncedWeekIndex - 1,
-        })
+      let remainingIndex = 0
+      let currentBatchEnded = false  // Once true, all subsequent ATA = ETA
+      
+      for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
+        const weekEta = sku.allWeeks[i].eta ?? 0
+        
+        if (currentBatchEnded) {
+          // After current batch ends, ALL subsequent weeks: ATA = ETA directly
+          sku.allWeeks[i].ata = weekEta
+        } else if (weekEta === 0) {
+          // ETA = 0 marks batch end - set ATA = 0 and mark batch as ended
+          sku.allWeeks[i].ata = 0
+          currentBatchEnded = true
+        } else if (remainingIndex < remainingEtaList.length) {
+          // Still have remaining rollover values to apply
+          const remainingValue = remainingEtaList[remainingIndex]
+          if (remainingValue === 0) {
+            // This was a batch-end marker in remainingEtaList
+            sku.allWeeks[i].ata = 0
+            currentBatchEnded = true
+          } else {
+            sku.allWeeks[i].ata = remainingValue
+          }
+          remainingIndex++
+        } else {
+          // No more remaining values but still in batch - use ETA
+          sku.allWeeks[i].ata = weekEta
+        }
       }
+    }
       
       let remainingIndex = 0
       let batchComplete = false
