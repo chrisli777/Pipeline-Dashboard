@@ -186,103 +186,9 @@ export async function POST(request: Request) {
       )
     }
 
-    // ============================================================
-    // ATA ROLLOVER LOGIC
-    // Core rule: ETA total MUST equal ATA total (absolute requirement)
-    // ============================================================
-    
-    const currentWeek = getCurrentWeekNumber()
-    
-    // Fetch all inventory data for this SKU (all weeks)
-    const { data: allWeeksData, error: fetchError } = await supabase
-      .from('inventory_data')
-      .select('week_number, eta, ata')
-      .eq('sku_id', skuId)
-      .order('week_number')
-    
-    if (fetchError || !allWeeksData) {
-      return NextResponse.json({
-        success: true,
-        skuId,
-        weekNumber,
-        ata: totalAta,
-        defect: totalDefect,
-        dateRange: { start, end },
-        referenceNumbers,
-        rolloverError: 'Failed to fetch weeks data for rollover',
-      })
-    }
-    
-    // Calculate totals
-    const etaTotal = allWeeksData.reduce((sum, w) => sum + (w.eta || 0), 0)
-    
-    // Get synced ATA total (weeks <= current week that have been synced)
-    // We consider the current synced week as well
-    const syncedAtaTotal = allWeeksData
-      .filter(w => w.week_number <= weekNumber)
-      .reduce((sum, w) => sum + (w.ata || 0), 0)
-    
-    // Remaining ETA that hasn't arrived yet
-    let remainingEta = etaTotal - syncedAtaTotal
-    
-    console.log('[v0] ATA Rollover starting:', { skuId, weekNumber, etaTotal, syncedAtaTotal, remainingEta })
-    
-    // Process ALL weeks (not just future) - we need to sync ETA to ATA for all weeks
-    // For weeks <= synced week: keep the synced ATA value
-    // For weeks > synced week: apply rollover logic
-    const futureWeeks = allWeeksData.filter(w => w.week_number > weekNumber)
-    
-    console.log('[v0] Future weeks to process:', futureWeeks.length)
-    
-    const rolloverUpdates: { week: number; ata: number; reason: string }[] = []
-    
-    for (const week of futureWeeks) {
-      const weekEta = week.eta || 0
-      
-      if (remainingEta > 0) {
-        // Still have remaining ETA to distribute from previous batch
-        if (weekEta === 0) {
-          // ETA = 0 marks end of batch, put all remaining here
-          rolloverUpdates.push({ week: week.week_number, ata: remainingEta, reason: 'batch_end_remaining' })
-          remainingEta = 0
-        } else if (remainingEta >= weekEta) {
-          // Use up this week's ETA slot
-          rolloverUpdates.push({ week: week.week_number, ata: weekEta, reason: 'rollover_full' })
-          remainingEta -= weekEta
-        } else {
-          // Remaining ETA is less than this week's ETA
-          // Put what's left
-          rolloverUpdates.push({ week: week.week_number, ata: remainingEta, reason: 'rollover_partial' })
-          remainingEta = 0
-        }
-      } else {
-        // No remaining ETA, sync ATA directly from ETA (for new batches)
-        rolloverUpdates.push({ week: week.week_number, ata: weekEta, reason: 'direct_sync' })
-      }
-    }
-    
-    console.log('[v0] Rollover updates:', rolloverUpdates.slice(0, 10)) // Log first 10
-    
-    // Apply rollover updates
-    for (const update of rolloverUpdates) {
-      await supabase
-        .from('inventory_data')
-        .update({
-          ata: update.ata,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('sku_id', skuId)
-        .eq('week_number', update.week)
-    }
-    
-    // Verify: Recalculate totals to ensure ETA = ATA
-    const { data: verifyData } = await supabase
-      .from('inventory_data')
-      .select('week_number, eta, ata')
-      .eq('sku_id', skuId)
-    
-    const finalEtaTotal = verifyData?.reduce((sum, w) => sum + (w.eta || 0), 0) || 0
-    const finalAtaTotal = verifyData?.reduce((sum, w) => sum + (w.ata || 0), 0) || 0
+    // Note: ATA rollover logic is handled in the frontend (pipeline-dashboard.tsx)
+    // The frontend calculates display values based on synced ATA and ETA
+    // This API only syncs the actual ATA value from WMS for the specified week
 
     return NextResponse.json({
       success: true,
@@ -292,16 +198,6 @@ export async function POST(request: Request) {
       defect: totalDefect,
       dateRange: { start, end },
       referenceNumbers,
-      rollover: {
-        currentWeek,
-        syncedAtaTotal,
-        etaTotal,
-        remainingBeforeRollover: etaTotal - syncedAtaTotal,
-        updatedWeeks: rolloverUpdates.length,
-        finalEtaTotal,
-        finalAtaTotal,
-        etaEqualsAta: finalEtaTotal === finalAtaTotal,
-      },
     })
   } catch (error) {
     return NextResponse.json(

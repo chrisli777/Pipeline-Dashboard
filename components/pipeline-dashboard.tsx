@@ -149,10 +149,17 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
     
     if (lastSyncedWeekIndex === -1) {
       // No synced ATA yet - just use ETA as ATA for all weeks
+      if (sku.id === '824433' || sku.id === '61415') {
+        console.log(`[v0] No synced ATA for ${sku.id}, defaulting all ATA to ETA`)
+        console.log(`[v0] Sample weeks:`, sku.allWeeks.slice(10, 15).map(w => ({ wk: w.weekNumber, eta: w.eta, ata: w.ata })))
+      }
       for (const w of sku.allWeeks) {
         if (w.ata === null) {
           w.ata = w.eta ?? 0
         }
+      }
+      if (sku.id === '824433' || sku.id === '61415') {
+        console.log(`[v0] After default:`, sku.allWeeks.slice(10, 15).map(w => ({ wk: w.weekNumber, eta: w.eta, ata: w.ata })))
       }
     } else {
       // Calculate total synced ATA (all weeks up to and including lastSyncedWeek)
