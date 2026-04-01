@@ -99,7 +99,7 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
       eta: etaValue, // ETA from database (synced = ETD from 6 weeks prior)
-      ata: etaValue, // ATA ALWAYS defaults to ETA first, rollover logic will adjust
+      ata: etaValue ?? 0, // ATA defaults to ETA, or 0 if ETA is null
       rawAtaFromDb: rawAtaFromDb, // Store raw DB value for rollover detection
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
