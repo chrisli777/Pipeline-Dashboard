@@ -225,53 +225,43 @@ export async function POST(request: Request) {
     // Remaining ETA that hasn't arrived yet
     let remainingEta = etaTotal - syncedAtaTotal
     
-    // Process future weeks for rollover
-    // Group weeks by "shipment batches" - a batch ends when ETA = 0
+    console.log('[v0] ATA Rollover starting:', { skuId, weekNumber, etaTotal, syncedAtaTotal, remainingEta })
+    
+    // Process ALL weeks (not just future) - we need to sync ETA to ATA for all weeks
+    // For weeks <= synced week: keep the synced ATA value
+    // For weeks > synced week: apply rollover logic
     const futureWeeks = allWeeksData.filter(w => w.week_number > weekNumber)
     
-    const rolloverUpdates: { week: number; ata: number }[] = []
-    let inBatch = true // Track if we're in an active shipment batch
-    let carryOver = 0 // Amount to carry over to next batch
+    console.log('[v0] Future weeks to process:', futureWeeks.length)
+    
+    const rolloverUpdates: { week: number; ata: number; reason: string }[] = []
     
     for (const week of futureWeeks) {
       const weekEta = week.eta || 0
       
-      if (weekEta === 0) {
-        // ETA = 0 marks the end of a batch
-        // If we have remaining ETA to rollover, put it here before the batch ends
-        if (remainingEta > 0) {
-          rolloverUpdates.push({ week: week.week_number, ata: remainingEta })
+      if (remainingEta > 0) {
+        // Still have remaining ETA to distribute from previous batch
+        if (weekEta === 0) {
+          // ETA = 0 marks end of batch, put all remaining here
+          rolloverUpdates.push({ week: week.week_number, ata: remainingEta, reason: 'batch_end_remaining' })
           remainingEta = 0
+        } else if (remainingEta >= weekEta) {
+          // Use up this week's ETA slot
+          rolloverUpdates.push({ week: week.week_number, ata: weekEta, reason: 'rollover_full' })
+          remainingEta -= weekEta
         } else {
-          rolloverUpdates.push({ week: week.week_number, ata: 0 })
+          // Remaining ETA is less than this week's ETA
+          // Put what's left
+          rolloverUpdates.push({ week: week.week_number, ata: remainingEta, reason: 'rollover_partial' })
+          remainingEta = 0
         }
-        inBatch = false
-        carryOver = 0
       } else {
-        // ETA > 0, this is part of a batch
-        if (!inBatch) {
-          // Starting a new batch after a gap
-          inBatch = true
-        }
-        
-        if (remainingEta > 0) {
-          // We still have remaining ETA to distribute
-          if (remainingEta >= weekEta) {
-            // Use up this week's ETA slot
-            rolloverUpdates.push({ week: week.week_number, ata: weekEta })
-            remainingEta -= weekEta
-          } else {
-            // Remaining ETA is less than this week's ETA
-            // Put what's left and the rest comes from new shipment
-            rolloverUpdates.push({ week: week.week_number, ata: remainingEta })
-            remainingEta = 0
-          }
-        } else {
-          // No remaining ETA, sync ATA directly from ETA
-          rolloverUpdates.push({ week: week.week_number, ata: weekEta })
-        }
+        // No remaining ETA, sync ATA directly from ETA (for new batches)
+        rolloverUpdates.push({ week: week.week_number, ata: weekEta, reason: 'direct_sync' })
       }
     }
+    
+    console.log('[v0] Rollover updates:', rolloverUpdates.slice(0, 10)) // Log first 10
     
     // Apply rollover updates
     for (const update of rolloverUpdates) {
