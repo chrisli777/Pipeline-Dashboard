@@ -186,6 +186,114 @@ export async function POST(request: Request) {
       )
     }
 
+    // ============================================================
+    // ATA ROLLOVER LOGIC
+    // Core rule: ETA total MUST equal ATA total (absolute requirement)
+    // ============================================================
+    
+    const currentWeek = getCurrentWeekNumber()
+    
+    // Fetch all inventory data for this SKU (all weeks)
+    const { data: allWeeksData, error: fetchError } = await supabase
+      .from('inventory_data')
+      .select('week_number, eta, ata')
+      .eq('sku_id', skuId)
+      .order('week_number')
+    
+    if (fetchError || !allWeeksData) {
+      return NextResponse.json({
+        success: true,
+        skuId,
+        weekNumber,
+        ata: totalAta,
+        defect: totalDefect,
+        dateRange: { start, end },
+        referenceNumbers,
+        rolloverError: 'Failed to fetch weeks data for rollover',
+      })
+    }
+    
+    // Calculate totals
+    const etaTotal = allWeeksData.reduce((sum, w) => sum + (w.eta || 0), 0)
+    
+    // Get synced ATA total (weeks <= current week that have been synced)
+    // We consider the current synced week as well
+    const syncedAtaTotal = allWeeksData
+      .filter(w => w.week_number <= weekNumber)
+      .reduce((sum, w) => sum + (w.ata || 0), 0)
+    
+    // Remaining ETA that hasn't arrived yet
+    let remainingEta = etaTotal - syncedAtaTotal
+    
+    // Process future weeks for rollover
+    // Group weeks by "shipment batches" - a batch ends when ETA = 0
+    const futureWeeks = allWeeksData.filter(w => w.week_number > weekNumber)
+    
+    const rolloverUpdates: { week: number; ata: number }[] = []
+    let inBatch = true // Track if we're in an active shipment batch
+    let carryOver = 0 // Amount to carry over to next batch
+    
+    for (const week of futureWeeks) {
+      const weekEta = week.eta || 0
+      
+      if (weekEta === 0) {
+        // ETA = 0 marks the end of a batch
+        // If we have remaining ETA to rollover, put it here before the batch ends
+        if (remainingEta > 0) {
+          rolloverUpdates.push({ week: week.week_number, ata: remainingEta })
+          remainingEta = 0
+        } else {
+          rolloverUpdates.push({ week: week.week_number, ata: 0 })
+        }
+        inBatch = false
+        carryOver = 0
+      } else {
+        // ETA > 0, this is part of a batch
+        if (!inBatch) {
+          // Starting a new batch after a gap
+          inBatch = true
+        }
+        
+        if (remainingEta > 0) {
+          // We still have remaining ETA to distribute
+          if (remainingEta >= weekEta) {
+            // Use up this week's ETA slot
+            rolloverUpdates.push({ week: week.week_number, ata: weekEta })
+            remainingEta -= weekEta
+          } else {
+            // Remaining ETA is less than this week's ETA
+            // Put what's left and the rest comes from new shipment
+            rolloverUpdates.push({ week: week.week_number, ata: remainingEta })
+            remainingEta = 0
+          }
+        } else {
+          // No remaining ETA, sync ATA directly from ETA
+          rolloverUpdates.push({ week: week.week_number, ata: weekEta })
+        }
+      }
+    }
+    
+    // Apply rollover updates
+    for (const update of rolloverUpdates) {
+      await supabase
+        .from('inventory_data')
+        .update({
+          ata: update.ata,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('sku_id', skuId)
+        .eq('week_number', update.week)
+    }
+    
+    // Verify: Recalculate totals to ensure ETA = ATA
+    const { data: verifyData } = await supabase
+      .from('inventory_data')
+      .select('week_number, eta, ata')
+      .eq('sku_id', skuId)
+    
+    const finalEtaTotal = verifyData?.reduce((sum, w) => sum + (w.eta || 0), 0) || 0
+    const finalAtaTotal = verifyData?.reduce((sum, w) => sum + (w.ata || 0), 0) || 0
+
     return NextResponse.json({
       success: true,
       skuId,
@@ -194,6 +302,16 @@ export async function POST(request: Request) {
       defect: totalDefect,
       dateRange: { start, end },
       referenceNumbers,
+      rollover: {
+        currentWeek,
+        syncedAtaTotal,
+        etaTotal,
+        remainingBeforeRollover: etaTotal - syncedAtaTotal,
+        updatedWeeks: rolloverUpdates.length,
+        finalEtaTotal,
+        finalAtaTotal,
+        etaEqualsAta: finalEtaTotal === finalAtaTotal,
+      },
     })
   } catch (error) {
     return NextResponse.json(
