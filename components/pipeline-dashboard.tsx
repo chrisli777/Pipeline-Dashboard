@@ -168,62 +168,21 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
         sku.allWeeks[i].ata = sku.allWeeks[i].rawAtaFromDb ?? 0
       }
       
-      // Calculate remaining ETA that hasn't been "consumed" by synced ATA
-      // Start from week 0 and consume ETA using synced ATA total
-      // Only track remaining ETA for weeks AFTER lastSyncedWeekIndex
-      let remainingAta = totalSyncedAta
-      
-      // First, consume ETA from weeks up to and including lastSyncedWeekIndex
-      for (let i = 0; i <= lastSyncedWeekIndex; i++) {
-        const weekEta = sku.allWeeks[i].eta ?? 0
-        remainingAta -= weekEta
-      }
-      
-      // Now calculate rollover for weeks after lastSyncedWeekIndex
-      // remainingAta could be:
-      // - Positive: more ATA arrived than ETA expected up to this point
-      // - Negative: less ATA arrived than ETA expected (need to rollover remaining ETA)
-      // - Zero: exactly matched
-      
-      // For weeks after lastSyncedWeek, apply rollover logic:
-      // 1. If remainingAta < 0, we have deficit - some expected ETA didn't arrive
-      //    This deficit will be filled from future weeks' ETA
-      // 2. When ETA = 0, it marks batch end - set ATA = 0
-      // 3. After batch ends, ALL subsequent weeks use ATA = ETA directly
-      
-      let deficit = remainingAta < 0 ? -remainingAta : 0  // Amount of ETA not yet arrived
-      let surplus = remainingAta > 0 ? remainingAta : 0   // Extra ATA that arrived
-      let currentBatchEnded = false
+      // SIMPLIFIED ROLLOVER LOGIC
+      // Core rule: ETA total = ATA total (absolute requirement)
+      // 
+      // For future weeks (after lastSyncedWeek):
+      // - ATA = ETA directly (to ensure totals match)
+      // - Exception: if this batch's ETA is done (ETA=0), ATA=0
+      //
+      // The rollover is already handled by the synced ATA values:
+      // - Synced ATA reflects actual arrivals
+      // - Future ATA = Future ETA ensures the totals balance
       
       for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
         const weekEta = sku.allWeeks[i].eta ?? 0
-        
-        if (currentBatchEnded) {
-          // After current batch ends, ALL subsequent weeks: ATA = ETA directly
-          sku.allWeeks[i].ata = weekEta
-        } else if (weekEta === 0) {
-          // ETA = 0 marks batch end - set ATA = 0 and mark batch as ended
-          sku.allWeeks[i].ata = 0
-          currentBatchEnded = true
-        } else if (deficit > 0) {
-          // We have deficit from previous weeks - this week's ATA gets the deficit amount
-          if (deficit >= weekEta) {
-            // All of this week's ETA goes to cover deficit
-            sku.allWeeks[i].ata = weekEta
-            deficit -= weekEta
-          } else {
-            // Part of this week's ETA covers deficit
-            sku.allWeeks[i].ata = deficit
-            deficit = 0
-          }
-        } else if (surplus > 0) {
-          // Extra ATA arrived - add surplus to this week's ETA
-          sku.allWeeks[i].ata = weekEta + surplus
-          surplus = 0
-        } else {
-          // No deficit or surplus - use ETA directly
-          sku.allWeeks[i].ata = weekEta
-        }
+        // Future weeks: ATA = ETA to maintain ETA total = ATA total
+        sku.allWeeks[i].ata = weekEta
       }
     }
 
