@@ -214,6 +214,17 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       // 1. Use remainingEtaList to fill ATA for current batch
       // 2. When ETA = 0, it marks the end of a batch - set ATA = 0
       // 3. After batch ends, directly sync ATA = ETA for new batch
+      
+      // Debug: log rollover info
+      if (sku.id === '824433' || sku.id === '61415') {
+        console.log(`[v0] SKU ${sku.id} rollover:`, {
+          lastSyncedWeekIndex,
+          totalSyncedAta,
+          remainingEtaList,
+          futureWeeksCount: sku.allWeeks.length - lastSyncedWeekIndex - 1,
+        })
+      }
+      
       let remainingIndex = 0
       let batchComplete = false
       
