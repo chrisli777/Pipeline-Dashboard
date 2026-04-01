@@ -245,45 +245,6 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
         }
       }
     }
-      
-      let remainingIndex = 0
-      let batchComplete = false
-      
-      for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
-        const weekEta = sku.allWeeks[i].eta ?? 0
-        
-        // Check if this week's ETA = 0 (batch end marker)
-        if (weekEta === 0) {
-          // Batch ends here - set ATA to 0
-          sku.allWeeks[i].ata = 0
-          batchComplete = true
-          // Skip any remaining rollover values for this batch
-          while (remainingIndex < remainingEtaList.length && remainingEtaList[remainingIndex] !== 0) {
-            remainingIndex++
-          }
-          if (remainingIndex < remainingEtaList.length) {
-            remainingIndex++ // Skip the 0 in remainingEtaList too
-          }
-        } else if (batchComplete) {
-          // After batch is complete, directly use ETA as ATA for new batch
-          sku.allWeeks[i].ata = weekEta
-        } else if (remainingIndex < remainingEtaList.length) {
-          // Still in rollover mode - use remaining ETA values
-          const remainingValue = remainingEtaList[remainingIndex]
-          if (remainingValue === 0) {
-            // Reached end of rollover list for this batch
-            batchComplete = true
-            sku.allWeeks[i].ata = weekEta // Start new batch with ETA
-          } else {
-            sku.allWeeks[i].ata = remainingValue
-          }
-          remainingIndex++
-        } else {
-          // No more remaining ETA in rollover list, use ETA directly
-          sku.allWeeks[i].ata = weekEta
-        }
-      }
-    }
 
     // Calculate actual inventory for display weeks starting from week 2
     // Formula: actualInventory = prevWeek.actualInventory - actualConsumption + ATA
