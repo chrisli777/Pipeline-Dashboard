@@ -86,14 +86,22 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
     const day = weekDate.getDate()
     const weekOf = `${month} ${day}`
 
+    // Get ETA value (from database or derived from ETD 6 weeks prior)
+    const etaValue = row.eta != null ? Number(row.eta) : null
+    
+    // ATA defaults to ETA - just like ETA defaults to ETD
+    // Only use database ATA if it was explicitly synced (not null)
+    // If database ATA is null, default to ETA value
+    const ataValue = row.ata != null ? Number(row.ata) : etaValue
+    
     sku.allWeeks.push({
       weekNumber: row.week_number,
       weekOf,
       customerForecast: row.customer_forecast !== null ? Number(row.customer_forecast) : null,
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
-      eta: row.eta != null ? Number(row.eta) : null, // ETA from database (synced = ETD from 6 weeks prior)
-      ata: row.ata != null ? Number(row.ata) : null, // ATA from database (synced from WMS)
+      eta: etaValue, // ETA from database (synced = ETD from 6 weeks prior)
+      ata: ataValue, // ATA defaults to ETA, overwritten when synced from WMS
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
       weeksOnHand: 0, // Will be calculated after sorting
@@ -148,19 +156,8 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
     }
     
     if (lastSyncedWeekIndex === -1) {
-      // No synced ATA yet - just use ETA as ATA for all weeks
-      if (sku.id === '824433' || sku.id === '61415') {
-        console.log(`[v0] No synced ATA for ${sku.id}, defaulting all ATA to ETA`)
-        console.log(`[v0] Sample weeks:`, sku.allWeeks.slice(10, 15).map(w => ({ wk: w.weekNumber, eta: w.eta, ata: w.ata })))
-      }
-      for (const w of sku.allWeeks) {
-        if (w.ata === null) {
-          w.ata = w.eta ?? 0
-        }
-      }
-      if (sku.id === '824433' || sku.id === '61415') {
-        console.log(`[v0] After default:`, sku.allWeeks.slice(10, 15).map(w => ({ wk: w.weekNumber, eta: w.eta, ata: w.ata })))
-      }
+      // No synced ATA yet - ATA already defaults to ETA in the data loading above
+      // Nothing more to do
     } else {
       // Calculate total synced ATA (all weeks up to and including lastSyncedWeek)
       let totalSyncedAta = 0
@@ -205,16 +202,6 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       // After that, directly sync ATA = ETA for remaining weeks
       let remainingIndex = 0
       let batchComplete = false
-      
-      // Debug: log rollover info for specific SKUs
-      if (sku.id === '824433' || sku.id === '61415') {
-        console.log(`[v0] ATA Rollover for ${sku.id}:`, {
-          lastSyncedWeekIndex,
-          totalSyncedAta,
-          remainingEtaList: remainingEtaList.slice(0, 20),
-          futureWeeksCount: sku.allWeeks.length - lastSyncedWeekIndex - 1,
-        })
-      }
       
       for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
         const weekEta = sku.allWeeks[i].eta ?? 0
