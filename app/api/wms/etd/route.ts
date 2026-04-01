@@ -165,6 +165,9 @@ export async function POST(request: Request) {
       etaUpdated = !etaError
     }
 
+    // Note: ATA rollover is handled in /api/wms/ata when syncing ATA
+    // ETD sync only handles ETD -> ETA (6 weeks later)
+
     return NextResponse.json({
       success: true,
       skuId,

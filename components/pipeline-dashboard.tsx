@@ -86,14 +86,21 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
     const day = weekDate.getDate()
     const weekOf = `${month} ${day}`
 
+    // Get ETA value (from database or derived from ETD 6 weeks prior)
+    const etaValue = row.eta != null ? Number(row.eta) : null
+    
+    // Store raw database ATA for rollover logic (to detect synced weeks)
+    const rawAtaFromDb = row.ata
+    
     sku.allWeeks.push({
       weekNumber: row.week_number,
       weekOf,
       customerForecast: row.customer_forecast !== null ? Number(row.customer_forecast) : null,
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
-      eta: row.eta != null ? Number(row.eta) : null, // ETA from database (synced = ETD from 6 weeks prior)
-      ata: row.ata != null ? Number(row.ata) : null, // ATA from database (synced from WMS)
+      eta: etaValue, // ETA from database (synced = ETD from 6 weeks prior)
+      ata: etaValue ?? 0, // ATA defaults to ETA, or 0 if ETA is null
+      rawAtaFromDb: rawAtaFromDb, // Store raw DB value for rollover detection
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
       weeksOnHand: 0, // Will be calculated after sorting
@@ -133,92 +140,67 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
     
     // ATA display logic with rollover:
     // Goal: ETA total must equal ATA total
-    // 1. Find the last synced ATA week (last week where ata is not null in DB)
+    // 1. Find the last synced ATA week (last week where rawAtaFromDb is not null)
     // 2. Sum all synced ATA values up to that week
     // 3. Use synced ATA total to "consume" ETA week by week from the beginning
     // 4. Whatever ETA is not yet consumed shows as future ATA
     
-    // Find last synced week (last week with non-null ATA in database)
+    // Find last synced week (last week with non-null rawAtaFromDb - meaning it was synced from WMS)
     let lastSyncedWeekIndex = -1
     for (let i = sku.allWeeks.length - 1; i >= 0; i--) {
-      if (sku.allWeeks[i].ata !== null) {
+      if (sku.allWeeks[i].rawAtaFromDb !== null && sku.allWeeks[i].rawAtaFromDb !== undefined) {
         lastSyncedWeekIndex = i
         break
       }
     }
     
     if (lastSyncedWeekIndex === -1) {
-      // No synced ATA yet - just use ETA as ATA for all weeks
-      for (const w of sku.allWeeks) {
-        if (w.ata === null) {
-          w.ata = w.eta ?? 0
-        }
-      }
+      // No synced ATA yet - ATA already defaults to ETA in the data loading above
+      // Nothing more to do
     } else {
-      // Calculate total synced ATA (all weeks up to and including lastSyncedWeek)
+      // Calculate total synced ATA and total ETA up to lastSyncedWeek
+      // Use rawAtaFromDb for synced weeks (the actual synced values from WMS)
       let totalSyncedAta = 0
+      let totalEtaUpToSynced = 0
       for (let i = 0; i <= lastSyncedWeekIndex; i++) {
-        totalSyncedAta += sku.allWeeks[i].ata ?? 0
+        // Use the raw database ATA value for synced weeks
+        totalSyncedAta += sku.allWeeks[i].rawAtaFromDb ?? 0
+        totalEtaUpToSynced += sku.allWeeks[i].eta ?? 0
+        // Also set the display ATA to the synced value
+        sku.allWeeks[i].ata = sku.allWeeks[i].rawAtaFromDb ?? 0
       }
       
-      // Use synced ATA to consume ETA week by week from the beginning
-      // Collect remaining ETA (not consumed) into an array
-      // Important: once remainingAta is exhausted, ALL subsequent ETA values (including 0) go into the list
-      let remainingAta = totalSyncedAta
-      const remainingEtaList: number[] = []
-      let ataExhausted = false
+      // ROLLOVER LOGIC
+      // remainingSyncedAta = totalSyncedAta - totalEtaUpToSynced
+      // This represents how much "extra" ATA arrived beyond what was expected (ETA) up to synced week
+      // - If positive: more arrived than expected, this consumes future weeks' ETA
+      // - If negative: less arrived than expected, future weeks keep their ETA as ATA
+      // - If zero: exactly matched, future weeks keep their ETA as ATA
       
-      for (let i = 0; i < sku.allWeeks.length; i++) {
-        const weekEta = sku.allWeeks[i].eta ?? 0
-        
-        if (ataExhausted) {
-          // ATA already exhausted, add all remaining ETA (including 0) to the list
-          remainingEtaList.push(weekEta)
-        } else if (remainingAta >= weekEta) {
-          // Fully consumed this week's ETA
-          remainingAta -= weekEta
-          // No remaining ETA for this week
-        } else {
-          // Partially consumed - add unconsumed portion
-          const unconsumed = weekEta - remainingAta
-          remainingEtaList.push(unconsumed)
-          remainingAta = 0
-          ataExhausted = true
-        }
-      }
+      let remainingSyncedAta = totalSyncedAta - totalEtaUpToSynced
+      let batchEnded = false
       
-      // If there's overflow ATA (more arrived than expected), add it to first future week
-      if (remainingAta > 0) {
-        remainingEtaList.unshift(remainingAta)
-      }
-      
-      // For weeks after lastSyncedWeek, display remaining ETA in order
-      // Week 12 gets first remaining ETA, Week 13 gets second, etc.
-      // BUT: when we encounter a 0 in remainingEtaList, it means this batch is complete
-      // After that, directly sync ATA = ETA for remaining weeks
-      let remainingIndex = 0
-      let batchComplete = false
-      
+      // Process weeks AFTER lastSyncedWeek to calculate rollover ATA
       for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
         const weekEta = sku.allWeeks[i].eta ?? 0
         
-        if (batchComplete) {
-          // Batch is complete, directly use this week's ETA as ATA
+        if (batchEnded) {
+          // After batch ends, new batch: ATA = ETA directly
           sku.allWeeks[i].ata = weekEta
-        } else if (remainingIndex < remainingEtaList.length) {
-          const remainingValue = remainingEtaList[remainingIndex]
-          
-          if (remainingValue === 0) {
-            // Encountered 0 - this batch is complete
-            // Set this week's ATA to 0, then switch to direct ETA sync
-            sku.allWeeks[i].ata = 0
-            batchComplete = true
-          } else {
-            sku.allWeeks[i].ata = remainingValue
-          }
-          remainingIndex++
+        } else if (weekEta === 0) {
+          // Batch end marker - set ATA = 0 and start new batch
+          sku.allWeeks[i].ata = 0
+          batchEnded = true
+        } else if (remainingSyncedAta >= weekEta) {
+          // This week's ETA is fully consumed by remaining synced ATA
+          remainingSyncedAta -= weekEta
+          sku.allWeeks[i].ata = 0  // Already arrived via earlier syncs
+        } else if (remainingSyncedAta > 0) {
+          // Partially consumed - ATA = remaining ETA not yet arrived
+          sku.allWeeks[i].ata = weekEta - remainingSyncedAta
+          remainingSyncedAta = 0
         } else {
-          // No more remaining ETA, use this week's ETA directly
+          // No more synced ATA to consume - ATA = ETA (not yet arrived)
           sku.allWeeks[i].ata = weekEta
         }
       }
@@ -282,8 +264,8 @@ export function PipelineDashboard() {
   const [syncing, setSyncing] = useState(false)
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedCustomers, setSelectedCustomers] = useState<string[]>(['GENIE'])
-  const [selectedVendors, setSelectedVendors] = useState<string[]>(['HX'])
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([])
+  const [selectedVendors, setSelectedVendors] = useState<string[]>([])
   const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([])
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
   const [highlightedWeeks, setHighlightedWeeks] = useState<number[]>(() => [getDefaultWeek()])
@@ -342,7 +324,7 @@ export function PipelineDashboard() {
   const filteredSkus = useMemo(() => {
     let filtered = skus
     if (selectedCustomers.length > 0) {
-      filtered = filtered.filter((sku) => selectedCustomers.includes(sku.customerCode || ''))
+      filtered = filtered.filter((sku) => selectedCustomers.includes(sku.customerCode || '__unassigned__'))
     }
     if (selectedVendors.length > 0) {
       filtered = filtered.filter((sku) => selectedVendors.includes(sku.supplierCode || ''))
