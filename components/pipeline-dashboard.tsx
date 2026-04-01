@@ -154,18 +154,6 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       }
     }
     
-    // Debug: log for specific SKUs
-    if (sku.id === '824433' || sku.id === '61415') {
-      console.log(`[v0] SKU ${sku.id}: lastSyncedWeekIndex=${lastSyncedWeekIndex}`)
-      const sample = sku.allWeeks.slice(10, 20).map(w => ({
-        wk: w.weekNumber,
-        eta: w.eta,
-        ata: w.ata,
-        rawAta: w.rawAtaFromDb
-      }))
-      console.log(`[v0] SKU ${sku.id} sample weeks 10-20:`, sample)
-    }
-    
     if (lastSyncedWeekIndex === -1) {
       // No synced ATA yet - ATA already defaults to ETA in the data loading above
       // Nothing more to do
