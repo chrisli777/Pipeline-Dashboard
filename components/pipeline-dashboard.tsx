@@ -89,10 +89,8 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
     // Get ETA value (from database or derived from ETD 6 weeks prior)
     const etaValue = row.eta != null ? Number(row.eta) : null
     
-    // ATA defaults to ETA - just like ETA defaults to ETD
-    // Only use database ATA if it was explicitly synced (not null)
-    // If database ATA is null, default to ETA value
-    const ataValue = row.ata != null ? Number(row.ata) : etaValue
+    // Store raw database ATA for rollover logic (to detect synced weeks)
+    const rawAtaFromDb = row.ata
     
     sku.allWeeks.push({
       weekNumber: row.week_number,
@@ -101,7 +99,8 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       actualConsumption: row.actual_consumption !== null ? Number(row.actual_consumption) : Number(row.customer_forecast),
       etd: row.etd !== null ? Number(row.etd) : null,
       eta: etaValue, // ETA from database (synced = ETD from 6 weeks prior)
-      ata: ataValue, // ATA defaults to ETA, overwritten when synced from WMS
+      ata: etaValue, // ATA ALWAYS defaults to ETA first, rollover logic will adjust
+      rawAtaFromDb: rawAtaFromDb, // Store raw DB value for rollover detection
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
       weeksOnHand: 0, // Will be calculated after sorting
@@ -141,15 +140,15 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
     
     // ATA display logic with rollover:
     // Goal: ETA total must equal ATA total
-    // 1. Find the last synced ATA week (last week where ata is not null in DB)
+    // 1. Find the last synced ATA week (last week where rawAtaFromDb is not null)
     // 2. Sum all synced ATA values up to that week
     // 3. Use synced ATA total to "consume" ETA week by week from the beginning
     // 4. Whatever ETA is not yet consumed shows as future ATA
     
-    // Find last synced week (last week with non-null ATA in database)
+    // Find last synced week (last week with non-null rawAtaFromDb - meaning it was synced from WMS)
     let lastSyncedWeekIndex = -1
     for (let i = sku.allWeeks.length - 1; i >= 0; i--) {
-      if (sku.allWeeks[i].ata !== null) {
+      if (sku.allWeeks[i].rawAtaFromDb !== null && sku.allWeeks[i].rawAtaFromDb !== undefined) {
         lastSyncedWeekIndex = i
         break
       }
@@ -160,9 +159,13 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
       // Nothing more to do
     } else {
       // Calculate total synced ATA (all weeks up to and including lastSyncedWeek)
+      // Use rawAtaFromDb for synced weeks (the actual synced values from WMS)
       let totalSyncedAta = 0
       for (let i = 0; i <= lastSyncedWeekIndex; i++) {
-        totalSyncedAta += sku.allWeeks[i].ata ?? 0
+        // Use the raw database ATA value for synced weeks
+        totalSyncedAta += sku.allWeeks[i].rawAtaFromDb ?? 0
+        // Also set the display ATA to the synced value
+        sku.allWeeks[i].ata = sku.allWeeks[i].rawAtaFromDb ?? 0
       }
       
       // Use synced ATA to consume ETA week by week from the beginning

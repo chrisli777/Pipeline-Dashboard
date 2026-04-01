@@ -7,6 +7,7 @@ export interface WeekData {
   etd: number | null // ETD (departure from origin)
   eta: number | null // ETA (expected arrival, defaults to ETD from 6 weeks prior)
   ata: number | null // ATA (actual arrival to warehouse)
+  rawAtaFromDb?: number | null // Raw ATA value from database (for rollover logic)
   defect: number | null
   actualInventory: number | null
   weeksOnHand: number | null
