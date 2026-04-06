@@ -358,10 +358,10 @@ export interface ReplenishmentSuggestion {
   suggestedOrderQty: number
   moq: number
   orderDate: string
-  expectedArrivalWeek: number
-  expectedArrivalDate: string
+  expectedArrivalWeek: number | null
+  expectedArrivalDate: string | null
   currentInventory: number
-  projectedAtArrival: number
+  projectedAtArrival: number | null
   safetyStock: number
   targetInventory: number
   avgWeeklyDemand: number
@@ -388,8 +388,8 @@ export interface ReplenishmentSuggestion {
 export interface ConsolidatedPO {
   supplierCode: string
   orderDate: string
-  expectedArrivalWeek: number
-  expectedArrivalDate: string
+  expectedArrivalWeek: number | null
+  expectedArrivalDate: string | null
   items: Array<{
     skuCode: string
     partModel: string | null

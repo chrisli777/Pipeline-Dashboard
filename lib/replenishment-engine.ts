@@ -387,6 +387,10 @@ export function generateSuggestions(
       .map(s => `Week ${s.week}: ${s.qty} units`)
       .join('; ')
 
+    // Calculate arrival week safely (handle empty suggestedETDWeeks)
+    const firstEtdWeek = suggestedETDWeeks[0]?.week
+    const arrivalWeek = firstEtdWeek !== undefined ? firstEtdWeek + lt : currentWeek + lt
+    
     suggestions.push({
       skuId: proj.skuId,
       skuCode: proj.skuCode,
@@ -398,10 +402,10 @@ export function generateSuggestions(
       suggestedOrderQty: totalOrderQty,
       moq,
       orderDate: new Date().toISOString().split('T')[0],
-      expectedArrivalWeek: suggestedETDWeeks[0]?.week + lt,
-      expectedArrivalDate: getWeekStartDate(suggestedETDWeeks[0]?.week + lt),
+      expectedArrivalWeek: totalOrderQty > 0 ? arrivalWeek : null,
+      expectedArrivalDate: totalOrderQty > 0 ? getWeekStartDate(arrivalWeek) : null,
       currentInventory: proj.currentInventory,
-      projectedAtArrival: Math.round(proj.weeks.find(w => w.weekNumber === suggestedETDWeeks[0]?.week + lt)?.projectedInventory ?? 0),
+      projectedAtArrival: totalOrderQty > 0 ? Math.round(proj.weeks.find(w => w.weekNumber === arrivalWeek)?.projectedInventory ?? 0) : null,
       safetyStock: proj.safetyStock,
       targetInventory: proj.targetInventory,
       avgWeeklyDemand: avgDemand,
@@ -484,7 +488,7 @@ export function consolidateBySupplier(
         totalWeight = null  // can't compute total if any item missing weight
       }
       if (sug.urgency === 'CRITICAL') criticalCount++
-      if (sug.expectedArrivalWeek > maxArrivalWeek) maxArrivalWeek = sug.expectedArrivalWeek
+      if (sug.expectedArrivalWeek && sug.expectedArrivalWeek > maxArrivalWeek) maxArrivalWeek = sug.expectedArrivalWeek
 
       let containerHint: string | null = null
       if (sug.qtyPerContainer && sug.qtyPerContainer > 0) {
@@ -509,8 +513,8 @@ export function consolidateBySupplier(
     pos.push({
       supplierCode,
       orderDate: new Date().toISOString().split('T')[0],
-      expectedArrivalWeek: maxArrivalWeek,
-      expectedArrivalDate: getWeekStartDate(maxArrivalWeek),
+      expectedArrivalWeek: maxArrivalWeek || null,
+      expectedArrivalDate: maxArrivalWeek > 0 ? getWeekStartDate(maxArrivalWeek) : null,
       items: poItems,
       totalQty,
       totalCost: Math.round(totalCost),
