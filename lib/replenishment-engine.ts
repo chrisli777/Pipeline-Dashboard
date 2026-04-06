@@ -188,67 +188,69 @@ export function computeProjection(
   const invPos = computeInventoryPosition(currentInventory, inTransitByWeek)
 
   const weeks: ProjectionWeek[] = []
-  let projected = currentInventory
   let stockoutWeek: number | null = null
   let reorderTriggerWeek: number | null = null
 
-  // Add historical weeks from Pipeline Dashboard data (past weeks with actual inventory)
+  // Use ALL weeks from Pipeline Dashboard data (already calculated with actual ATA/ETA)
+  // This includes both historical and future weeks - all based on real pipeline data
   if (historicalWeekData && historicalWeekData.size > 0) {
-    const sortedHistoricalWeeks = [...historicalWeekData.entries()]
-      .filter(([weekNum]) => weekNum <= currentWeek)
+    const sortedWeeks = [...historicalWeekData.entries()]
       .sort(([a], [b]) => a - b)
     
-    for (const [weekNum, data] of sortedHistoricalWeeks) {
+    for (const [weekNum, data] of sortedWeeks) {
       const status: ProjectionWeek['status'] =
         data.actualInventory <= 0 ? 'STOCKOUT'
           : data.actualInventory < ssUnits ? 'CRITICAL'
             : data.actualInventory < rop ? 'WARNING'
               : 'OK'
       
+      if (data.actualInventory <= 0 && stockoutWeek === null) stockoutWeek = weekNum
+      if (data.actualInventory < rop && reorderTriggerWeek === null) reorderTriggerWeek = weekNum
+      
       weeks.push({
         weekNumber: weekNum,
         weekStartDate: getWeekStartDate(weekNum),
-        projectedInventory: Math.round(data.actualInventory * 10) / 10,  // This is actually "actual" for historical weeks
+        projectedInventory: Math.round(data.actualInventory * 10) / 10,
         demand: Math.round(data.consumption * 10) / 10,
         inTransitArrival: Math.round(data.ata * 10) / 10,
         safetyStock: Math.round(ssUnits * 10) / 10,
         reorderPoint: Math.round(rop * 10) / 10,
         targetInventory: Math.round(target * 10) / 10,
         status,
-        isHistorical: true,  // Flag to distinguish from projected weeks
       })
     }
-  }
+  } else {
+    // Fallback: if no pipeline data, use projection calculation
+    let projected = currentInventory
+    
+    for (let i = 0; i < projectionHorizon; i++) {
+      const weekNum = currentWeek + i + 1
+      const demand = weeklyForecast?.get(weekNum) ?? effectiveDemand
+      const arriving = inTransitByWeek.get(weekNum) || 0
 
-  // Future weeks (projections)
-  for (let i = 0; i < projectionHorizon; i++) {
-    const weekNum = currentWeek + i + 1
-    // Per-week demand: use forecast for that specific week if available
-    const demand = weeklyForecast?.get(weekNum) ?? effectiveDemand
-    const arriving = inTransitByWeek.get(weekNum) || 0
+      projected = projected - demand + arriving
 
-    projected = projected - demand + arriving
+      const status: ProjectionWeek['status'] =
+        projected <= 0 ? 'STOCKOUT'
+          : projected < ssUnits ? 'CRITICAL'
+            : projected < rop ? 'WARNING'
+              : 'OK'
 
-    const status: ProjectionWeek['status'] =
-      projected <= 0 ? 'STOCKOUT'
-        : projected < ssUnits ? 'CRITICAL'
-          : projected < rop ? 'WARNING'
-            : 'OK'
+      if (projected <= 0 && stockoutWeek === null) stockoutWeek = weekNum
+      if (projected < rop && reorderTriggerWeek === null) reorderTriggerWeek = weekNum
 
-    if (projected <= 0 && stockoutWeek === null) stockoutWeek = weekNum
-    if (projected < rop && reorderTriggerWeek === null) reorderTriggerWeek = weekNum
-
-    weeks.push({
-      weekNumber: weekNum,
-      weekStartDate: getWeekStartDate(weekNum),
-      projectedInventory: Math.round(projected * 10) / 10,
-      demand: Math.round(demand * 10) / 10,
-      inTransitArrival: Math.round(arriving * 10) / 10,
-      safetyStock: Math.round(ssUnits * 10) / 10,
-      reorderPoint: Math.round(rop * 10) / 10,
-      targetInventory: Math.round(target * 10) / 10,
-      status,
-    })
+      weeks.push({
+        weekNumber: weekNum,
+        weekStartDate: getWeekStartDate(weekNum),
+        projectedInventory: Math.round(projected * 10) / 10,
+        demand: Math.round(demand * 10) / 10,
+        inTransitArrival: Math.round(arriving * 10) / 10,
+        safetyStock: Math.round(ssUnits * 10) / 10,
+        reorderPoint: Math.round(rop * 10) / 10,
+        targetInventory: Math.round(target * 10) / 10,
+        status,
+      })
+    }
   }
 
   // Urgency determination — 12-week horizon trend analysis

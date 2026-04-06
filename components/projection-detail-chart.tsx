@@ -39,19 +39,10 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
   const yScale = (v: number) => MARGIN.top + chartH - ((v - minVal) / range) * chartH
   const barW = chartW / weeks.length * 0.6
 
-  // Find boundary between historical and projected weeks
-  const historicalWeeks = weeks.filter(w => w.isHistorical)
-  const projectedWeeks = weeks.filter(w => !w.isHistorical)
-  const firstProjectedIndex = weeks.findIndex(w => !w.isHistorical)
-  
-  // Historical inventory path (actual data from Pipeline Dashboard)
-  const histPoints = historicalWeeks.map((_, i) => `${xScale(i)},${yScale(weeks[i].projectedInventory)}`)
-  const histLine = histPoints.length > 0 ? `M${histPoints.join(' L')}` : ''
-  
-  // Projected inventory path (future predictions)
-  const projStartIndex = firstProjectedIndex > 0 ? firstProjectedIndex - 1 : 0  // Include last historical point for continuity
-  const projPoints = weeks.slice(projStartIndex).map((w, i) => `${xScale(projStartIndex + i)},${yScale(w.projectedInventory)}`)
-  const projLine = projPoints.length > 0 ? `M${projPoints.join(' L')}` : ''
+  // All weeks now use Pipeline Dashboard calculated data
+  // Single line showing inventory projection based on actual ATA/ETA data
+  const allPoints = weeks.map((w, i) => `${xScale(i)},${yScale(w.projectedInventory)}`)
+  const inventoryLine = allPoints.length > 0 ? `M${allPoints.join(' L')}` : ''
 
   // Y-axis ticks
   const nTicks = 5
@@ -67,10 +58,7 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
       {/* Legend */}
       <div className="flex items-center gap-4 text-xs text-slate-600 flex-wrap">
         <span className="flex items-center gap-1">
-          <span className="w-4 h-0.5 bg-emerald-600 inline-block"></span> Actual Inventory (Historical)
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-4 h-0.5 bg-indigo-600 inline-block"></span> Projected Inventory
+          <span className="w-4 h-0.5 bg-indigo-600 inline-block"></span> Inventory (from Pipeline)
         </span>
         <span className="flex items-center gap-1">
           <span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed #ef4444' }}></span> Safety Stock ({Math.round(projection.safetyStock)})
@@ -162,24 +150,19 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
           )
         })}
 
-        {/* Historical inventory line (actual data - green) */}
-        {histLine && <path d={histLine} fill="none" stroke="#10b981" strokeWidth={2} />}
-        
-        {/* Projected inventory line (future - indigo) */}
-        {projLine && <path d={projLine} fill="none" stroke="#6366f1" strokeWidth={2} strokeDasharray={firstProjectedIndex > 0 ? "none" : "4,2"} />}
+        {/* Inventory line - all data from Pipeline Dashboard */}
+        <path d={inventoryLine} fill="none" stroke="#6366f1" strokeWidth={2} />
 
-        {/* Data points - different colors for historical vs projected */}
+        {/* Data points - colored by status */}
         {weeks.map((w, i) => (
           <circle
             key={`dot-${i}`}
             cx={xScale(i)} cy={yScale(w.projectedInventory)}
             r={3}
             fill={
-              w.isHistorical
-                ? '#10b981'  // Green for historical/actual data
-                : w.status === 'STOCKOUT' ? '#ef4444' 
-                  : w.status === 'CRITICAL' ? '#f59e0b' 
-                    : '#6366f1'  // Indigo for projected
+              w.status === 'STOCKOUT' ? '#ef4444' 
+                : w.status === 'CRITICAL' ? '#f59e0b' 
+                  : '#6366f1'
             }
             stroke="white" strokeWidth={1}
           />
