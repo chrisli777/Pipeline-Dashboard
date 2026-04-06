@@ -221,15 +221,20 @@ export function computeProjection(
     })
   }
 
-  // Urgency determination — uses review_frequency to set relevant horizon
-  const reviewCycle = sku.review_frequency === 'monthly' ? 4
-    : sku.review_frequency === 'biweekly' ? 2
-      : 1  // 'weekly' or default
-  const urgencyHorizon = currentWeek + reviewCycle + lt  // review window + lead time
-
+  // Urgency determination — 12-week horizon, ensure 4 weeks inventory
+  // Calculate weeks of cover at end of 12-week horizon
+  const horizonWeek = 12
+  const lastProjectedWeek = weeks[Math.min(horizonWeek - 1, weeks.length - 1)]
+  const lastProjectedInventory = lastProjectedWeek?.projectedInventory ?? 0
+  const weeksOfCoverAtHorizon = avgWk > 0 ? lastProjectedInventory / avgWk : 999
+  
+  // New criteria:
+  // CRITICAL: < 4 weeks inventory coverage within 12-week horizon
+  // WARNING: 4-6 weeks inventory coverage
+  // OK: >= 6 weeks inventory coverage
   const urgency: SKUProjection['urgency'] =
-    (stockoutWeek !== null && stockoutWeek <= currentWeek + lt) ? 'CRITICAL'
-      : (reorderTriggerWeek !== null && reorderTriggerWeek <= urgencyHorizon) ? 'WARNING'
+    weeksOfCoverAtHorizon < 4 ? 'CRITICAL'
+      : weeksOfCoverAtHorizon < 6 ? 'WARNING'
         : 'OK'
 
   return {

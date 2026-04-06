@@ -27,7 +27,7 @@ export default function ReplenishmentPage() {
   const [skus, setSkus] = useState<SKUClassification[]>([])
   const [policies, setPolicies] = useState<ClassificationPolicy[]>([])
   const [clsSummary, setClsSummary] = useState<ClassificationSummary | null>(null)
-  const [selectedSupplier, setSelectedSupplier] = useState('all')
+  const [selectedSupplier, setSelectedSupplier] = useState('HX')  // Default to HX
   const [selectedCell, setSelectedCell] = useState<string | null>(null)
 
   // Projection data

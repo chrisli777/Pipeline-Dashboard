@@ -265,7 +265,7 @@ export function PipelineDashboard() {
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([])
-  const [selectedVendors, setSelectedVendors] = useState<string[]>([])
+  const [selectedVendors, setSelectedVendors] = useState<string[]>(['HX'])  // Default to HX
   const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([])
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
   const [highlightedWeeks, setHighlightedWeeks] = useState<number[]>(() => [getDefaultWeek()])
