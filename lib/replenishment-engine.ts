@@ -317,17 +317,6 @@ export function generateSuggestions(
   for (const proj of projections) {
     // Skip zero-demand SKUs
     if (proj.avgWeeklyDemand <= 0) continue
-    // Skip if no risk detected
-    if (proj.urgency === 'OK') continue
-
-    // Skip on_demand SKUs (CZ class) unless CRITICAL
-    if (proj.replenishmentMethod === 'on_demand' && proj.urgency !== 'CRITICAL') continue
-
-    // Apply review_frequency filter (CRITICAL always bypasses)
-    const skuMasterForFreq = skuMap?.get(proj.skuCode)
-    if (skuMasterForFreq?.review_frequency && !shouldReviewThisWeek(currentWeek, skuMasterForFreq.review_frequency)) {
-      if (proj.urgency !== 'CRITICAL') continue
-    }
 
     // Calculate suggested ETD weeks for replenishment
     // Goal: maintain at least 4 weeks of positive inventory within 12-week horizon
@@ -352,7 +341,6 @@ export function generateSuggestions(
       if (simulatedInventory < avgDemand * 4) {
         // Calculate ETD week (need to ship lt weeks before arrival)
         const etdWeek = Math.max(currentWeek, weekNum - lt)
-        const arrivalWeek = etdWeek + lt
         
         // Calculate order qty to bring inventory back to target
         const orderQty = Math.ceil(avgDemand * targetWeeksOfStock)
@@ -366,33 +354,17 @@ export function generateSuggestions(
       }
     }
 
-    // If no specific weeks identified, use default calculation
-    if (suggestedETDWeeks.length === 0) {
-      const arrivalWeek = currentWeek + lt
-      const arrivalWeekData = proj.weeks.find(w => w.weekNumber === arrivalWeek)
-      const projectedAtArrival = arrivalWeekData
-        ? arrivalWeekData.projectedInventory
-        : proj.weeks[proj.weeks.length - 1]?.projectedInventory ?? 0
-      
-      let orderQty = proj.targetInventory - projectedAtArrival
-      if (orderQty > 0) {
-        suggestedETDWeeks.push({ week: currentWeek, qty: Math.ceil(orderQty) })
-      }
-    }
-
-    // Skip if no replenishment needed
-    if (suggestedETDWeeks.length === 0) continue
-
-    // Calculate total order qty
+    // Calculate total order qty (0 if no replenishment needed)
     let totalOrderQty = suggestedETDWeeks.reduce((sum, s) => sum + s.qty, 0)
     
-    // Round up to MOQ
+    // Round up to MOQ if ordering
     const moq = proj.moq || 1
-    if (moq > 1) {
+    if (totalOrderQty > 0 && moq > 1) {
       totalOrderQty = Math.ceil(totalOrderQty / moq) * moq
     }
 
-    const weeksOfCover = avgDemand > 0 ? totalOrderQty / avgDemand : 0
+    // Calculate weeks of cover based on current inventory (not order qty)
+    const weeksOfCover = avgDemand > 0 ? proj.currentInventory / avgDemand : 999
 
     // Enrichment from SKU master data
     const skuMaster = skuMap?.get(proj.skuCode)

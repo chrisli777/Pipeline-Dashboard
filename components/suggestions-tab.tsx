@@ -22,7 +22,7 @@ interface SuggestionsTabProps {
 export function SuggestionsTab({ suggestions, projections, summary, currentWeek }: SuggestionsTabProps) {
   const [viewMode, setViewMode] = useState<'consolidated' | 'detail'>('consolidated')
   const [supplierFilter, setSupplierFilter] = useState('HX')  // Default to HX
-  const [urgencyFilter, setUrgencyFilter] = useState<'all' | 'CRITICAL' | 'WARNING'>('all')
+  const [urgencyFilter, setUrgencyFilter] = useState<'all' | 'CRITICAL' | 'WARNING' | 'OK'>('all')
   const [expandedPO, setExpandedPO] = useState<string | null>(null)
   
   // AI Suggestion state
@@ -203,9 +203,10 @@ export function SuggestionsTab({ suggestions, projections, summary, currentWeek 
             onChange={e => setUrgencyFilter(e.target.value as typeof urgencyFilter)}
             className="border border-slate-300 rounded-md px-3 py-1.5 text-sm bg-white"
           >
-            <option value="all">All Urgency</option>
+            <option value="all">All Status</option>
             <option value="CRITICAL">Critical Only</option>
             <option value="WARNING">Warning Only</option>
+            <option value="OK">OK Only</option>
           </select>
         )}
         <span className="text-xs text-slate-500 ml-auto">
@@ -355,7 +356,7 @@ export function SuggestionsTab({ suggestions, projections, summary, currentWeek 
                           ))}
                         </div>
                       ) : (
-                        <span className="text-slate-400">-</span>
+                        <span className="text-emerald-600 text-[10px] font-medium">No action needed</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-xs font-semibold">
@@ -386,9 +387,7 @@ export function SuggestionsTab({ suggestions, projections, summary, currentWeek 
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">
-                    {suggestions.length === 0
-                      ? 'No replenishment suggestions \u2014 all SKUs have adequate stock levels'
-                      : 'No suggestions match the current filters'}
+                    No SKUs match the current filters
                   </td>
                 </tr>
               )}
