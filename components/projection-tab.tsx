@@ -30,12 +30,24 @@ export function ProjectionTab({ projections, summary, currentWeek }: ProjectionT
     [projections]
   )
 
-  const filtered = useMemo(() => {
-    let data = projections
-
+  // Filter by supplier first (before urgency filter)
+  const supplierFiltered = useMemo(() => {
     if (selectedSupplier !== 'all') {
-      data = data.filter(p => p.supplierCode === selectedSupplier)
+      return projections.filter(p => p.supplierCode === selectedSupplier)
     }
+    return projections
+  }, [projections, selectedSupplier])
+
+  // Calculate summary counts based on supplier-filtered data
+  const filteredSummary = useMemo(() => ({
+    criticalCount: supplierFiltered.filter(p => p.urgency === 'CRITICAL').length,
+    warningCount: supplierFiltered.filter(p => p.urgency === 'WARNING').length,
+    okCount: supplierFiltered.filter(p => p.urgency === 'OK').length,
+  }), [supplierFiltered])
+
+  const filtered = useMemo(() => {
+    let data = supplierFiltered
+
     if (urgencyFilter !== 'all') {
       data = data.filter(p => p.urgency === urgencyFilter)
     }
@@ -50,7 +62,7 @@ export function ProjectionTab({ projections, summary, currentWeek }: ProjectionT
       if (sortField === 'sku_code') return a.skuCode.localeCompare(b.skuCode)
       return 0
     })
-  }, [projections, selectedSupplier, urgencyFilter, sortField])
+  }, [supplierFiltered, urgencyFilter, sortField])
 
   return (
     <div className="space-y-4">
@@ -61,7 +73,7 @@ export function ProjectionTab({ projections, summary, currentWeek }: ProjectionT
             <AlertCircle className="h-5 w-5 text-red-600" />
             <span className="text-sm font-medium text-red-800">Critical</span>
           </div>
-          <div className="text-2xl font-bold text-red-900 mt-1">{summary.criticalCount}</div>
+          <div className="text-2xl font-bold text-red-900 mt-1">{filteredSummary.criticalCount}</div>
           <div className="text-xs text-red-600">Stockout risk in 12-week horizon</div>
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
@@ -69,7 +81,7 @@ export function ProjectionTab({ projections, summary, currentWeek }: ProjectionT
             <AlertTriangle className="h-5 w-5 text-amber-600" />
             <span className="text-sm font-medium text-amber-800">Warning</span>
           </div>
-          <div className="text-2xl font-bold text-amber-900 mt-1">{summary.warningCount}</div>
+          <div className="text-2xl font-bold text-amber-900 mt-1">{filteredSummary.warningCount}</div>
           <div className="text-xs text-amber-600">Inventory trending down</div>
         </div>
         <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
@@ -77,7 +89,7 @@ export function ProjectionTab({ projections, summary, currentWeek }: ProjectionT
             <CheckCircle2 className="h-5 w-5 text-emerald-600" />
             <span className="text-sm font-medium text-emerald-800">OK</span>
           </div>
-          <div className="text-2xl font-bold text-emerald-900 mt-1">{summary.okCount}</div>
+          <div className="text-2xl font-bold text-emerald-900 mt-1">{filteredSummary.okCount}</div>
           <div className="text-xs text-emerald-600">Inventory stable or increasing</div>
         </div>
       </div>

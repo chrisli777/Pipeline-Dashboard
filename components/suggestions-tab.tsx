@@ -19,7 +19,7 @@ interface SuggestionsTabProps {
 
 export function SuggestionsTab({ suggestions, summary, currentWeek }: SuggestionsTabProps) {
   const [viewMode, setViewMode] = useState<'consolidated' | 'detail'>('consolidated')
-  const [supplierFilter, setSupplierFilter] = useState('all')
+  const [supplierFilter, setSupplierFilter] = useState('HX')  // Default to HX
   const [urgencyFilter, setUrgencyFilter] = useState<'all' | 'CRITICAL' | 'WARNING'>('all')
   const [expandedPO, setExpandedPO] = useState<string | null>(null)
 

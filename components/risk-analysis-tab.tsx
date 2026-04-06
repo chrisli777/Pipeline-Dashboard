@@ -27,9 +27,19 @@ export function RiskAnalysisTab({ projections, suggestions, summary, currentWeek
   const [showAllWarnings, setShowAllWarnings] = useState(false)
   const [copied, setCopied] = useState(false)
 
+  // Filter to only show HX supplier
+  const hxProjections = useMemo(() => 
+    projections.filter(p => p.supplierCode === 'HX'),
+    [projections]
+  )
+  const hxSuggestions = useMemo(() =>
+    suggestions.filter(s => s.supplierCode === 'HX'),
+    [suggestions]
+  )
+
   const report = useMemo(() =>
-    buildRiskReport(projections, suggestions, summary, currentWeek),
-    [projections, suggestions, summary, currentWeek]
+    buildRiskReport(hxProjections, hxSuggestions, summary, currentWeek),
+    [hxProjections, hxSuggestions, summary, currentWeek]
   )
 
   const meetingText = useMemo(() => generateMeetingText(report), [report])
@@ -52,13 +62,13 @@ export function RiskAnalysisTab({ projections, suggestions, summary, currentWeek
     }
   }
 
-  // Demand source stats
-  const forecastCount = projections.filter(p => p.demandSource === 'forecast').length
+  // Demand source stats - use filtered HX projections
+  const forecastCount = hxProjections.filter(p => p.demandSource === 'forecast').length
 
   return (
     <div className="space-y-4">
-      {/* Risk Summary Banner */}
-      <RiskBanner report={report} forecastCount={forecastCount} totalSkus={projections.length} />
+      {/* Risk Summary Banner - HX only */}
+      <RiskBanner report={report} forecastCount={forecastCount} totalSkus={hxProjections.length} />
 
       {/* Critical SKU Cards */}
       {report.criticalItems.length > 0 && (
@@ -75,7 +85,7 @@ export function RiskAnalysisTab({ projections, suggestions, summary, currentWeek
               expanded={expandedSku === item.skuCode}
               onToggle={() => setExpandedSku(expandedSku === item.skuCode ? null : item.skuCode)}
               currentWeek={currentWeek}
-              projections={projections}
+              projections={hxProjections}
             />
           ))}
         </div>
@@ -96,7 +106,7 @@ export function RiskAnalysisTab({ projections, suggestions, summary, currentWeek
               expanded={expandedSku === item.skuCode}
               onToggle={() => setExpandedSku(expandedSku === item.skuCode ? null : item.skuCode)}
               currentWeek={currentWeek}
-              projections={projections}
+              projections={hxProjections}
             />
           ))}
           {report.warningItems.length > 5 && !showAllWarnings && (
