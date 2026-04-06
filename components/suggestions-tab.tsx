@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { AlertCircle, AlertTriangle, ShoppingCart, DollarSign, Truck, Eye, Package, ChevronDown, ChevronRight } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { AlertCircle, AlertTriangle, ShoppingCart, DollarSign, Truck, Eye, Package, ChevronDown, ChevronRight, Sparkles, Loader2, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ReplenishmentSuggestion, ProjectionSummary, ConsolidatedPO } from '@/lib/types'
+import { Button } from '@/components/ui/button'
+import type { ReplenishmentSuggestion, ProjectionSummary, ConsolidatedPO, SKUProjection } from '@/lib/types'
 
 const URGENCY_STYLES = {
   CRITICAL: { bg: 'bg-red-100 text-red-800 border-red-200', dot: 'bg-red-500' },
@@ -13,15 +14,47 @@ const URGENCY_STYLES = {
 
 interface SuggestionsTabProps {
   suggestions: ReplenishmentSuggestion[]
+  projections: SKUProjection[]
   summary: ProjectionSummary
   currentWeek: number
 }
 
-export function SuggestionsTab({ suggestions, summary, currentWeek }: SuggestionsTabProps) {
+export function SuggestionsTab({ suggestions, projections, summary, currentWeek }: SuggestionsTabProps) {
   const [viewMode, setViewMode] = useState<'consolidated' | 'detail'>('consolidated')
   const [supplierFilter, setSupplierFilter] = useState('HX')  // Default to HX
   const [urgencyFilter, setUrgencyFilter] = useState<'all' | 'CRITICAL' | 'WARNING'>('all')
   const [expandedPO, setExpandedPO] = useState<string | null>(null)
+  
+  // AI Suggestion state
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  
+  const fetchAiSuggestion = async () => {
+    setAiLoading(true)
+    setAiError(null)
+    try {
+      const res = await fetch('/api/replenishment/ai-suggestion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projections, suggestions, currentWeek }),
+      })
+      if (!res.ok) throw new Error('Failed to get AI suggestion')
+      const data = await res.json()
+      setAiSuggestion(data.suggestion)
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+  
+  // Fetch AI suggestion on mount
+  useEffect(() => {
+    if (projections.length > 0) {
+      fetchAiSuggestion()
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const suppliers = useMemo(() =>
     [...new Set(suggestions.map(s => s.supplierCode).filter(Boolean))].sort() as string[],
@@ -53,6 +86,51 @@ export function SuggestionsTab({ suggestions, summary, currentWeek }: Suggestion
 
   return (
     <div className="space-y-4">
+      {/* AI Suggestion Panel */}
+      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-indigo-600" />
+            <h3 className="font-semibold text-indigo-900">AI Replenishment Advisor</h3>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={fetchAiSuggestion}
+            disabled={aiLoading}
+            className="text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100"
+          >
+            {aiLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+        
+        {aiLoading ? (
+          <div className="flex items-center gap-2 text-indigo-600 py-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm">Analyzing inventory data...</span>
+          </div>
+        ) : aiError ? (
+          <div className="text-red-600 text-sm py-2">
+            {aiError}
+            <Button variant="link" size="sm" onClick={fetchAiSuggestion} className="ml-2 text-red-600">
+              Retry
+            </Button>
+          </div>
+        ) : aiSuggestion ? (
+          <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+            {aiSuggestion}
+          </div>
+        ) : (
+          <div className="text-sm text-slate-500 py-2">
+            Click refresh to get AI-powered replenishment recommendations.
+          </div>
+        )}
+      </div>
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white border border-slate-200 rounded-lg p-4">
@@ -116,14 +194,9 @@ export function SuggestionsTab({ suggestions, summary, currentWeek }: Suggestion
           </button>
         </div>
 
-        <select
-          value={supplierFilter}
-          onChange={e => setSupplierFilter(e.target.value)}
-          className="border border-slate-300 rounded-md px-3 py-1.5 text-sm bg-white"
-        >
-          <option value="all">All Suppliers</option>
-          {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <span className="px-3 py-1.5 text-sm bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-medium">
+          HX
+        </span>
         {viewMode === 'detail' && (
           <select
             value={urgencyFilter}
