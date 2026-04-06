@@ -49,12 +49,7 @@ export function SuggestionsTab({ suggestions, projections, summary, currentWeek 
     }
   }
   
-  // Fetch AI suggestion on mount
-  useEffect(() => {
-    if (projections.length > 0) {
-      fetchAiSuggestion()
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
 
   const suppliers = useMemo(() =>
     [...new Set(suggestions.map(s => s.supplierCode).filter(Boolean))].sort() as string[],
@@ -125,8 +120,17 @@ export function SuggestionsTab({ suggestions, projections, summary, currentWeek 
             {aiSuggestion}
           </div>
         ) : (
-          <div className="text-sm text-slate-500 py-2">
-            Click refresh to get AI-powered replenishment recommendations.
+          <div className="flex flex-col items-center justify-center py-6 gap-3">
+            <p className="text-sm text-slate-500">
+              Get AI-powered analysis of your inventory and replenishment recommendations.
+            </p>
+            <Button
+              onClick={fetchAiSuggestion}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              Get AI Suggestion
+            </Button>
           </div>
         )}
       </div>
