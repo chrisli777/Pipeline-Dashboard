@@ -308,13 +308,14 @@ export interface InTransitEntry {
 export interface ProjectionWeek {
   weekNumber: number
   weekStartDate: string
-  projectedInventory: number
+  projectedInventory: number  // For historical weeks, this is actual inventory from Pipeline Dashboard
   demand: number
   inTransitArrival: number
   safetyStock: number
   reorderPoint: number
   targetInventory: number
   status: 'OK' | 'WARNING' | 'CRITICAL' | 'STOCKOUT'
+  isHistorical?: boolean  // True for past weeks with actual data from Pipeline Dashboard
 }
 
 export interface SKUProjection {

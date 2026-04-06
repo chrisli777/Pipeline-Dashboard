@@ -39,9 +39,19 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
   const yScale = (v: number) => MARGIN.top + chartH - ((v - minVal) / range) * chartH
   const barW = chartW / weeks.length * 0.6
 
-  // Projected inventory path
-  const projPoints = weeks.map((w, i) => `${xScale(i)},${yScale(w.projectedInventory)}`)
-  const projLine = `M${projPoints.join(' L')}`
+  // Find boundary between historical and projected weeks
+  const historicalWeeks = weeks.filter(w => w.isHistorical)
+  const projectedWeeks = weeks.filter(w => !w.isHistorical)
+  const firstProjectedIndex = weeks.findIndex(w => !w.isHistorical)
+  
+  // Historical inventory path (actual data from Pipeline Dashboard)
+  const histPoints = historicalWeeks.map((_, i) => `${xScale(i)},${yScale(weeks[i].projectedInventory)}`)
+  const histLine = histPoints.length > 0 ? `M${histPoints.join(' L')}` : ''
+  
+  // Projected inventory path (future predictions)
+  const projStartIndex = firstProjectedIndex > 0 ? firstProjectedIndex - 1 : 0  // Include last historical point for continuity
+  const projPoints = weeks.slice(projStartIndex).map((w, i) => `${xScale(projStartIndex + i)},${yScale(w.projectedInventory)}`)
+  const projLine = projPoints.length > 0 ? `M${projPoints.join(' L')}` : ''
 
   // Y-axis ticks
   const nTicks = 5
@@ -57,6 +67,9 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
       {/* Legend */}
       <div className="flex items-center gap-4 text-xs text-slate-600 flex-wrap">
         <span className="flex items-center gap-1">
+          <span className="w-4 h-0.5 bg-emerald-600 inline-block"></span> Actual Inventory (Historical)
+        </span>
+        <span className="flex items-center gap-1">
           <span className="w-4 h-0.5 bg-indigo-600 inline-block"></span> Projected Inventory
         </span>
         <span className="flex items-center gap-1">
@@ -66,13 +79,7 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
           <span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed #f59e0b' }}></span> Reorder Point ({projection.reorderPoint})
         </span>
         <span className="flex items-center gap-1">
-          <span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed #10b981' }}></span> Target ({projection.targetInventory})
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-4 h-0.5 inline-block" style={{ borderTop: '2px dashed #3b82f6' }}></span> Inv. Position ({Math.round(projection.inventoryPosition)})
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-3 h-3 bg-emerald-200 border border-emerald-400 inline-block rounded-sm"></span> In-Transit Arrival
+          <span className="w-3 h-3 bg-emerald-200 border border-emerald-400 inline-block rounded-sm"></span> ATA (Arrival)
         </span>
         <span className="ml-auto text-slate-400">
           LT: {projection.leadTimeWeeks}wk &bull; MOQ: {projection.moq} &bull; Method: {projection.replenishmentMethod}
@@ -155,16 +162,25 @@ export function ProjectionDetailChart({ projection, currentWeek }: DetailChartPr
           )
         })}
 
-        {/* Projected inventory line */}
-        <path d={projLine} fill="none" stroke="#6366f1" strokeWidth={2} />
+        {/* Historical inventory line (actual data - green) */}
+        {histLine && <path d={histLine} fill="none" stroke="#10b981" strokeWidth={2} />}
+        
+        {/* Projected inventory line (future - indigo) */}
+        {projLine && <path d={projLine} fill="none" stroke="#6366f1" strokeWidth={2} strokeDasharray={firstProjectedIndex > 0 ? "none" : "4,2"} />}
 
-        {/* Data points */}
+        {/* Data points - different colors for historical vs projected */}
         {weeks.map((w, i) => (
           <circle
             key={`dot-${i}`}
             cx={xScale(i)} cy={yScale(w.projectedInventory)}
             r={3}
-            fill={w.status === 'STOCKOUT' ? '#ef4444' : w.status === 'CRITICAL' ? '#f59e0b' : '#6366f1'}
+            fill={
+              w.isHistorical
+                ? '#10b981'  // Green for historical/actual data
+                : w.status === 'STOCKOUT' ? '#ef4444' 
+                  : w.status === 'CRITICAL' ? '#f59e0b' 
+                    : '#6366f1'  // Indigo for projected
+            }
             stroke="white" strokeWidth={1}
           />
         ))}

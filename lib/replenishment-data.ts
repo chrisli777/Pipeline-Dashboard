@@ -47,43 +47,88 @@ export async function fetchAndComputeProjections(): Promise<ProjectionResult> {
     throw new Error(`Failed to fetch SKU classification: ${skuError.message}`)
   }
 
-  // 2. Fetch current inventory for each SKU
-  //    Primary: query current week's actual_inventory (WMS syncs weekly)
-  //    Fallback: if current week missing, find most recent historical record
-  const { data: inventoryRows, error: invError } = await supabase
+  // 2. Fetch ALL weekly inventory data for each SKU
+  //    This mirrors Pipeline Dashboard's calculation:
+  //    actualInventory = prevWeek.actualInventory - actualConsumption + ATA
+  const { data: allInventoryRows, error: invError } = await supabase
     .from('inventory_data')
-    .select('sku_id, actual_inventory, week_number')
-    .eq('week_number', currentWeek)
-    .not('actual_inventory', 'is', null)
+    .select('sku_id, week_number, actual_inventory, actual_consumption, customer_forecast, ata, etd')
+    .order('week_number', { ascending: true })
 
   if (invError) {
     throw new Error(`Failed to fetch inventory data: ${invError.message}`)
   }
 
-  // Build map: sku_id → current week's actual_inventory
-  const inventoryMap = new Map<string, number>()
-  for (const row of inventoryRows || []) {
-    inventoryMap.set(row.sku_id, row.actual_inventory || 0)
+  // Build map: sku_id → Map<weekNumber, weekData>
+  // Calculate actual inventory using same logic as Pipeline Dashboard
+  const weeklyInventoryMap = new Map<string, Map<number, { actualInventory: number; consumption: number; ata: number }>>()
+  
+  // Group by SKU first
+  const skuWeekData = new Map<string, Array<{ week: number; actual_inventory: number | null; actual_consumption: number | null; customer_forecast: number | null; ata: number | null; etd: number | null }>>()
+  for (const row of allInventoryRows || []) {
+    if (!skuWeekData.has(row.sku_id)) {
+      skuWeekData.set(row.sku_id, [])
+    }
+    skuWeekData.get(row.sku_id)!.push({
+      week: row.week_number,
+      actual_inventory: row.actual_inventory,
+      actual_consumption: row.actual_consumption,
+      customer_forecast: row.customer_forecast,
+      ata: row.ata,
+      etd: row.etd,
+    })
   }
 
-  // Fallback: for SKUs without current week data, query most recent historical record
-  // (Transition period until WMS weekly sync is fully operational)
-  const classifiedSkuIds = (skus || []).map((s: SKUClassificationExtended) => s.id)
-  const missingSkuIds = classifiedSkuIds.filter((id: string) => !inventoryMap.has(id))
-
-  if (missingSkuIds.length > 0) {
-    const { data: fallbackRows } = await supabase
-      .from('inventory_data')
-      .select('sku_id, actual_inventory, week_number')
-      .in('sku_id', missingSkuIds)
-      .lt('week_number', currentWeek)
-      .not('actual_inventory', 'is', null)
-      .order('week_number', { ascending: false })
-
-    for (const row of fallbackRows || []) {
-      if (!inventoryMap.has(row.sku_id)) {
-        inventoryMap.set(row.sku_id, row.actual_inventory || 0)
+  // Calculate actual inventory for each SKU using Pipeline Dashboard logic
+  const inventoryMap = new Map<string, number>()
+  
+  for (const [skuId, weeks] of skuWeekData) {
+    // Sort by week
+    weeks.sort((a, b) => a.week - b.week)
+    
+    const weekMap = new Map<number, { actualInventory: number; consumption: number; ata: number }>()
+    let runningInventory = 0
+    
+    for (let i = 0; i < weeks.length; i++) {
+      const week = weeks[i]
+      const consumption = week.actual_consumption ?? week.customer_forecast ?? 0
+      
+      // Calculate ETA from ETD 6 weeks prior (same as Pipeline Dashboard)
+      let eta = 0
+      const etdSourceWeekIndex = weeks.findIndex(w => w.week === week.week - 6)
+      if (etdSourceWeekIndex >= 0) {
+        eta = weeks[etdSourceWeekIndex].etd ?? 0
       }
+      
+      // ATA defaults to ETA if not synced
+      const ata = week.ata ?? eta
+      
+      if (i === 0) {
+        // First week: use actual_inventory from DB if available
+        runningInventory = week.actual_inventory ?? 0
+      } else {
+        // Subsequent weeks: actualInventory = prev - consumption + ata
+        runningInventory = runningInventory - consumption + ata
+      }
+      
+      weekMap.set(week.week, {
+        actualInventory: runningInventory,
+        consumption,
+        ata,
+      })
+    }
+    
+    weeklyInventoryMap.set(skuId, weekMap)
+    
+    // Get current week's calculated inventory for projection starting point
+    const currentWeekData = weekMap.get(currentWeek)
+    if (currentWeekData) {
+      inventoryMap.set(skuId, currentWeekData.actualInventory)
+    } else {
+      // Fallback: use most recent week's inventory
+      const lastWeek = weeks[weeks.length - 1]
+      const lastWeekData = weekMap.get(lastWeek?.week)
+      inventoryMap.set(skuId, lastWeekData?.actualInventory ?? 0)
     }
   }
 
@@ -143,8 +188,9 @@ export async function fetchAndComputeProjections(): Promise<ProjectionResult> {
     const currentInventory = inventoryMap.get(sku.id) ?? 0
     const skuInTransit = inTransitMap.get(sku.sku_code) ?? new Map<number, number>()
     const skuForecast = forecastMap.get(sku.id) ?? undefined
-
-    return computeProjection(sku, currentInventory, currentWeek, skuInTransit, 20, skuForecast)
+    const skuHistoricalWeeks = weeklyInventoryMap.get(sku.id) ?? undefined
+    
+    return computeProjection(sku, currentInventory, currentWeek, skuInTransit, 20, skuForecast, skuHistoricalWeeks)
   })
 
   // 7. Generate enriched suggestions with SKU master data

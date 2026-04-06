@@ -156,7 +156,8 @@ export function computeProjection(
   currentWeek: number,
   inTransitByWeek: Map<number, number>,  // weekNumber → qty arriving
   projectionHorizon: number = 20,
-  weeklyForecast?: Map<number, number>   // weekNum → customer forecast qty
+  weeklyForecast?: Map<number, number>,  // weekNum → customer forecast qty
+  historicalWeekData?: Map<number, { actualInventory: number; consumption: number; ata: number }>  // Past weeks from Pipeline Dashboard
 ): SKUProjection {
   const historicalDemand = sku.avg_weekly_demand || 0
   const cv = sku.cv_demand || 0.5
@@ -191,6 +192,35 @@ export function computeProjection(
   let stockoutWeek: number | null = null
   let reorderTriggerWeek: number | null = null
 
+  // Add historical weeks from Pipeline Dashboard data (past weeks with actual inventory)
+  if (historicalWeekData && historicalWeekData.size > 0) {
+    const sortedHistoricalWeeks = [...historicalWeekData.entries()]
+      .filter(([weekNum]) => weekNum <= currentWeek)
+      .sort(([a], [b]) => a - b)
+    
+    for (const [weekNum, data] of sortedHistoricalWeeks) {
+      const status: ProjectionWeek['status'] =
+        data.actualInventory <= 0 ? 'STOCKOUT'
+          : data.actualInventory < ssUnits ? 'CRITICAL'
+            : data.actualInventory < rop ? 'WARNING'
+              : 'OK'
+      
+      weeks.push({
+        weekNumber: weekNum,
+        weekStartDate: getWeekStartDate(weekNum),
+        projectedInventory: Math.round(data.actualInventory * 10) / 10,  // This is actually "actual" for historical weeks
+        demand: Math.round(data.consumption * 10) / 10,
+        inTransitArrival: Math.round(data.ata * 10) / 10,
+        safetyStock: Math.round(ssUnits * 10) / 10,
+        reorderPoint: Math.round(rop * 10) / 10,
+        targetInventory: Math.round(target * 10) / 10,
+        status,
+        isHistorical: true,  // Flag to distinguish from projected weeks
+      })
+    }
+  }
+
+  // Future weeks (projections)
   for (let i = 0; i < projectionHorizon; i++) {
     const weekNum = currentWeek + i + 1
     // Per-week demand: use forecast for that specific week if available
