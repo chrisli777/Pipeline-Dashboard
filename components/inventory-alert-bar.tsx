@@ -51,7 +51,17 @@ export function InventoryAlertBar({ alerts }: InventoryAlertBarProps) {
       </button>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogContent 
+          className="flex flex-col overflow-hidden"
+          style={{
+            width: 'fit-content',
+            maxWidth: '90vw',
+            minWidth: '500px',
+            height: 'fit-content',
+            maxHeight: '90vh',
+            resize: 'both',
+          }}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-700">
               <AlertTriangle className="h-5 w-5" />
@@ -65,18 +75,18 @@ export function InventoryAlertBar({ alerts }: InventoryAlertBarProps) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Part / Model</TableHead>
-                  <TableHead className="text-center">Stockout Week</TableHead>
-                  <TableHead className="text-center">Week Of</TableHead>
-                  <TableHead className="text-right">Weeks on Hand</TableHead>
+                  <TableHead className="whitespace-nowrap">Part / Model</TableHead>
+                  <TableHead className="text-center whitespace-nowrap">Stockout Week</TableHead>
+                  <TableHead className="text-center whitespace-nowrap">Week Of</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Weeks on Hand</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {alerts.map((alert) => (
                   <TableRow key={alert.skuId}>
-                    <TableCell className="font-medium">{alert.partModelNumber}</TableCell>
+                    <TableCell className="font-medium whitespace-nowrap">{alert.partModelNumber}</TableCell>
                     <TableCell className="text-center">{alert.weekNumber}</TableCell>
-                    <TableCell className="text-center">{alert.weekOf}</TableCell>
+                    <TableCell className="text-center whitespace-nowrap">{alert.weekOf}</TableCell>
                     <TableCell className="text-right font-mono text-red-600 font-semibold">
                       {alert.weeksOnHand.toFixed(2)}
                     </TableCell>
