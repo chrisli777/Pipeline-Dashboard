@@ -246,26 +246,21 @@ export function SuggestionsTab({ suggestions, summary, currentWeek }: Suggestion
                 <th className="px-3 py-2 text-left">Urgency</th>
                 <th className="px-3 py-2 text-left">SKU</th>
                 <th className="px-3 py-2 text-left">Supplier</th>
-                <th className="px-3 py-2 text-right">Order Qty</th>
-                <th className="px-3 py-2 text-center">Arrival</th>
+                <th className="px-3 py-2 text-left">ETD Suggestion</th>
+                <th className="px-3 py-2 text-right">Total Qty</th>
                 <th className="px-3 py-2 text-right">On-Hand</th>
-                <th className="px-3 py-2 text-right">In-Transit</th>
-                <th className="px-3 py-2 text-right">Inv. Pos.</th>
                 <th className="px-3 py-2 text-right">Days of Supply</th>
-                <th className="px-3 py-2 text-right">@ Arrival</th>
                 <th className="px-3 py-2 text-center">Stockout</th>
                 <th className="px-3 py-2 text-right">Cover</th>
                 <th className="px-3 py-2 text-right">Est. Cost</th>
-                <th className="px-3 py-2 text-center">Method</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(sug => {
                 const urgStyle = URGENCY_STYLES[sug.urgency]
-                const isManual = sug.replenishmentMethod !== 'auto'
 
                 return (
-                  <tr key={sug.skuCode} className={cn('border-b border-slate-100 hover:bg-slate-50', isManual && 'bg-amber-50/30')}>
+                  <tr key={sug.skuCode} className="border-b border-slate-100 hover:bg-slate-50">
                     <td className="px-3 py-2">
                       <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border', urgStyle.bg)}>
                         <span className={cn('w-1.5 h-1.5 rounded-full', urgStyle.dot)}></span>
@@ -274,30 +269,31 @@ export function SuggestionsTab({ suggestions, summary, currentWeek }: Suggestion
                     </td>
                     <td className="px-3 py-2 font-mono text-xs font-medium">{sug.skuCode}</td>
                     <td className="px-3 py-2 text-xs">{sug.supplierCode || '-'}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {sug.suggestedETDWeeks && sug.suggestedETDWeeks.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {sug.suggestedETDWeeks.map((etd, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-[10px] font-semibold">
+                                W{etd.week}
+                              </span>
+                              <span className="font-mono">{etd.qty} units</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">-</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right font-mono text-xs font-semibold">
                       {sug.suggestedOrderQty.toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2 text-center text-xs">
-                      <div>W{sug.expectedArrivalWeek}</div>
-                      <div className="text-[10px] text-slate-400">{sug.expectedArrivalDate}</div>
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-xs">
                       {Math.round(sug.currentInventory).toLocaleString()}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs text-blue-600">
-                      {sug.totalInTransit > 0 ? Math.round(sug.totalInTransit).toLocaleString() : '-'}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs font-medium">
-                      {Math.round(sug.inventoryPosition).toLocaleString()}
-                    </td>
                     <td className="px-3 py-2 text-right text-xs">
                       <span className={sug.daysOfSupply < 30 ? 'text-red-600 font-semibold' : ''}>
                         {sug.daysOfSupply} days
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">
-                      <span className={sug.projectedAtArrival < 0 ? 'text-red-600 font-semibold' : ''}>
-                        {sug.projectedAtArrival.toLocaleString()}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-center text-xs">
@@ -311,22 +307,12 @@ export function SuggestionsTab({ suggestions, summary, currentWeek }: Suggestion
                     <td className="px-3 py-2 text-right font-mono text-xs font-medium">
                       {sug.estimatedCost != null ? fmt(sug.estimatedCost) : '-'}
                     </td>
-                    <td className="px-3 py-2 text-center">
-                      {isManual ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-                          <Eye className="h-2.5 w-2.5" />
-                          Review
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-400">Auto</span>
-                      )}
-                    </td>
                   </tr>
                 )
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={14} className="px-4 py-8 text-center text-sm text-slate-400">
+                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">
                     {suggestions.length === 0
                       ? 'No replenishment suggestions \u2014 all SKUs have adequate stock levels'
                       : 'No suggestions match the current filters'}

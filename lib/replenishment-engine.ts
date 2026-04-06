@@ -221,20 +221,24 @@ export function computeProjection(
     })
   }
 
-  // Urgency determination — 12-week horizon, ensure 4 weeks inventory
-  // Calculate weeks of cover at end of 12-week horizon
-  const horizonWeek = 12
-  const lastProjectedWeek = weeks[Math.min(horizonWeek - 1, weeks.length - 1)]
-  const lastProjectedInventory = lastProjectedWeek?.projectedInventory ?? 0
-  const weeksOfCoverAtHorizon = avgWk > 0 ? lastProjectedInventory / avgWk : 999
+  // Urgency determination — 12-week horizon trend analysis
+  // Rule: within 12 weeks, need at least 4 weeks with positive inventory
+  // Critical: stockout within 12 weeks OR less than 4 weeks with positive inventory
+  // Warning: inventory trending down (end < start)
+  // OK: inventory stable or increasing
   
-  // New criteria:
-  // CRITICAL: < 4 weeks inventory coverage within 12-week horizon
-  // WARNING: 4-6 weeks inventory coverage
-  // OK: >= 6 weeks inventory coverage
+  const horizonWeeks = weeks.slice(0, Math.min(12, weeks.length))
+  const weeksWithPositiveInventory = horizonWeeks.filter(w => w.projectedInventory > 0).length
+  const hasStockoutIn12Weeks = horizonWeeks.some(w => w.projectedInventory <= 0)
+  
+  // Check trend: compare first week and last week in horizon
+  const firstWeekInventory = horizonWeeks[0]?.projectedInventory ?? 0
+  const lastWeekInventory = horizonWeeks[horizonWeeks.length - 1]?.projectedInventory ?? 0
+  const inventoryTrendingDown = lastWeekInventory < firstWeekInventory * 0.5  // Dropped by 50%+
+  
   const urgency: SKUProjection['urgency'] =
-    weeksOfCoverAtHorizon < 4 ? 'CRITICAL'
-      : weeksOfCoverAtHorizon < 6 ? 'WARNING'
+    (hasStockoutIn12Weeks || weeksWithPositiveInventory < 4) ? 'CRITICAL'
+      : inventoryTrendingDown ? 'WARNING'
         : 'OK'
 
   return {
@@ -293,27 +297,70 @@ export function generateSuggestions(
       if (proj.urgency !== 'CRITICAL') continue
     }
 
-    const arrivalWeek = currentWeek + proj.leadTimeWeeks
-    // Find projected inventory at arrival
-    const arrivalWeekData = proj.weeks.find(w => w.weekNumber === arrivalWeek)
-    // If arrival is beyond projection window, use last projected value
-    const projectedAtArrival = arrivalWeekData
-      ? arrivalWeekData.projectedInventory
-      : proj.weeks[proj.weeks.length - 1]?.projectedInventory ?? 0
+    // Calculate suggested ETD weeks for replenishment
+    // Goal: maintain at least 4 weeks of positive inventory within 12-week horizon
+    const lt = proj.leadTimeWeeks
+    const avgDemand = proj.avgWeeklyDemand
+    const targetWeeksOfStock = 6  // Target 6 weeks of inventory coverage
+    
+    // Find weeks where inventory drops below safety threshold
+    const suggestedETDWeeks: { week: number; qty: number }[] = []
+    let simulatedInventory = proj.currentInventory
+    
+    // Simulate inventory over 12 weeks and identify when replenishment is needed
+    for (let i = 0; i < 12; i++) {
+      const weekNum = currentWeek + i + 1
+      const weekData = proj.weeks.find(w => w.weekNumber === weekNum)
+      const demand = weekData?.demand ?? avgDemand
+      const arriving = weekData?.inTransitArrival ?? 0
+      
+      simulatedInventory = simulatedInventory - demand + arriving
+      
+      // If inventory drops below 4 weeks of demand, suggest ETD
+      if (simulatedInventory < avgDemand * 4) {
+        // Calculate ETD week (need to ship lt weeks before arrival)
+        const etdWeek = Math.max(currentWeek, weekNum - lt)
+        const arrivalWeek = etdWeek + lt
+        
+        // Calculate order qty to bring inventory back to target
+        const orderQty = Math.ceil(avgDemand * targetWeeksOfStock)
+        
+        // Check if we already have a suggestion for nearby weeks
+        const existingSuggestion = suggestedETDWeeks.find(s => Math.abs(s.week - etdWeek) <= 2)
+        if (!existingSuggestion) {
+          suggestedETDWeeks.push({ week: etdWeek, qty: orderQty })
+          simulatedInventory += orderQty  // Add to simulation
+        }
+      }
+    }
 
-    // Order qty = target - projected_at_arrival
-    let orderQty = proj.targetInventory - projectedAtArrival
-    if (orderQty <= 0) continue  // no order needed
+    // If no specific weeks identified, use default calculation
+    if (suggestedETDWeeks.length === 0) {
+      const arrivalWeek = currentWeek + lt
+      const arrivalWeekData = proj.weeks.find(w => w.weekNumber === arrivalWeek)
+      const projectedAtArrival = arrivalWeekData
+        ? arrivalWeekData.projectedInventory
+        : proj.weeks[proj.weeks.length - 1]?.projectedInventory ?? 0
+      
+      let orderQty = proj.targetInventory - projectedAtArrival
+      if (orderQty > 0) {
+        suggestedETDWeeks.push({ week: currentWeek, qty: Math.ceil(orderQty) })
+      }
+    }
 
+    // Skip if no replenishment needed
+    if (suggestedETDWeeks.length === 0) continue
+
+    // Calculate total order qty
+    let totalOrderQty = suggestedETDWeeks.reduce((sum, s) => sum + s.qty, 0)
+    
     // Round up to MOQ
     const moq = proj.moq || 1
     if (moq > 1) {
-      orderQty = Math.ceil(orderQty / moq) * moq
-    } else {
-      orderQty = Math.ceil(orderQty)
+      totalOrderQty = Math.ceil(totalOrderQty / moq) * moq
     }
 
-    const weeksOfCover = proj.avgWeeklyDemand > 0 ? orderQty / proj.avgWeeklyDemand : 0
+    const weeksOfCover = avgDemand > 0 ? totalOrderQty / avgDemand : 0
 
     // Enrichment from SKU master data
     const skuMaster = skuMap?.get(proj.skuCode)
@@ -322,14 +369,19 @@ export function generateSuggestions(
     const annualValue = skuMaster?.annual_consumption_value ?? null
 
     // Days of supply = current inventory / daily demand
-    const daysOfSupply = proj.avgWeeklyDemand > 0
-      ? Math.round(proj.currentInventory / (proj.avgWeeklyDemand / 7))
+    const daysOfSupply = avgDemand > 0
+      ? Math.round(proj.currentInventory / (avgDemand / 7))
       : 999
 
     // Weeks until stockout
     const weeksUntilStockout = proj.stockoutWeek !== null
       ? proj.stockoutWeek - currentWeek
       : null
+
+    // Format ETD suggestion as readable string
+    const etdSuggestion = suggestedETDWeeks
+      .map(s => `Week ${s.week}: ${s.qty} units`)
+      .join('; ')
 
     suggestions.push({
       skuId: proj.skuId,
@@ -339,19 +391,19 @@ export function generateSuggestions(
       matrixCell: proj.matrixCell,
       urgency: proj.urgency,
       replenishmentMethod: proj.replenishmentMethod,
-      suggestedOrderQty: orderQty,
+      suggestedOrderQty: totalOrderQty,
       moq,
       orderDate: new Date().toISOString().split('T')[0],
-      expectedArrivalWeek: arrivalWeek,
-      expectedArrivalDate: getWeekStartDate(arrivalWeek),
+      expectedArrivalWeek: suggestedETDWeeks[0]?.week + lt,
+      expectedArrivalDate: getWeekStartDate(suggestedETDWeeks[0]?.week + lt),
       currentInventory: proj.currentInventory,
-      projectedAtArrival: Math.round(projectedAtArrival),
+      projectedAtArrival: Math.round(proj.weeks.find(w => w.weekNumber === suggestedETDWeeks[0]?.week + lt)?.projectedInventory ?? 0),
       safetyStock: proj.safetyStock,
       targetInventory: proj.targetInventory,
-      avgWeeklyDemand: proj.avgWeeklyDemand,
-      leadTimeWeeks: proj.leadTimeWeeks,
+      avgWeeklyDemand: avgDemand,
+      leadTimeWeeks: lt,
       weeksOfCover: Math.round(weeksOfCover * 10) / 10,
-      estimatedCost: proj.unitCost ? Math.round(orderQty * proj.unitCost) : null,
+      estimatedCost: proj.unitCost ? Math.round(totalOrderQty * proj.unitCost) : null,
       // Enriched fields
       inventoryPosition: proj.inventoryPosition,
       totalInTransit: proj.totalInTransit,
@@ -361,12 +413,15 @@ export function generateSuggestions(
       weeksUntilStockout,
       qtyPerContainer,
       estimatedContainers: qtyPerContainer && qtyPerContainer > 0
-        ? Math.round((orderQty / qtyPerContainer) * 10) / 10
+        ? Math.round((totalOrderQty / qtyPerContainer) * 10) / 10
         : null,
       annualConsumptionValue: annualValue,
       unitWeight,
-      totalWeight: unitWeight ? Math.round(orderQty * unitWeight) : null,
+      totalWeight: unitWeight ? Math.round(totalOrderQty * unitWeight) : null,
       demandSource: proj.demandSource,
+      // NEW: ETD suggestion details
+      suggestedETDWeeks,
+      etdSuggestion,
     })
   }
 

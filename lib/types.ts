@@ -379,6 +379,9 @@ export interface ReplenishmentSuggestion {
   unitWeight: number | null
   totalWeight: number | null
   demandSource: 'forecast' | 'historical'
+  // ETD suggestion details - specific weeks to place orders
+  suggestedETDWeeks?: Array<{ week: number; qty: number }>
+  etdSuggestion?: string  // Human-readable suggestion like "Week 15: 100 units; Week 18: 80 units"
 }
 
 export interface ConsolidatedPO {
