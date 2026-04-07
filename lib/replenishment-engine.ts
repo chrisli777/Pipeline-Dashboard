@@ -156,7 +156,8 @@ export function computeProjection(
   currentWeek: number,
   inTransitByWeek: Map<number, number>,  // weekNumber → qty arriving
   projectionHorizon: number = 20,
-  weeklyForecast?: Map<number, number>   // weekNum → customer forecast qty
+  weeklyForecast?: Map<number, number>,  // weekNum → customer forecast qty
+  historicalWeekData?: Map<number, { actualInventory: number; consumption: number; ata: number }>  // Past weeks from Pipeline Dashboard
 ): SKUProjection {
   const historicalDemand = sku.avg_weekly_demand || 0
   const cv = sku.cv_demand || 0.5
@@ -187,49 +188,89 @@ export function computeProjection(
   const invPos = computeInventoryPosition(currentInventory, inTransitByWeek)
 
   const weeks: ProjectionWeek[] = []
-  let projected = currentInventory
   let stockoutWeek: number | null = null
   let reorderTriggerWeek: number | null = null
 
-  for (let i = 0; i < projectionHorizon; i++) {
-    const weekNum = currentWeek + i + 1
-    // Per-week demand: use forecast for that specific week if available
-    const demand = weeklyForecast?.get(weekNum) ?? effectiveDemand
-    const arriving = inTransitByWeek.get(weekNum) || 0
+  // Use ALL weeks from Pipeline Dashboard data (already calculated with actual ATA/ETA)
+  // This includes both historical and future weeks - all based on real pipeline data
+  if (historicalWeekData && historicalWeekData.size > 0) {
+    const sortedWeeks = [...historicalWeekData.entries()]
+      .sort(([a], [b]) => a - b)
+    
+    for (const [weekNum, data] of sortedWeeks) {
+      const status: ProjectionWeek['status'] =
+        data.actualInventory <= 0 ? 'STOCKOUT'
+          : data.actualInventory < ssUnits ? 'CRITICAL'
+            : data.actualInventory < rop ? 'WARNING'
+              : 'OK'
+      
+      if (data.actualInventory <= 0 && stockoutWeek === null) stockoutWeek = weekNum
+      if (data.actualInventory < rop && reorderTriggerWeek === null) reorderTriggerWeek = weekNum
+      
+      weeks.push({
+        weekNumber: weekNum,
+        weekStartDate: getWeekStartDate(weekNum),
+        projectedInventory: Math.round(data.actualInventory * 10) / 10,
+        demand: Math.round(data.consumption * 10) / 10,
+        inTransitArrival: Math.round(data.ata * 10) / 10,
+        safetyStock: Math.round(ssUnits * 10) / 10,
+        reorderPoint: Math.round(rop * 10) / 10,
+        targetInventory: Math.round(target * 10) / 10,
+        status,
+      })
+    }
+  } else {
+    // Fallback: if no pipeline data, use projection calculation
+    let projected = currentInventory
+    
+    for (let i = 0; i < projectionHorizon; i++) {
+      const weekNum = currentWeek + i + 1
+      const demand = weeklyForecast?.get(weekNum) ?? effectiveDemand
+      const arriving = inTransitByWeek.get(weekNum) || 0
 
-    projected = projected - demand + arriving
+      projected = projected - demand + arriving
 
-    const status: ProjectionWeek['status'] =
-      projected <= 0 ? 'STOCKOUT'
-        : projected < ssUnits ? 'CRITICAL'
-          : projected < rop ? 'WARNING'
-            : 'OK'
+      const status: ProjectionWeek['status'] =
+        projected <= 0 ? 'STOCKOUT'
+          : projected < ssUnits ? 'CRITICAL'
+            : projected < rop ? 'WARNING'
+              : 'OK'
 
-    if (projected <= 0 && stockoutWeek === null) stockoutWeek = weekNum
-    if (projected < rop && reorderTriggerWeek === null) reorderTriggerWeek = weekNum
+      if (projected <= 0 && stockoutWeek === null) stockoutWeek = weekNum
+      if (projected < rop && reorderTriggerWeek === null) reorderTriggerWeek = weekNum
 
-    weeks.push({
-      weekNumber: weekNum,
-      weekStartDate: getWeekStartDate(weekNum),
-      projectedInventory: Math.round(projected * 10) / 10,
-      demand: Math.round(demand * 10) / 10,
-      inTransitArrival: Math.round(arriving * 10) / 10,
-      safetyStock: Math.round(ssUnits * 10) / 10,
-      reorderPoint: Math.round(rop * 10) / 10,
-      targetInventory: Math.round(target * 10) / 10,
-      status,
-    })
+      weeks.push({
+        weekNumber: weekNum,
+        weekStartDate: getWeekStartDate(weekNum),
+        projectedInventory: Math.round(projected * 10) / 10,
+        demand: Math.round(demand * 10) / 10,
+        inTransitArrival: Math.round(arriving * 10) / 10,
+        safetyStock: Math.round(ssUnits * 10) / 10,
+        reorderPoint: Math.round(rop * 10) / 10,
+        targetInventory: Math.round(target * 10) / 10,
+        status,
+      })
+    }
   }
 
-  // Urgency determination — uses review_frequency to set relevant horizon
-  const reviewCycle = sku.review_frequency === 'monthly' ? 4
-    : sku.review_frequency === 'biweekly' ? 2
-      : 1  // 'weekly' or default
-  const urgencyHorizon = currentWeek + reviewCycle + lt  // review window + lead time
-
+  // Urgency determination — 12-week horizon trend analysis
+  // Rule: within 12 weeks, need at least 4 weeks with positive inventory
+  // Critical: stockout within 12 weeks OR less than 4 weeks with positive inventory
+  // Warning: inventory trending down (end < start)
+  // OK: inventory stable or increasing
+  
+  const horizonWeeks = weeks.slice(0, Math.min(12, weeks.length))
+  const weeksWithPositiveInventory = horizonWeeks.filter(w => w.projectedInventory > 0).length
+  const hasStockoutIn12Weeks = horizonWeeks.some(w => w.projectedInventory <= 0)
+  
+  // Check trend: compare first week and last week in horizon
+  const firstWeekInventory = horizonWeeks[0]?.projectedInventory ?? 0
+  const lastWeekInventory = horizonWeeks[horizonWeeks.length - 1]?.projectedInventory ?? 0
+  const inventoryTrendingDown = lastWeekInventory < firstWeekInventory * 0.5  // Dropped by 50%+
+  
   const urgency: SKUProjection['urgency'] =
-    (stockoutWeek !== null && stockoutWeek <= currentWeek + lt) ? 'CRITICAL'
-      : (reorderTriggerWeek !== null && reorderTriggerWeek <= urgencyHorizon) ? 'WARNING'
+    (hasStockoutIn12Weeks || weeksWithPositiveInventory < 4) ? 'CRITICAL'
+      : inventoryTrendingDown ? 'WARNING'
         : 'OK'
 
   return {
@@ -276,39 +317,54 @@ export function generateSuggestions(
   for (const proj of projections) {
     // Skip zero-demand SKUs
     if (proj.avgWeeklyDemand <= 0) continue
-    // Skip if no risk detected
-    if (proj.urgency === 'OK') continue
 
-    // Skip on_demand SKUs (CZ class) unless CRITICAL
-    if (proj.replenishmentMethod === 'on_demand' && proj.urgency !== 'CRITICAL') continue
-
-    // Apply review_frequency filter (CRITICAL always bypasses)
-    const skuMasterForFreq = skuMap?.get(proj.skuCode)
-    if (skuMasterForFreq?.review_frequency && !shouldReviewThisWeek(currentWeek, skuMasterForFreq.review_frequency)) {
-      if (proj.urgency !== 'CRITICAL') continue
+    // Calculate suggested ETD weeks for replenishment
+    // Goal: maintain at least 4 weeks of positive inventory within 12-week horizon
+    const lt = proj.leadTimeWeeks
+    const avgDemand = proj.avgWeeklyDemand
+    const targetWeeksOfStock = 6  // Target 6 weeks of inventory coverage
+    
+    // Find weeks where inventory drops below safety threshold
+    const suggestedETDWeeks: { week: number; qty: number }[] = []
+    let simulatedInventory = proj.currentInventory
+    
+    // Simulate inventory over 12 weeks and identify when replenishment is needed
+    for (let i = 0; i < 12; i++) {
+      const weekNum = currentWeek + i + 1
+      const weekData = proj.weeks.find(w => w.weekNumber === weekNum)
+      const demand = weekData?.demand ?? avgDemand
+      const arriving = weekData?.inTransitArrival ?? 0
+      
+      simulatedInventory = simulatedInventory - demand + arriving
+      
+      // If inventory drops below 4 weeks of demand, suggest ETD
+      if (simulatedInventory < avgDemand * 4) {
+        // Calculate ETD week (need to ship lt weeks before arrival)
+        const etdWeek = Math.max(currentWeek, weekNum - lt)
+        
+        // Calculate order qty to bring inventory back to target
+        const orderQty = Math.ceil(avgDemand * targetWeeksOfStock)
+        
+        // Check if we already have a suggestion for nearby weeks
+        const existingSuggestion = suggestedETDWeeks.find(s => Math.abs(s.week - etdWeek) <= 2)
+        if (!existingSuggestion) {
+          suggestedETDWeeks.push({ week: etdWeek, qty: orderQty })
+          simulatedInventory += orderQty  // Add to simulation
+        }
+      }
     }
 
-    const arrivalWeek = currentWeek + proj.leadTimeWeeks
-    // Find projected inventory at arrival
-    const arrivalWeekData = proj.weeks.find(w => w.weekNumber === arrivalWeek)
-    // If arrival is beyond projection window, use last projected value
-    const projectedAtArrival = arrivalWeekData
-      ? arrivalWeekData.projectedInventory
-      : proj.weeks[proj.weeks.length - 1]?.projectedInventory ?? 0
-
-    // Order qty = target - projected_at_arrival
-    let orderQty = proj.targetInventory - projectedAtArrival
-    if (orderQty <= 0) continue  // no order needed
-
-    // Round up to MOQ
+    // Calculate total order qty (0 if no replenishment needed)
+    let totalOrderQty = suggestedETDWeeks.reduce((sum, s) => sum + s.qty, 0)
+    
+    // Round up to MOQ if ordering
     const moq = proj.moq || 1
-    if (moq > 1) {
-      orderQty = Math.ceil(orderQty / moq) * moq
-    } else {
-      orderQty = Math.ceil(orderQty)
+    if (totalOrderQty > 0 && moq > 1) {
+      totalOrderQty = Math.ceil(totalOrderQty / moq) * moq
     }
 
-    const weeksOfCover = proj.avgWeeklyDemand > 0 ? orderQty / proj.avgWeeklyDemand : 0
+    // Calculate weeks of cover based on current inventory (not order qty)
+    const weeksOfCover = avgDemand > 0 ? proj.currentInventory / avgDemand : 999
 
     // Enrichment from SKU master data
     const skuMaster = skuMap?.get(proj.skuCode)
@@ -317,8 +373,8 @@ export function generateSuggestions(
     const annualValue = skuMaster?.annual_consumption_value ?? null
 
     // Days of supply = current inventory / daily demand
-    const daysOfSupply = proj.avgWeeklyDemand > 0
-      ? Math.round(proj.currentInventory / (proj.avgWeeklyDemand / 7))
+    const daysOfSupply = avgDemand > 0
+      ? Math.round(proj.currentInventory / (avgDemand / 7))
       : 999
 
     // Weeks until stockout
@@ -326,6 +382,15 @@ export function generateSuggestions(
       ? proj.stockoutWeek - currentWeek
       : null
 
+    // Format ETD suggestion as readable string
+    const etdSuggestion = suggestedETDWeeks
+      .map(s => `Week ${s.week}: ${s.qty} units`)
+      .join('; ')
+
+    // Calculate arrival week safely (handle empty suggestedETDWeeks)
+    const firstEtdWeek = suggestedETDWeeks[0]?.week
+    const arrivalWeek = firstEtdWeek !== undefined ? firstEtdWeek + lt : currentWeek + lt
+    
     suggestions.push({
       skuId: proj.skuId,
       skuCode: proj.skuCode,
@@ -334,19 +399,19 @@ export function generateSuggestions(
       matrixCell: proj.matrixCell,
       urgency: proj.urgency,
       replenishmentMethod: proj.replenishmentMethod,
-      suggestedOrderQty: orderQty,
+      suggestedOrderQty: totalOrderQty,
       moq,
       orderDate: new Date().toISOString().split('T')[0],
-      expectedArrivalWeek: arrivalWeek,
-      expectedArrivalDate: getWeekStartDate(arrivalWeek),
+      expectedArrivalWeek: totalOrderQty > 0 ? arrivalWeek : null,
+      expectedArrivalDate: totalOrderQty > 0 ? getWeekStartDate(arrivalWeek) : null,
       currentInventory: proj.currentInventory,
-      projectedAtArrival: Math.round(projectedAtArrival),
+      projectedAtArrival: totalOrderQty > 0 ? Math.round(proj.weeks.find(w => w.weekNumber === arrivalWeek)?.projectedInventory ?? 0) : null,
       safetyStock: proj.safetyStock,
       targetInventory: proj.targetInventory,
-      avgWeeklyDemand: proj.avgWeeklyDemand,
-      leadTimeWeeks: proj.leadTimeWeeks,
+      avgWeeklyDemand: avgDemand,
+      leadTimeWeeks: lt,
       weeksOfCover: Math.round(weeksOfCover * 10) / 10,
-      estimatedCost: proj.unitCost ? Math.round(orderQty * proj.unitCost) : null,
+      estimatedCost: proj.unitCost ? Math.round(totalOrderQty * proj.unitCost) : null,
       // Enriched fields
       inventoryPosition: proj.inventoryPosition,
       totalInTransit: proj.totalInTransit,
@@ -356,12 +421,15 @@ export function generateSuggestions(
       weeksUntilStockout,
       qtyPerContainer,
       estimatedContainers: qtyPerContainer && qtyPerContainer > 0
-        ? Math.round((orderQty / qtyPerContainer) * 10) / 10
+        ? Math.round((totalOrderQty / qtyPerContainer) * 10) / 10
         : null,
       annualConsumptionValue: annualValue,
       unitWeight,
-      totalWeight: unitWeight ? Math.round(orderQty * unitWeight) : null,
+      totalWeight: unitWeight ? Math.round(totalOrderQty * unitWeight) : null,
       demandSource: proj.demandSource,
+      // NEW: ETD suggestion details
+      suggestedETDWeeks,
+      etdSuggestion,
     })
   }
 
@@ -420,7 +488,7 @@ export function consolidateBySupplier(
         totalWeight = null  // can't compute total if any item missing weight
       }
       if (sug.urgency === 'CRITICAL') criticalCount++
-      if (sug.expectedArrivalWeek > maxArrivalWeek) maxArrivalWeek = sug.expectedArrivalWeek
+      if (sug.expectedArrivalWeek && sug.expectedArrivalWeek > maxArrivalWeek) maxArrivalWeek = sug.expectedArrivalWeek
 
       let containerHint: string | null = null
       if (sug.qtyPerContainer && sug.qtyPerContainer > 0) {
@@ -445,8 +513,8 @@ export function consolidateBySupplier(
     pos.push({
       supplierCode,
       orderDate: new Date().toISOString().split('T')[0],
-      expectedArrivalWeek: maxArrivalWeek,
-      expectedArrivalDate: getWeekStartDate(maxArrivalWeek),
+      expectedArrivalWeek: maxArrivalWeek || null,
+      expectedArrivalDate: maxArrivalWeek > 0 ? getWeekStartDate(maxArrivalWeek) : null,
       items: poItems,
       totalQty,
       totalCost: Math.round(totalCost),

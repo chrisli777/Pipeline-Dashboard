@@ -27,7 +27,7 @@ export default function ReplenishmentPage() {
   const [skus, setSkus] = useState<SKUClassification[]>([])
   const [policies, setPolicies] = useState<ClassificationPolicy[]>([])
   const [clsSummary, setClsSummary] = useState<ClassificationSummary | null>(null)
-  const [selectedSupplier, setSelectedSupplier] = useState('all')
+  const [selectedSupplier, setSelectedSupplier] = useState('HX')  // Default to HX
   const [selectedCell, setSelectedCell] = useState<string | null>(null)
 
   // Projection data
@@ -36,6 +36,19 @@ export default function ReplenishmentPage() {
   const [suggestions, setSuggestions] = useState<ReplenishmentSuggestion[]>([])
   const [projSummary, setProjSummary] = useState<ProjectionSummary | null>(null)
   const [currentWeek, setCurrentWeek] = useState(0)
+
+  // Filter projections and suggestions to HX only
+  const hxProjections = projections.filter(p => p.supplierCode === 'HX')
+  const hxSuggestions = suggestions.filter(s => s.supplierCode === 'HX')
+  const hxSummary = projSummary ? {
+    ...projSummary,
+    criticalCount: hxProjections.filter(p => p.urgency === 'CRITICAL').length,
+    warningCount: hxProjections.filter(p => p.urgency === 'WARNING').length,
+    okCount: hxProjections.filter(p => p.urgency === 'OK').length,
+    totalSuggestedOrders: hxSuggestions.length,
+    totalSuggestedValue: hxSuggestions.reduce((sum, s) => sum + (s.estimatedCost || 0), 0),
+    consolidatedPOs: (projSummary.consolidatedPOs || []).filter(po => po.supplierCode === 'HX'),
+  } : null
 
   const fetchClassification = async () => {
     setLoading(true)
@@ -129,27 +142,27 @@ export default function ReplenishmentPage() {
           <TabsTrigger value="projection" className="gap-1.5">
             <TrendingUp className="h-4 w-4" />
             Projection
-            {projSummary && projSummary.criticalCount > 0 && (
+            {hxSummary && hxSummary.criticalCount > 0 && (
               <span className="ml-1 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                {projSummary.criticalCount}
+                {hxSummary.criticalCount}
               </span>
             )}
           </TabsTrigger>
           <TabsTrigger value="risk" className="gap-1.5">
             <Shield className="h-4 w-4" />
             Risk Analysis
-            {projSummary && (projSummary.criticalCount + projSummary.warningCount) > 0 && (
-              <span className={`ml-1 text-white text-[10px] px-1.5 py-0.5 rounded-full ${projSummary.criticalCount > 0 ? 'bg-red-500' : 'bg-amber-500'}`}>
-                {projSummary.criticalCount + projSummary.warningCount}
+            {hxSummary && (hxSummary.criticalCount + hxSummary.warningCount) > 0 && (
+              <span className={`ml-1 text-white text-[10px] px-1.5 py-0.5 rounded-full ${hxSummary.criticalCount > 0 ? 'bg-red-500' : 'bg-amber-500'}`}>
+                {hxSummary.criticalCount + hxSummary.warningCount}
               </span>
             )}
           </TabsTrigger>
           <TabsTrigger value="suggestions" className="gap-1.5">
             <ShoppingCart className="h-4 w-4" />
             Suggestions
-            {projSummary && projSummary.totalSuggestedOrders > 0 && (
+            {hxSummary && hxSummary.totalSuggestedOrders > 0 && (
               <span className="ml-1 bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                {projSummary.totalSuggestedOrders}
+                {hxSummary.totalSuggestedOrders}
               </span>
             )}
           </TabsTrigger>
@@ -187,17 +200,12 @@ export default function ReplenishmentPage() {
             </div>
           )}
 
-          {/* Supplier Filter */}
+          {/* Supplier Filter - HX only for now */}
           <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-slate-700">Filter by Supplier:</label>
-            <select
-              value={selectedSupplier}
-              onChange={(e) => { setSelectedSupplier(e.target.value); setSelectedCell(null) }}
-              className="border border-slate-300 rounded-md px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="all">All Suppliers</option>
-              {clsSummary?.suppliers.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <label className="text-sm font-medium text-slate-700">Supplier:</label>
+            <span className="px-3 py-1.5 text-sm bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-medium">
+              HX
+            </span>
             {selectedCell && (
               <Button variant="ghost" size="sm" onClick={() => setSelectedCell(null)} className="text-xs">
                 Clear cell filter: {selectedCell}
@@ -240,10 +248,10 @@ export default function ReplenishmentPage() {
               <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
               <span className="ml-3 text-slate-500">Computing projections...</span>
             </div>
-          ) : projSummary ? (
+          ) : hxSummary ? (
             <ProjectionTab
-              projections={projections}
-              summary={projSummary}
+              projections={hxProjections}
+              summary={hxSummary}
               currentWeek={currentWeek}
             />
           ) : (
@@ -260,11 +268,11 @@ export default function ReplenishmentPage() {
               <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
               <span className="ml-3 text-slate-500">Analyzing risk...</span>
             </div>
-          ) : projSummary ? (
+          ) : hxSummary ? (
             <RiskAnalysisTab
-              projections={projections}
-              suggestions={suggestions}
-              summary={projSummary}
+              projections={hxProjections}
+              suggestions={hxSuggestions}
+              summary={hxSummary}
               currentWeek={currentWeek}
             />
           ) : (
@@ -281,10 +289,11 @@ export default function ReplenishmentPage() {
               <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
               <span className="ml-3 text-slate-500">Generating suggestions...</span>
             </div>
-          ) : projSummary ? (
+          ) : hxSummary ? (
             <SuggestionsTab
-              suggestions={suggestions}
-              summary={projSummary}
+              suggestions={hxSuggestions}
+              projections={hxProjections}
+              summary={hxSummary}
               currentWeek={currentWeek}
             />
           ) : (

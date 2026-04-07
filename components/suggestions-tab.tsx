@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { AlertCircle, AlertTriangle, ShoppingCart, DollarSign, Truck, Eye, Package, ChevronDown, ChevronRight } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { AlertCircle, AlertTriangle, ShoppingCart, DollarSign, Truck, Eye, Package, ChevronDown, ChevronRight, Sparkles, Loader2, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ReplenishmentSuggestion, ProjectionSummary, ConsolidatedPO } from '@/lib/types'
+import { Button } from '@/components/ui/button'
+import type { ReplenishmentSuggestion, ProjectionSummary, ConsolidatedPO, SKUProjection } from '@/lib/types'
 
 const URGENCY_STYLES = {
   CRITICAL: { bg: 'bg-red-100 text-red-800 border-red-200', dot: 'bg-red-500' },
@@ -13,15 +14,42 @@ const URGENCY_STYLES = {
 
 interface SuggestionsTabProps {
   suggestions: ReplenishmentSuggestion[]
+  projections: SKUProjection[]
   summary: ProjectionSummary
   currentWeek: number
 }
 
-export function SuggestionsTab({ suggestions, summary, currentWeek }: SuggestionsTabProps) {
+export function SuggestionsTab({ suggestions, projections, summary, currentWeek }: SuggestionsTabProps) {
   const [viewMode, setViewMode] = useState<'consolidated' | 'detail'>('consolidated')
-  const [supplierFilter, setSupplierFilter] = useState('all')
-  const [urgencyFilter, setUrgencyFilter] = useState<'all' | 'CRITICAL' | 'WARNING'>('all')
+  const [supplierFilter, setSupplierFilter] = useState('HX')  // Default to HX
+  const [urgencyFilter, setUrgencyFilter] = useState<'all' | 'CRITICAL' | 'WARNING' | 'OK'>('all')
   const [expandedPO, setExpandedPO] = useState<string | null>(null)
+  
+  // AI Suggestion state
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  
+  const fetchAiSuggestion = async () => {
+    setAiLoading(true)
+    setAiError(null)
+    try {
+      const res = await fetch('/api/replenishment/ai-suggestion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projections, suggestions, currentWeek }),
+      })
+      if (!res.ok) throw new Error('Failed to get AI suggestion')
+      const data = await res.json()
+      setAiSuggestion(data.suggestion)
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+  
+
 
   const suppliers = useMemo(() =>
     [...new Set(suggestions.map(s => s.supplierCode).filter(Boolean))].sort() as string[],
@@ -53,6 +81,60 @@ export function SuggestionsTab({ suggestions, summary, currentWeek }: Suggestion
 
   return (
     <div className="space-y-4">
+      {/* AI Suggestion Panel */}
+      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-indigo-600" />
+            <h3 className="font-semibold text-indigo-900">AI Replenishment Advisor</h3>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={fetchAiSuggestion}
+            disabled={aiLoading}
+            className="text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100"
+          >
+            {aiLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+        
+        {aiLoading ? (
+          <div className="flex items-center gap-2 text-indigo-600 py-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm">Analyzing inventory data...</span>
+          </div>
+        ) : aiError ? (
+          <div className="text-red-600 text-sm py-2">
+            {aiError}
+            <Button variant="link" size="sm" onClick={fetchAiSuggestion} className="ml-2 text-red-600">
+              Retry
+            </Button>
+          </div>
+        ) : aiSuggestion ? (
+          <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+            {aiSuggestion}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-6 gap-3">
+            <p className="text-sm text-slate-500">
+              Get AI-powered analysis of your inventory and replenishment recommendations.
+            </p>
+            <Button
+              onClick={fetchAiSuggestion}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              Get AI Suggestion
+            </Button>
+          </div>
+        )}
+      </div>
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white border border-slate-200 rounded-lg p-4">
@@ -116,23 +198,19 @@ export function SuggestionsTab({ suggestions, summary, currentWeek }: Suggestion
           </button>
         </div>
 
-        <select
-          value={supplierFilter}
-          onChange={e => setSupplierFilter(e.target.value)}
-          className="border border-slate-300 rounded-md px-3 py-1.5 text-sm bg-white"
-        >
-          <option value="all">All Suppliers</option>
-          {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+        <span className="px-3 py-1.5 text-sm bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-medium">
+          HX
+        </span>
         {viewMode === 'detail' && (
           <select
             value={urgencyFilter}
             onChange={e => setUrgencyFilter(e.target.value as typeof urgencyFilter)}
             className="border border-slate-300 rounded-md px-3 py-1.5 text-sm bg-white"
           >
-            <option value="all">All Urgency</option>
+            <option value="all">All Status</option>
             <option value="CRITICAL">Critical Only</option>
             <option value="WARNING">Warning Only</option>
+            <option value="OK">OK Only</option>
           </select>
         )}
         <span className="text-xs text-slate-500 ml-auto">
@@ -246,26 +324,21 @@ export function SuggestionsTab({ suggestions, summary, currentWeek }: Suggestion
                 <th className="px-3 py-2 text-left">Urgency</th>
                 <th className="px-3 py-2 text-left">SKU</th>
                 <th className="px-3 py-2 text-left">Supplier</th>
-                <th className="px-3 py-2 text-right">Order Qty</th>
-                <th className="px-3 py-2 text-center">Arrival</th>
+                <th className="px-3 py-2 text-left">ETD Suggestion</th>
+                <th className="px-3 py-2 text-right">Total Qty</th>
                 <th className="px-3 py-2 text-right">On-Hand</th>
-                <th className="px-3 py-2 text-right">In-Transit</th>
-                <th className="px-3 py-2 text-right">Inv. Pos.</th>
                 <th className="px-3 py-2 text-right">Days of Supply</th>
-                <th className="px-3 py-2 text-right">@ Arrival</th>
                 <th className="px-3 py-2 text-center">Stockout</th>
                 <th className="px-3 py-2 text-right">Cover</th>
                 <th className="px-3 py-2 text-right">Est. Cost</th>
-                <th className="px-3 py-2 text-center">Method</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(sug => {
                 const urgStyle = URGENCY_STYLES[sug.urgency]
-                const isManual = sug.replenishmentMethod !== 'auto'
 
                 return (
-                  <tr key={sug.skuCode} className={cn('border-b border-slate-100 hover:bg-slate-50', isManual && 'bg-amber-50/30')}>
+                  <tr key={sug.skuCode} className="border-b border-slate-100 hover:bg-slate-50">
                     <td className="px-3 py-2">
                       <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold border', urgStyle.bg)}>
                         <span className={cn('w-1.5 h-1.5 rounded-full', urgStyle.dot)}></span>
@@ -274,30 +347,31 @@ export function SuggestionsTab({ suggestions, summary, currentWeek }: Suggestion
                     </td>
                     <td className="px-3 py-2 font-mono text-xs font-medium">{sug.skuCode}</td>
                     <td className="px-3 py-2 text-xs">{sug.supplierCode || '-'}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {sug.suggestedETDWeeks && sug.suggestedETDWeeks.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {sug.suggestedETDWeeks.map((etd, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-[10px] font-semibold">
+                                W{etd.week}
+                              </span>
+                              <span className="font-mono">{etd.qty} units</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-emerald-600 text-[10px] font-medium">No action needed</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right font-mono text-xs font-semibold">
                       {sug.suggestedOrderQty.toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2 text-center text-xs">
-                      <div>W{sug.expectedArrivalWeek}</div>
-                      <div className="text-[10px] text-slate-400">{sug.expectedArrivalDate}</div>
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-xs">
                       {Math.round(sug.currentInventory).toLocaleString()}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs text-blue-600">
-                      {sug.totalInTransit > 0 ? Math.round(sug.totalInTransit).toLocaleString() : '-'}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs font-medium">
-                      {Math.round(sug.inventoryPosition).toLocaleString()}
-                    </td>
                     <td className="px-3 py-2 text-right text-xs">
                       <span className={sug.daysOfSupply < 30 ? 'text-red-600 font-semibold' : ''}>
                         {sug.daysOfSupply} days
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">
-                      <span className={sug.projectedAtArrival < 0 ? 'text-red-600 font-semibold' : ''}>
-                        {sug.projectedAtArrival.toLocaleString()}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-center text-xs">
@@ -311,25 +385,13 @@ export function SuggestionsTab({ suggestions, summary, currentWeek }: Suggestion
                     <td className="px-3 py-2 text-right font-mono text-xs font-medium">
                       {sug.estimatedCost != null ? fmt(sug.estimatedCost) : '-'}
                     </td>
-                    <td className="px-3 py-2 text-center">
-                      {isManual ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-                          <Eye className="h-2.5 w-2.5" />
-                          Review
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-400">Auto</span>
-                      )}
-                    </td>
                   </tr>
                 )
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={14} className="px-4 py-8 text-center text-sm text-slate-400">
-                    {suggestions.length === 0
-                      ? 'No replenishment suggestions \u2014 all SKUs have adequate stock levels'
-                      : 'No suggestions match the current filters'}
+                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">
+                    No SKUs match the current filters
                   </td>
                 </tr>
               )}

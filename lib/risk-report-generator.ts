@@ -140,10 +140,12 @@ function buildRiskItem(
     orderArrivalWeek = suggestion.expectedArrivalWeek
     estimatedCost = suggestion.estimatedCost
 
-    const arrDate = getWeekStartDate(suggestion.expectedArrivalWeek)
-    const ad = new Date(arrDate)
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    orderArrivalDate = `W${suggestion.expectedArrivalWeek} (${monthNames[ad.getUTCMonth()]} ${ad.getUTCDate()})`
+    if (suggestion.expectedArrivalWeek) {
+      const arrDate = getWeekStartDate(suggestion.expectedArrivalWeek)
+      const ad = new Date(arrDate)
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      orderArrivalDate = `W${suggestion.expectedArrivalWeek} (${monthNames[ad.getUTCMonth()]} ${ad.getUTCDate()})`
+    }
 
     // Check if order covers the gap
     const projAtArrival = suggestion.projectedAtArrival

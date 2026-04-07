@@ -308,13 +308,14 @@ export interface InTransitEntry {
 export interface ProjectionWeek {
   weekNumber: number
   weekStartDate: string
-  projectedInventory: number
+  projectedInventory: number  // For historical weeks, this is actual inventory from Pipeline Dashboard
   demand: number
   inTransitArrival: number
   safetyStock: number
   reorderPoint: number
   targetInventory: number
   status: 'OK' | 'WARNING' | 'CRITICAL' | 'STOCKOUT'
+  isHistorical?: boolean  // True for past weeks with actual data from Pipeline Dashboard
 }
 
 export interface SKUProjection {
@@ -357,10 +358,10 @@ export interface ReplenishmentSuggestion {
   suggestedOrderQty: number
   moq: number
   orderDate: string
-  expectedArrivalWeek: number
-  expectedArrivalDate: string
+  expectedArrivalWeek: number | null
+  expectedArrivalDate: string | null
   currentInventory: number
-  projectedAtArrival: number
+  projectedAtArrival: number | null
   safetyStock: number
   targetInventory: number
   avgWeeklyDemand: number
@@ -379,13 +380,16 @@ export interface ReplenishmentSuggestion {
   unitWeight: number | null
   totalWeight: number | null
   demandSource: 'forecast' | 'historical'
+  // ETD suggestion details - specific weeks to place orders
+  suggestedETDWeeks?: Array<{ week: number; qty: number }>
+  etdSuggestion?: string  // Human-readable suggestion like "Week 15: 100 units; Week 18: 80 units"
 }
 
 export interface ConsolidatedPO {
   supplierCode: string
   orderDate: string
-  expectedArrivalWeek: number
-  expectedArrivalDate: string
+  expectedArrivalWeek: number | null
+  expectedArrivalDate: string | null
   items: Array<{
     skuCode: string
     partModel: string | null
