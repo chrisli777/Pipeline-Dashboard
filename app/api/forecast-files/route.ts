@@ -3,6 +3,19 @@ import { createClient } from '@/lib/supabase/server'
 
 const BUCKET_NAME = 'forecast-files'
 
+// Map file extensions to standard MIME types that Supabase accepts
+function normalizeContentType(fileName: string, originalType: string): string {
+  const ext = fileName.toLowerCase().split('.').pop()
+  const mimeMap: Record<string, string> = {
+    'pdf': 'application/pdf',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'xls': 'application/vnd.ms-excel',
+    'xlsm': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // Treat as xlsx
+    'csv': 'text/csv',
+  }
+  return mimeMap[ext || ''] || originalType || 'application/octet-stream'
+}
+
 // GET - List all forecast files
 export async function GET() {
   try {
@@ -45,11 +58,14 @@ export async function POST(request: NextRequest) {
     const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
     const filePath = `${timestamp}_${sanitizedName}`
     
+    // Normalize content type for xlsm and other formats
+    const contentType = normalizeContentType(file.name, file.type)
+    
     // Upload to Supabase Storage (binary)
     const { error: uploadError } = await supabase.storage
       .from(BUCKET_NAME)
       .upload(filePath, file, {
-        contentType: file.type,
+        contentType,
         upsert: false,
       })
     
@@ -64,7 +80,7 @@ export async function POST(request: NextRequest) {
         file_name: file.name,
         file_path: filePath,
         file_size: file.size,
-        mime_type: file.type || 'application/octet-stream',
+        mime_type: contentType,
         customer,
         notes,
       })
