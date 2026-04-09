@@ -450,17 +450,28 @@ export async function POST(request: Request) {
       }
 
       console.log(`[v0] Model "${model.modelName}" -> matched SKUs: [${matchingSkus?.join(', ') || 'none'}]`)
+      console.log(`[v0] Model "${model.modelName}" has ${model.weeklyData.length} week entries`)
+      if (model.weeklyData.length > 0) {
+        console.log(`[v0] First week entry: week ${model.weeklyData[0].weekNumber}, rate ${model.weeklyData[0].weeklyRate}`)
+      }
 
       if (!matchingSkus || matchingSkus.length === 0) {
         unmatchedModels.push(model.modelName)
         continue
       }
 
+      // Debug: Check if matched SKUs exist in inventory_data
+      for (const skuId of matchingSkus) {
+        const sampleKey = `${skuId}_14`  // Week 14 should exist
+        console.log(`[v0] Checking ${sampleKey} in existingCombinations: ${existingCombinations.has(sampleKey)}`)
+      }
+
       let modelHasUpdates = false
       for (const weekData of model.weeklyData) {
         let weekFoundForAnySku = false
         for (const skuId of matchingSkus) {
-          if (existingCombinations.has(`${skuId}_${weekData.weekNumber}`)) {
+          const key = `${skuId}_${weekData.weekNumber}`
+          if (existingCombinations.has(key)) {
             // SKU-specific forecast multipliers
             const multiplier = FORECAST_MULTIPLIERS[skuId] || 1
             updates.push({
@@ -470,6 +481,9 @@ export async function POST(request: Request) {
             })
             modelHasUpdates = true
             weekFoundForAnySku = true
+          } else {
+            // Debug: Log why we're skipping
+            console.log(`[v0] Key not found: ${key}`)
           }
         }
         if (!weekFoundForAnySku && !skippedWeeks.includes(weekData.weekNumber)) {
