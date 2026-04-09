@@ -392,7 +392,7 @@ export async function POST(request: Request) {
       const text = await fileBlob.text()
       const rows = parseCSV(text)
       output = extractForecastFromRows(rows)
-    } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+    } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.xlsm')) {
       // Parse Excel
       const arrayBuffer = await fileBlob.arrayBuffer()
       const uint8 = new Uint8Array(arrayBuffer)
@@ -461,21 +461,9 @@ export async function POST(request: Request) {
         matchingSkus = await findMatchingSkuCodes(supabase, model.modelName)
       }
 
-      console.log(`[v0] Model "${model.modelName}" -> matched SKUs: [${matchingSkus?.join(', ') || 'none'}]`)
-      console.log(`[v0] Model "${model.modelName}" has ${model.weeklyData.length} week entries`)
-      if (model.weeklyData.length > 0) {
-        console.log(`[v0] First week entry: week ${model.weeklyData[0].weekNumber}, rate ${model.weeklyData[0].weeklyRate}`)
-      }
-
       if (!matchingSkus || matchingSkus.length === 0) {
         unmatchedModels.push(model.modelName)
         continue
-      }
-
-      // Debug: Check if matched SKUs exist in inventory_data
-      for (const skuId of matchingSkus) {
-        const sampleKey = `${skuId}_14`  // Week 14 should exist
-        console.log(`[v0] Checking ${sampleKey} in existingCombinations: ${existingCombinations.has(sampleKey)}`)
       }
 
       let modelHasUpdates = false
@@ -502,12 +490,8 @@ export async function POST(request: Request) {
 
       if (modelHasUpdates && !matchedModels.includes(model.modelName)) {
         matchedModels.push(model.modelName)
-        console.log(`[v0] Model "${model.modelName}" added to matchedModels`)
       }
     }
-
-    console.log(`[v0] Total updates to apply: ${updates.length}`)
-    console.log(`[v0] Matched models: ${matchedModels.join(', ')}`)
 
     // Apply updates to database
     let successCount = 0
