@@ -125,10 +125,51 @@ export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataC
   const filteredWeeks = skus[0]?.weeks.filter(
     w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
   ) || []
+  
+  const topScrollRef = useRef<HTMLDivElement>(null)
+  const bottomScrollRef = useRef<HTMLDivElement>(null)
+  const tableRef = useRef<HTMLTableElement>(null)
+  const [tableWidth, setTableWidth] = useState(0)
+  
+  // Sync scroll between top and bottom scrollbars
+  const handleTopScroll = () => {
+    if (topScrollRef.current && bottomScrollRef.current) {
+      bottomScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft
+    }
+  }
+  
+  const handleBottomScroll = () => {
+    if (topScrollRef.current && bottomScrollRef.current) {
+      topScrollRef.current.scrollLeft = bottomScrollRef.current.scrollLeft
+    }
+  }
+  
+  // Update table width when content changes
+  useEffect(() => {
+    if (tableRef.current) {
+      setTableWidth(tableRef.current.scrollWidth)
+    }
+  }, [skus, weekRange])
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm border-collapse">
+    <div>
+      {/* Top scrollbar */}
+      <div 
+        ref={topScrollRef}
+        onScroll={handleTopScroll}
+        className="overflow-x-auto overflow-y-hidden"
+        style={{ height: '16px' }}
+      >
+        <div style={{ width: tableWidth, height: '1px' }} />
+      </div>
+      
+      {/* Table with bottom scrollbar */}
+      <div 
+        ref={bottomScrollRef}
+        onScroll={handleBottomScroll}
+        className="overflow-x-auto"
+      >
+        <table ref={tableRef} className="w-full text-sm border-collapse">
         <thead>
           {/* Week number row */}
           <tr>
@@ -182,6 +223,7 @@ export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataC
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }
