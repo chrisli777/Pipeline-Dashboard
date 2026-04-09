@@ -200,7 +200,7 @@ export default function CustomerForecastPage() {
                 <Input
                   id="file"
                   type="file"
-                  accept=".pdf,.xlsx,.xls,.csv"
+                  accept=".pdf,.xlsx,.xls,.xlsm,.csv"
                   onChange={handleFileChange}
                   className="cursor-pointer max-w-md"
                 />
@@ -259,7 +259,7 @@ export default function CustomerForecastPage() {
                     <TableRow key={file.id}>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
-                          {file.file_name.match(/\.(xlsx?|csv)$/i) ? (
+                          {file.file_name.match(/\.(xlsx?|xlsm|csv)$/i) ? (
                             <FileSpreadsheet className="h-4 w-4 text-green-600" />
                           ) : (
                             <FileText className="h-4 w-4 text-red-500" />
