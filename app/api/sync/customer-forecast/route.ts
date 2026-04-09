@@ -257,15 +257,27 @@ async function extractForecastFromPDF(base64Data: string, mimeType: string): Pro
             },
             {
               type: 'text',
-              text: `Extract forecast data from this PDF. Extract ALL models/machine types you find in the document. Each model typically has a "Week #" row and a "Weekly Rate" row.
+              text: `Extract forecast data from this PDF. Extract ALL models/machine types you find in the document. 
+
+IMPORTANT: Look carefully for these specific models that are commonly missed:
+- Z80 (forklift counterweight model)
+- Z62 (forklift counterweight model)  
+- Z45XC (forklift counterweight model)
+- T60 / T80 (may appear as "S60J & S80J" aliases)
+
+Each model typically has:
+- A "Week #" row showing week numbers (e.g., 15, 16, 17...)
+- A "Weekly Rate" row showing quantities per week
 
 For each model found, extract:
-- The model name exactly as shown (e.g., "S60J & S80J", "Z80", "Z62", "Z45XC", "SX125XC", "T80", "T60", etc.)
+- The model name exactly as shown
 - Week numbers from the "Week #" row
 - Weekly rate values from the "Weekly Rate" row
 
+Scan the ENTIRE document thoroughly. Models may appear in different sections or pages.
+
 Return ONLY valid JSON in this exact format, no other text:
-{"models":[{"modelName":"S60J & S80J","weeklyData":[{"weekNumber":2,"weeklyRate":4}]}]}`,
+{"models":[{"modelName":"Z80","weeklyData":[{"weekNumber":15,"weeklyRate":10}]}]}`,
             },
           ],
         },
@@ -481,9 +493,6 @@ export async function POST(request: Request) {
             })
             modelHasUpdates = true
             weekFoundForAnySku = true
-          } else {
-            // Debug: Log why we're skipping
-            console.log(`[v0] Key not found: ${key}`)
           }
         }
         if (!weekFoundForAnySku && !skippedWeeks.includes(weekData.weekNumber)) {
@@ -493,8 +502,12 @@ export async function POST(request: Request) {
 
       if (modelHasUpdates && !matchedModels.includes(model.modelName)) {
         matchedModels.push(model.modelName)
+        console.log(`[v0] Model "${model.modelName}" added to matchedModels`)
       }
     }
+
+    console.log(`[v0] Total updates to apply: ${updates.length}`)
+    console.log(`[v0] Matched models: ${matchedModels.join(', ')}`)
 
     // Apply updates to database
     let successCount = 0
