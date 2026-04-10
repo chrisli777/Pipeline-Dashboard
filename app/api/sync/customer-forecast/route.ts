@@ -175,6 +175,8 @@ function extractForecastFromRows(rows: string[][]): ForecastData {
   const skipPatterns = [
     'week number', 'week of', 'working day', 'daily rate', 'constraint',
     'large slab', 'small slab', 'category', 'model', 'sku', 'part',
+    'weekly rate', 'avg per day', 'week #', 'week#', 'rate', 'total',
+    'average', 'sum', 'header', 'date', 'period', 'forecast'
   ]
 
   const models: ForecastData['models'] = []
@@ -293,6 +295,9 @@ Return ONLY valid JSON in this exact format, no other text:
 
   const claudeData = await claudeResponse.json()
   const rawText = claudeData.content?.[0]?.text || ''
+  
+  console.log(`[v0] Claude PDF response length: ${rawText.length} chars`)
+  console.log(`[v0] Claude PDF response preview (first 1000 chars): ${rawText.slice(0, 1000)}`)
 
   // Extract JSON from Claude's response (may be wrapped in markdown code blocks)
   let jsonStr = rawText.trim()
@@ -340,6 +345,7 @@ Return ONLY valid JSON in this exact format, no other text:
     if (!parsed.models || !Array.isArray(parsed.models)) {
       throw new Error('Missing models array')
     }
+    console.log(`[v0] PDF parsed ${parsed.models.length} models: ${parsed.models.map((m: { modelName: string }) => m.modelName).join(', ')}`)
     return parsed
   } catch (parseErr) {
     console.error('[v0] Failed to parse Claude response as JSON. Raw text:', rawText.slice(0, 500))
@@ -397,12 +403,22 @@ export async function POST(request: Request) {
       const arrayBuffer = await fileBlob.arrayBuffer()
       const uint8 = new Uint8Array(arrayBuffer)
       const workbook = XLSX.read(uint8, { type: 'array' })
+      console.log(`[v0] Excel file has ${workbook.SheetNames.length} sheets: ${workbook.SheetNames.join(', ')}`)
+      
       // Try all sheets, not just the first one
       let bestOutput: ForecastData = { models: [] }
       for (const sheetName of workbook.SheetNames) {
         const sheet = workbook.Sheets[sheetName]
         const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+        console.log(`[v0] Sheet "${sheetName}" has ${rows.length} rows`)
+        if (rows.length > 0) {
+          console.log(`[v0] First row sample (first 5 cells): ${rows[0].slice(0, 5).map(c => String(c).substring(0, 20)).join(' | ')}`)
+        }
+        if (rows.length > 1) {
+          console.log(`[v0] Second row sample (first 5 cells): ${rows[1].slice(0, 5).map(c => String(c).substring(0, 20)).join(' | ')}`)
+        }
         const sheetOutput = extractForecastFromRows(rows)
+        console.log(`[v0] Sheet "${sheetName}" extracted ${sheetOutput.models.length} models: ${sheetOutput.models.slice(0, 5).map(m => m.modelName).join(', ')}`)
         if (sheetOutput.models.length > bestOutput.models.length) {
           bestOutput = sheetOutput
         }
