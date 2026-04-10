@@ -460,18 +460,23 @@ export async function POST(request: Request) {
     }
 
     // Download the file from storage
+    console.log(`[v0] Downloading file: ${targetFile.file_path} from bucket ${BUCKET_NAME}`)
     const { data: fileBlob, error: downloadError } = await supabase.storage
       .from(BUCKET_NAME)
       .download(targetFile.file_path)
 
     if (downloadError || !fileBlob) {
+      console.error(`[v0] Download error:`, downloadError)
       return NextResponse.json({
-        error: 'Failed to download forecast file from storage'
+        error: `Failed to download forecast file from storage: ${downloadError?.message || 'Unknown error'}`
       }, { status: 500 })
     }
+    
+    console.log(`[v0] File downloaded successfully, size: ${fileBlob.size} bytes`)
 
     // Determine file type and extract forecast data
     const fileName = targetFile.file_name.toLowerCase()
+    console.log(`[v0] Processing file: ${fileName}`)
     let output: ForecastData
 
     if (fileName.endsWith('.csv')) {
