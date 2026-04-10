@@ -573,6 +573,14 @@ export async function POST(request: Request) {
         unmatchedModels.push(model.modelName)
         continue
       }
+      
+      console.log(`[v0] Model "${model.modelName}" matched to SKUs: ${matchingSkus.join(', ')}`)
+      if (model.weeklyData.length > 0) {
+        const sampleWeek = model.weeklyData[0].weekNumber
+        const sampleKeys = matchingSkus.map(sku => `${sku}_${sampleWeek}`)
+        console.log(`[v0] Sample keys for week ${sampleWeek}: ${sampleKeys.join(', ')}`)
+        console.log(`[v0] Keys exist in DB: ${sampleKeys.map(k => existingCombinations.has(k)).join(', ')}`)
+      }
 
       let modelHasUpdates = false
       for (const weekData of model.weeklyData) {
