@@ -535,19 +535,41 @@ export async function POST(request: Request) {
     }
 
     // Get existing week numbers from database for each SKU
-    const { data: existingData, error: existingError } = await supabase
-      .from('inventory_data')
-      .select('sku_id, week_number')
-
-    if (existingError) {
-      return NextResponse.json({
-        error: 'Failed to fetch existing inventory data'
-      }, { status: 500 })
+    // Note: Supabase default limit is 1000, so we need to fetch all records
+    let allExistingData: { sku_id: string; week_number: number }[] = []
+    let offset = 0
+    const batchSize = 1000
+    
+    while (true) {
+      const { data: batchData, error: batchError } = await supabase
+        .from('inventory_data')
+        .select('sku_id, week_number')
+        .range(offset, offset + batchSize - 1)
+      
+      if (batchError) {
+        return NextResponse.json({
+          error: 'Failed to fetch existing inventory data'
+        }, { status: 500 })
+      }
+      
+      if (!batchData || batchData.length === 0) {
+        break
+      }
+      
+      allExistingData = allExistingData.concat(batchData)
+      
+      if (batchData.length < batchSize) {
+        break // Last batch
+      }
+      
+      offset += batchSize
     }
+    
+    console.log(`[v0] Fetched ${allExistingData.length} existing inventory_data records`)
 
     // Create a Set of existing sku_id + week_number combinations
     const existingCombinations = new Set(
-      existingData?.map(d => `${d.sku_id}_${d.week_number}`) || []
+      allExistingData.map(d => `${d.sku_id}_${d.week_number}`)
     )
 
     // Update database with extracted forecast data
