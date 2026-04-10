@@ -61,10 +61,14 @@ export async function POST(request: NextRequest) {
     // Normalize content type for xlsm and other formats
     const contentType = normalizeContentType(file.name, file.type)
     
+    // Convert file to ArrayBuffer for binary upload
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = new Uint8Array(arrayBuffer)
+    
     // Upload to Supabase Storage (binary)
     const { error: uploadError } = await supabase.storage
       .from(BUCKET_NAME)
-      .upload(filePath, file, {
+      .upload(filePath, buffer, {
         contentType,
         upsert: false,
       })
@@ -79,7 +83,7 @@ export async function POST(request: NextRequest) {
       .insert({
         file_name: file.name,
         file_path: filePath,
-        file_size: file.size,
+        file_size: buffer.length,
         mime_type: contentType,
         customer,
         notes,
