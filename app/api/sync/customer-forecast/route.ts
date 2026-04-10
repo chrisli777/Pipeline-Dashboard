@@ -485,12 +485,27 @@ export async function POST(request: Request) {
       const uint8 = new Uint8Array(arrayBuffer)
       const workbook = XLSX.read(uint8, { type: 'array' })
       
+      console.log(`[v0] Excel parsing: ${workbook.SheetNames.length} sheets found: ${workbook.SheetNames.join(', ')}`)
+      
       // Try all sheets, not just the first one
       let bestOutput: ForecastData = { models: [] }
       for (const sheetName of workbook.SheetNames) {
         const sheet = workbook.Sheets[sheetName]
         const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+        
+        console.log(`[v0] Sheet "${sheetName}": ${rows.length} rows`)
+        // Log first 10 rows for debugging
+        for (let i = 0; i < Math.min(10, rows.length); i++) {
+          const rowPreview = rows[i].slice(0, 8).map(c => String(c).substring(0, 15)).join(' | ')
+          console.log(`[v0] Row ${i}: ${rowPreview}`)
+        }
+        
         const sheetOutput = extractForecastFromRows(rows)
+        console.log(`[v0] Sheet "${sheetName}" extracted ${sheetOutput.models.length} models`)
+        if (sheetOutput.models.length > 0) {
+          console.log(`[v0] Models found: ${sheetOutput.models.map(m => m.modelName).join(', ')}`)
+        }
+        
         if (sheetOutput.models.length > bestOutput.models.length) {
           bestOutput = sheetOutput
         }
