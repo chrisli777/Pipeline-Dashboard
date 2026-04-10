@@ -111,36 +111,127 @@ function parseCSV(text: string): string[][] {
 }
 
 // Extract forecast data from spreadsheet rows (Excel or CSV)
-// The real format has:
-//   Row: "Week Number:" | 6 | 7 | 8 | 9 | ...  (week identifiers)
-//   Row: "Week Of:"     | 2/2 | 2/9 | ...       (dates, skip)
-//   Row: "Working Days:" | ...                   (skip)
-//   Row: "VS Daily Rate:" | ...                  (skip)
-//   ...
-//   Row: "GS-2632 E-drive" | 32% | 28 | 28 | 21 | 28 | ...  (model + values)
-//   Row: "GS-4046 E-Drive" | 27% | 24 | 24 | 18 | 24 | ...
+// 
+// NEW FORMAT (Genie Moses Lake Supplier Forecast):
+// The Excel has multiple model sections, each with:
+//   Row: "SX125XC" (model name as section header, may be in merged cells)
+//   Row: "Week #" | 14 | 15 | 16 | 17 | ...  (week numbers)
+//   Row: "Week Of:" | 3/30 | 4/6 | ...       (dates, skip)
+//   Row: "Working days" | 4 | 4 | 5 | ...    (skip)
+//   Row: "Weekly Rate" | 4 | 5 | 4 | 4 | ... (THIS IS THE FORECAST DATA)
+//   Row: "AVG Per day" | 1 | 1 | 1 | ...     (skip)
 //
 // Strategy:
-// 1. Find the row where first cell contains "Week Number" -> those cells give us week columns
-// 2. Below that, find rows whose first cell looks like a model name (contains letters + numbers)
-// 3. For each model row, extract weekly values from the corresponding week columns
+// 1. Scan for model name patterns (e.g., SX125XC, Z80, Z62, Z45XC, S60J, etc.)
+// 2. For each model section, find the "Week #" row to get week column mapping
+// 3. Find the "Weekly Rate" row to get the actual values
+// 4. Map week numbers to weekly rate values
 function extractForecastFromRows(rows: string[][]): ForecastData {
   if (rows.length < 2) {
     return { models: [] }
   }
 
-  // --- Strategy 1: Look for a "Week Number" row ---
+  const models: ForecastData['models'] = []
+  
+  // Model name patterns to look for (common forklift/equipment model patterns)
+  const modelPatterns = [
+    /^[A-Z]{1,3}\d{2,4}[A-Z]*$/i,  // SX125XC, Z80, Z62, Z45XC, T60, T80
+    /^[A-Z]\d+[A-Z]?\s*&\s*[A-Z]\d+[A-Z]?$/i,  // S60J & S80J
+    /^GS-?\d+/i,  // GS-2632
+    /^[A-Z]{2,3}-?\d{3,4}/i,  // PSB-1788
+  ]
+  
+  // Find all model sections
+  let currentModel: string | null = null
+  let currentWeekRow: number = -1
+  let weekColumns: { colIndex: number; weekNumber: number }[] = []
+  
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r]
+    if (!row || row.length === 0) continue
+    
+    // Check first few cells for model name (may be in merged cells)
+    for (let c = 0; c < Math.min(3, row.length); c++) {
+      const cell = String(row[c] || '').trim()
+      if (!cell) continue
+      
+      // Check if this cell matches a model pattern
+      const isModel = modelPatterns.some(p => p.test(cell)) || 
+        // Also match specific known models
+        /^(SX|ZX|Z)\d+/i.test(cell) ||
+        /^S\d+J/i.test(cell) ||
+        cell.toUpperCase().includes('XC') && /\d/.test(cell)
+      
+      if (isModel && cell.length >= 2 && cell.length <= 20) {
+        // Found a new model section
+        currentModel = cell
+        currentWeekRow = -1
+        weekColumns = []
+        break
+      }
+    }
+    
+    // Look for "Week #" or "Week Number" row within current model section
+    const firstCell = String(row[0] || '').trim().toLowerCase()
+    if (currentModel && (firstCell.includes('week #') || firstCell.includes('week#') || firstCell === 'week #' || firstCell.includes('week number'))) {
+      currentWeekRow = r
+      weekColumns = []
+      // Extract week numbers from this row
+      for (let c = 1; c < row.length; c++) {
+        const cellStr = String(row[c] || '').trim()
+        const val = parseInt(cellStr)
+        if (!isNaN(val) && val >= 1 && val <= 53) {
+          weekColumns.push({ colIndex: c, weekNumber: val })
+        }
+      }
+    }
+    
+    // Look for "Weekly Rate" row to extract forecast values
+    if (currentModel && weekColumns.length > 0 && 
+        (firstCell.includes('weekly rate') || firstCell === 'weekly rate')) {
+      const weeklyData: { weekNumber: number; weeklyRate: number }[] = []
+      
+      for (const wc of weekColumns) {
+        const cellStr = String(row[wc.colIndex] || '').trim()
+        const val = parseFloat(cellStr)
+        if (!isNaN(val)) {
+          weeklyData.push({ weekNumber: wc.weekNumber, weeklyRate: val })
+        }
+      }
+      
+      if (weeklyData.length > 0) {
+        models.push({ modelName: currentModel, weeklyData })
+      }
+      
+      // Reset for next model section
+      currentModel = null
+      weekColumns = []
+    }
+  }
+  
+  // Fallback: If no models found with new format, try old format
+  if (models.length === 0) {
+    return extractForecastFromRowsLegacy(rows)
+  }
+  
+  return { models }
+}
+
+// Legacy extraction function for backwards compatibility
+function extractForecastFromRowsLegacy(rows: string[][]): ForecastData {
+  if (rows.length < 2) {
+    return { models: [] }
+  }
+
   let weekNumberRowIdx = -1
   let weekColumns: { colIndex: number; weekNumber: number }[] = []
 
   for (let r = 0; r < rows.length; r++) {
-    // Scan ALL columns in this row for "Week Number" (it may not be in column 0)
     for (let c = 0; c < (rows[r]?.length || 0); c++) {
       const rawCell = String(rows[r][c] || '').trim()
       const cellLower = rawCell.toLowerCase()
       if (cellLower.includes('week') && (cellLower.includes('number') || cellLower.includes('#') || cellLower.includes('no'))) {
         weekNumberRowIdx = r
-        // Extract week numbers from columns AFTER the label
         for (let wc = c + 1; wc < rows[r].length; wc++) {
           const cellStr = String(rows[r][wc] || '').trim()
           const val = parseInt(cellStr)
@@ -154,7 +245,6 @@ function extractForecastFromRows(rows: string[][]): ForecastData {
     if (weekNumberRowIdx >= 0) break
   }
 
-  // --- Strategy 2: Fallback - look for "Week 1", "Week 2" etc. in header row ---
   if (weekColumns.length === 0) {
     const header = rows[0].map(h => String(h).trim())
     for (let i = 1; i < header.length; i++) {
@@ -164,14 +254,13 @@ function extractForecastFromRows(rows: string[][]): ForecastData {
         weekColumns.push({ colIndex: i, weekNumber: parseInt(weekMatch[1]) })
       }
     }
-    weekNumberRowIdx = 0 // header row is the week row
+    weekNumberRowIdx = 0
   }
 
   if (weekColumns.length === 0) {
     return { models: [] }
   }
 
-  // Known header/metadata rows to skip (case-insensitive partial match)
   const skipPatterns = [
     'week number', 'week of', 'working day', 'daily rate', 'constraint',
     'large slab', 'small slab', 'category', 'model', 'sku', 'part',
@@ -180,14 +269,10 @@ function extractForecastFromRows(rows: string[][]): ForecastData {
   ]
 
   const models: ForecastData['models'] = []
-
-  // Determine the first week column index so we know which columns are "label" columns
   const firstWeekColIdx = weekColumns.length > 0 ? Math.min(...weekColumns.map(w => w.colIndex)) : 1
 
-  // Scan rows after the week number row for model data
   const startRow = weekNumberRowIdx >= 0 ? weekNumberRowIdx + 1 : 1
   for (let r = startRow; r < rows.length; r++) {
-    // Find model name: scan all columns BEFORE the first week column for a text cell
     let modelName = ''
     for (let c = 0; c < firstWeekColIdx; c++) {
       const cell = String(rows[r][c] || '').trim()
@@ -518,6 +603,7 @@ export async function POST(request: Request) {
       success: true,
       message: `Synced customer forecast from ${targetFile.file_name}`,
       stats: {
+        extractedModels: output.models.map(m => m.modelName),
         modelsUpdated: matchedModels,
         unmatchedModels,
         totalUpdates: updates.length,

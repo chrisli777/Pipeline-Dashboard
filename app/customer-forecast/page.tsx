@@ -96,13 +96,16 @@ export default function CustomerForecastPage() {
       })
       const data = await res.json()
       if (data.success) {
+        const extractedMsg = data.stats.extractedModels?.length > 0
+          ? `\nExtracted from file: ${data.stats.extractedModels.join(', ')}`
+          : ''
         const skippedMsg = data.stats.skippedWeeks?.length > 0 
           ? `\nSkipped weeks (not in database): ${data.stats.skippedWeeks.join(', ')}`
           : ''
         const unmatchedMsg = data.stats.unmatchedModels?.length > 0
           ? `\nUnmatched models (no SKUs found): ${data.stats.unmatchedModels.join(', ')}`
           : ''
-        alert(`Sync completed!\n\nModels updated: ${data.stats.modelsUpdated.join(', ')}\nUpdates: ${data.stats.successCount} successful, ${data.stats.errorCount} errors${unmatchedMsg}${skippedMsg}`)
+        alert(`Sync completed!${extractedMsg}\n\nModels updated: ${data.stats.modelsUpdated.join(', ') || 'None'}\nUpdates: ${data.stats.successCount} successful, ${data.stats.errorCount} errors${unmatchedMsg}${skippedMsg}`)
         // Hard redirect to dashboard - ensures full page reload with fresh data
         window.location.href = '/'
       } else {
