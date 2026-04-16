@@ -85,6 +85,25 @@ export function SyncDialog({ open, onOpenChange, skus, onSync, syncing }: SyncDi
     return Array.from({ length: 53 }, (_, i) => i + 1)
   }, [])
 
+  // Group SKUs by supplier
+  const skusBySupplier = useMemo(() => {
+    const groups: Record<string, SKUData[]> = {}
+    skus.forEach(sku => {
+      const supplier = sku.supplierCode || 'Unknown'
+      if (!groups[supplier]) {
+        groups[supplier] = []
+      }
+      groups[supplier].push(sku)
+    })
+    // Sort suppliers alphabetically, but put 'Unknown' at the end
+    const sortedSuppliers = Object.keys(groups).sort((a, b) => {
+      if (a === 'Unknown') return 1
+      if (b === 'Unknown') return -1
+      return a.localeCompare(b)
+    })
+    return { groups, sortedSuppliers }
+  }, [skus])
+
   const handleSkuChange = (skuId: string, checked: boolean) => {
     if (skuId === 'all') {
       setSelectedSkus(checked ? ['all'] : [])
@@ -98,6 +117,34 @@ export function SyncDialog({ open, onOpenChange, skus, onSync, syncing }: SyncDi
         }
       })
     }
+  }
+
+  const handleSupplierSelectAll = (supplier: string, checked: boolean) => {
+    const supplierSkuIds = skusBySupplier.groups[supplier]?.map(sku => sku.id) || []
+    setSelectedSkus(prev => {
+      const newSkus = prev.filter(id => id !== 'all')
+      if (checked) {
+        // Add all SKUs from this supplier that aren't already selected
+        const toAdd = supplierSkuIds.filter(id => !newSkus.includes(id))
+        return [...newSkus, ...toAdd]
+      } else {
+        // Remove all SKUs from this supplier
+        return newSkus.filter(id => !supplierSkuIds.includes(id))
+      }
+    })
+  }
+
+  const isSupplierAllSelected = (supplier: string) => {
+    if (isAllSkusSelected) return true
+    const supplierSkuIds = skusBySupplier.groups[supplier]?.map(sku => sku.id) || []
+    return supplierSkuIds.length > 0 && supplierSkuIds.every(id => selectedSkus.includes(id))
+  }
+
+  const isSupplierPartiallySelected = (supplier: string) => {
+    if (isAllSkusSelected) return false
+    const supplierSkuIds = skusBySupplier.groups[supplier]?.map(sku => sku.id) || []
+    const selectedCount = supplierSkuIds.filter(id => selectedSkus.includes(id)).length
+    return selectedCount > 0 && selectedCount < supplierSkuIds.length
   }
 
   const handleFieldChange = (fieldId: SyncableField, checked: boolean) => {
@@ -178,8 +225,9 @@ export function SyncDialog({ open, onOpenChange, skus, onSync, syncing }: SyncDi
           {/* SKU Selection */}
           <div className="space-y-2">
             <Label className="text-sm font-medium">SKUs</Label>
-            <div className="grid grid-cols-2 gap-2 max-h-[150px] overflow-y-auto border rounded-md p-2">
-              <div className="flex items-center space-x-2">
+            <div className="max-h-[200px] overflow-y-auto border rounded-md p-2 space-y-3">
+              {/* All SKUs option */}
+              <div className="flex items-center space-x-2 pb-2 border-b">
                 <Checkbox 
                   id="sku-all" 
                   checked={isAllSkusSelected}
@@ -187,15 +235,38 @@ export function SyncDialog({ open, onOpenChange, skus, onSync, syncing }: SyncDi
                 />
                 <Label htmlFor="sku-all" className="text-sm font-medium">All SKUs</Label>
               </div>
-              {skus.map(sku => (
-                <div key={sku.id} className="flex items-center space-x-2">
-                  <Checkbox 
-                    id={`sku-${sku.id}`}
-                    checked={isAllSkusSelected || selectedSkus.includes(sku.id)}
-                    disabled={isAllSkusSelected}
-                    onCheckedChange={(checked) => handleSkuChange(sku.id, !!checked)}
-                  />
-                  <Label htmlFor={`sku-${sku.id}`} className="text-sm">{sku.id}</Label>
+              
+              {/* SKUs grouped by supplier */}
+              {skusBySupplier.sortedSuppliers.map(supplier => (
+                <div key={supplier} className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox 
+                      id={`supplier-${supplier}`}
+                      checked={isSupplierAllSelected(supplier)}
+                      disabled={isAllSkusSelected}
+                      className={isSupplierPartiallySelected(supplier) ? "data-[state=unchecked]:bg-primary/30" : ""}
+                      onCheckedChange={(checked) => handleSupplierSelectAll(supplier, !!checked)}
+                    />
+                    <Label 
+                      htmlFor={`supplier-${supplier}`} 
+                      className="text-xs font-semibold text-muted-foreground uppercase tracking-wide cursor-pointer"
+                    >
+                      {supplier}
+                    </Label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 pl-5">
+                    {skusBySupplier.groups[supplier].map(sku => (
+                      <div key={sku.id} className="flex items-center space-x-2">
+                        <Checkbox 
+                          id={`sku-${sku.id}`}
+                          checked={isAllSkusSelected || selectedSkus.includes(sku.id)}
+                          disabled={isAllSkusSelected}
+                          onCheckedChange={(checked) => handleSkuChange(sku.id, !!checked)}
+                        />
+                        <Label htmlFor={`sku-${sku.id}`} className="text-sm">{sku.id}</Label>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>

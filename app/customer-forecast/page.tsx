@@ -96,13 +96,16 @@ export default function CustomerForecastPage() {
       })
       const data = await res.json()
       if (data.success) {
+        const extractedMsg = data.stats.extractedModels?.length > 0
+          ? `\nExtracted from file: ${data.stats.extractedModels.join(', ')}`
+          : ''
         const skippedMsg = data.stats.skippedWeeks?.length > 0 
           ? `\nSkipped weeks (not in database): ${data.stats.skippedWeeks.join(', ')}`
           : ''
         const unmatchedMsg = data.stats.unmatchedModels?.length > 0
           ? `\nUnmatched models (no SKUs found): ${data.stats.unmatchedModels.join(', ')}`
           : ''
-        alert(`Sync completed!\n\nModels updated: ${data.stats.modelsUpdated.join(', ')}\nUpdates: ${data.stats.successCount} successful, ${data.stats.errorCount} errors${unmatchedMsg}${skippedMsg}`)
+        alert(`Sync completed!${extractedMsg}\n\nModels updated: ${data.stats.modelsUpdated.join(', ') || 'None'}\nUpdates: ${data.stats.successCount} successful, ${data.stats.errorCount} errors${unmatchedMsg}${skippedMsg}`)
         // Hard redirect to dashboard - ensures full page reload with fresh data
         window.location.href = '/'
       } else {
@@ -200,7 +203,7 @@ export default function CustomerForecastPage() {
                 <Input
                   id="file"
                   type="file"
-                  accept=".pdf,.xlsx,.xls,.csv"
+                  accept=".pdf,.xlsx,.xls,.xlsm,.csv"
                   onChange={handleFileChange}
                   className="cursor-pointer max-w-md"
                 />
@@ -259,7 +262,7 @@ export default function CustomerForecastPage() {
                     <TableRow key={file.id}>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
-                          {file.file_name.match(/\.(xlsx?|csv)$/i) ? (
+                          {file.file_name.match(/\.(xlsx?|xlsm|csv)$/i) ? (
                             <FileSpreadsheet className="h-4 w-4 text-green-600" />
                           ) : (
                             <FileText className="h-4 w-4 text-red-500" />
