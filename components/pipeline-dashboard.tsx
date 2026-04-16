@@ -187,10 +187,19 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
         if (batchEnded) {
           // After batch ends, new batch: ATA = ETA directly
           sku.allWeeks[i].ata = weekEta
+          // If this is a non-zero ETA, start tracking a new potential batch
+          if (weekEta > 0) {
+            batchEnded = false // Reset for potential future rollover from new syncs
+          }
         } else if (weekEta === 0) {
-          // Batch end marker - set ATA = 0 and start new batch
+          // ETA = 0, set ATA = 0
+          // Only mark batch as ended if we've consumed all remaining synced ATA
+          // This handles cases with consecutive ETA=0 weeks (e.g., ETA: 0, 0, 8, 2)
           sku.allWeeks[i].ata = 0
-          batchEnded = true
+          if (remainingSyncedAta <= 0) {
+            batchEnded = true
+          }
+          // If remainingSyncedAta > 0, keep looking for the next ETA to consume
         } else if (remainingSyncedAta >= weekEta) {
           // This week's ETA is fully consumed by remaining synced ATA
           remainingSyncedAta -= weekEta
