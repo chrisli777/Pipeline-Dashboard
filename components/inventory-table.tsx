@@ -124,12 +124,12 @@ const ROW_TYPE_ORDER: RowType[] = [
 // 
 // Logic:
 // 1. ATA at week X (early arrival) covers ETA values starting from week X+1 (NEXT week)
-// 2. Each ETA week came from ETD week (ETA week - leadTime)
+// 2. Only match ETA weeks where the sum EXACTLY equals the ATA value
+// 3. Each ETA week came from ETD week (ETA week - leadTime)
 //
 // Example: ATA Week 17 = 12, Lead time = 6 weeks
-// - ATA 12 covers ETA starting from Week 18 (24) - partially covers it
-// - ETA Week 18 came from ETD Week 12 (18 - 6)
-// - Highlight ETA Week 18 and ETD Week 12
+// - Look for ETA weeks starting from Week 18 that sum to exactly 12
+// - If found, map those ETA weeks back to their source ETD weeks
 function calculateSourceWeeksFromAta(sku: SKUData, ataWeekNumber: number): { ataWeeks: number[], etaWeeks: number[], etdWeeks: number[] } {
   const weeks = sku.weeks
   const ataWeekIndex = weeks.findIndex(w => w.weekNumber === ataWeekNumber)
@@ -142,15 +142,36 @@ function calculateSourceWeeksFromAta(sku: SKUData, ataWeekNumber: number): { ata
   
   // Step 1: Find which ETA weeks this ATA covers
   // ATA is early arrival, so it covers ETA starting from NEXT week (ataWeekIndex + 1)
+  // Only include ETA weeks if they sum to EXACTLY the ATA value
   const coveredEtaWeeks: number[] = []
-  let remainingAta = ataValue
+  let accumulatedEta = 0
   
-  for (let i = ataWeekIndex + 1; i < weeks.length && remainingAta > 0; i++) {
+  for (let i = ataWeekIndex + 1; i < weeks.length; i++) {
     const etaValue = weeks[i]?.eta ?? 0
     if (etaValue > 0) {
-      coveredEtaWeeks.push(weeks[i].weekNumber)
-      remainingAta -= etaValue
+      // Check if adding this ETA would exceed ATA
+      if (accumulatedEta + etaValue <= ataValue) {
+        coveredEtaWeeks.push(weeks[i].weekNumber)
+        accumulatedEta += etaValue
+        // Stop if we've reached exactly the ATA value
+        if (accumulatedEta === ataValue) {
+          break
+        }
+      } else if (accumulatedEta === 0 && etaValue === ataValue) {
+        // Single ETA matches exactly
+        coveredEtaWeeks.push(weeks[i].weekNumber)
+        accumulatedEta = etaValue
+        break
+      } else {
+        // This ETA would exceed - stop searching
+        break
+      }
     }
+  }
+  
+  // Only return results if we found an exact match
+  if (accumulatedEta !== ataValue) {
+    return { ataWeeks: [ataWeekNumber], etaWeeks: [], etdWeeks: [] }
   }
   
   // Step 2: Map each ETA week back to its source ETD week
