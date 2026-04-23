@@ -122,18 +122,15 @@ const ROW_TYPE_ORDER: RowType[] = [
 
 // Calculate which ETD weeks correspond to a given ATA week
 // 
-// The relationship is: ETD → (leadTime weeks later) → ETA → ATA (rollover)
+// Direct relationship: ETD week X → ATA arrives at week (X + leadTime)
 // 
-// When ATA arrives EARLY, it covers FUTURE ETA weeks (rollover):
-// - ATA Week 15 = 32 means goods arrived early in week 15
-// - This ATA covers ETA from FUTURE weeks (Week 16 = 24, Week 17 = 8)
-// - Those ETA weeks came from ETD weeks (ETA week - leadTime)
+// So for ATA at week Y, the source ETD is at week (Y - leadTime)
+// If ATA value is larger than a single ETD, we accumulate from consecutive ETD weeks
 //
 // Example: ATA Week 15 = 32, Lead time = 6 weeks
-// - This ATA covers ETA Week 16 (24) and Week 17 (8) via rollover
-// - ETA Week 16 came from ETD Week 10 (16 - 6 = 10)
-// - ETA Week 17 came from ETD Week 11 (17 - 6 = 11)
-// - So highlight ETD Weeks 10 and 11
+// - Look at ETD Week 9 (15 - 6 = 9) and nearby weeks
+// - Find ETD values that sum up to 32 (e.g., ETD Week 9 = 24, Week 10 = 8)
+// - Highlight those ETD weeks
 function calculateEtdSourceWeeks(sku: SKUData, ataWeekNumber: number): number[] {
   const weeks = sku.weeks
   const ataWeekIndex = weeks.findIndex(w => w.weekNumber === ataWeekNumber)
@@ -144,33 +141,38 @@ function calculateEtdSourceWeeks(sku: SKUData, ataWeekNumber: number): number[] 
   
   const leadTimeWeeks = sku.leadTimeWeeks ?? 4
   
-  // Step 1: Find which ETA weeks this ATA covers (via rollover logic)
-  // ATA arrives early, so it covers FUTURE ETA weeks starting from the NEXT week
-  const coveredEtaWeeks: number[] = []
+  // Calculate the expected ETD week based on lead time
+  const expectedEtdWeekNumber = ataWeekNumber - leadTimeWeeks
+  
+  // Find ETD weeks that sum up to the ATA value
+  // Start from expected ETD week and look backwards to find matching shipments
+  const sourceEtdWeeks: number[] = []
   let remainingAta = ataValue
   
-  // Start from the NEXT week after ATA (ataWeekIndex + 1), not the current week
-  for (let i = ataWeekIndex + 1; i < weeks.length && remainingAta > 0; i++) {
-    const etaValue = weeks[i]?.eta ?? 0
-    if (etaValue > 0) {
-      coveredEtaWeeks.push(weeks[i].weekNumber)
-      remainingAta -= etaValue
+  // Look for ETD values starting from expectedEtdWeekNumber going backwards
+  // This handles cases where multiple shipments arrive together
+  for (let weekNum = expectedEtdWeekNumber; weekNum >= expectedEtdWeekNumber - 5 && remainingAta > 0; weekNum--) {
+    const week = weeks.find(w => w.weekNumber === weekNum)
+    const etdValue = week?.etd ?? 0
+    if (etdValue > 0) {
+      sourceEtdWeeks.push(weekNum)
+      remainingAta -= etdValue
     }
   }
   
-  // Step 2: Map each ETA week back to its source ETD week
-  // ETD week = ETA week - leadTimeWeeks
-  const sourceEtdWeeks: number[] = []
-  for (const etaWeekNum of coveredEtaWeeks) {
-    const etdWeekNum = etaWeekNum - leadTimeWeeks
-    // Check if this ETD week exists in our data and has a value
-    const etdWeek = weeks.find(w => w.weekNumber === etdWeekNum)
-    if (etdWeek && (etdWeek.etd ?? 0) > 0) {
-      sourceEtdWeeks.push(etdWeekNum)
+  // If we didn't find exact matches, also look forward a bit (in case of early arrival)
+  if (remainingAta > 0) {
+    for (let weekNum = expectedEtdWeekNumber + 1; weekNum <= expectedEtdWeekNumber + 3 && remainingAta > 0; weekNum++) {
+      const week = weeks.find(w => w.weekNumber === weekNum)
+      const etdValue = week?.etd ?? 0
+      if (etdValue > 0 && !sourceEtdWeeks.includes(weekNum)) {
+        sourceEtdWeeks.push(weekNum)
+        remainingAta -= etdValue
+      }
     }
   }
   
-  return sourceEtdWeeks
+  return sourceEtdWeeks.sort((a, b) => a - b)
 }
 
 export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataChange }: InventoryTableProps) {
