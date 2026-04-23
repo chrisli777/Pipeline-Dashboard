@@ -110,69 +110,66 @@ function getCellBackground(rowType: RowType, value: number | null): string {
   return ''
 }
 
-// Note: 'eta' is kept in data/calculations but hidden from display
 const ROW_TYPE_ORDER: RowType[] = [
   'customerForecast',
   'actualConsumption',
   'etd',
+  'eta',
   'ata',
   'defect',
   'actualInventory',
 ]
 
-// Calculate which ETD weeks correspond to a given ATA week
+// Calculate which ETA weeks the ATA covers, and which ETD weeks those ETA came from
 // 
-// Direct relationship: ETD week X → ATA arrives at week (X + leadTime)
-// 
-// So for ATA at week Y, the source ETD is at week (Y - leadTime)
-// If ATA value is larger than a single ETD, we accumulate from consecutive ETD weeks
+// Logic:
+// 1. ATA at week X covers ETA values starting from week X going forward
+// 2. Each ETA week came from ETD week (ETA week - leadTime)
 //
 // Example: ATA Week 15 = 32, Lead time = 6 weeks
-// - Look at ETD Week 9 (15 - 6 = 9) and nearby weeks
-// - Find ETD values that sum up to 32 (e.g., ETD Week 9 = 24, Week 10 = 8)
-// - Highlight those ETD weeks
-function calculateEtdSourceWeeks(sku: SKUData, ataWeekNumber: number): number[] {
+// - ATA 32 covers ETA Week 15 (0), Week 16 (24), Week 17 (8) = 32 total
+// - ETA Week 16 came from ETD Week 10 (16 - 6)
+// - ETA Week 17 came from ETD Week 11 (17 - 6)
+// - Highlight ETA Weeks 16, 17 and ETD Weeks 10, 11
+function calculateSourceWeeks(sku: SKUData, ataWeekNumber: number): { etaWeeks: number[], etdWeeks: number[] } {
   const weeks = sku.weeks
   const ataWeekIndex = weeks.findIndex(w => w.weekNumber === ataWeekNumber)
-  if (ataWeekIndex < 0) return []
+  if (ataWeekIndex < 0) return { etaWeeks: [], etdWeeks: [] }
   
   const ataValue = weeks[ataWeekIndex].ata ?? 0
-  if (ataValue === 0) return []
+  if (ataValue === 0) return { etaWeeks: [], etdWeeks: [] }
   
   const leadTimeWeeks = sku.leadTimeWeeks ?? 4
   
-  // Calculate the expected ETD week based on lead time
-  const expectedEtdWeekNumber = ataWeekNumber - leadTimeWeeks
-  
-  // Find ETD weeks that sum up to the ATA value
-  // Start from expected ETD week and look backwards to find matching shipments
-  const sourceEtdWeeks: number[] = []
+  // Step 1: Find which ETA weeks this ATA covers
+  // Start from the ATA week and go forward, consuming ETA until we match the ATA value
+  const coveredEtaWeeks: number[] = []
   let remainingAta = ataValue
   
-  // Look for ETD values starting from expectedEtdWeekNumber going backwards
-  // This handles cases where multiple shipments arrive together
-  for (let weekNum = expectedEtdWeekNumber; weekNum >= expectedEtdWeekNumber - 5 && remainingAta > 0; weekNum--) {
-    const week = weeks.find(w => w.weekNumber === weekNum)
-    const etdValue = week?.etd ?? 0
-    if (etdValue > 0) {
-      sourceEtdWeeks.push(weekNum)
-      remainingAta -= etdValue
+  for (let i = ataWeekIndex; i < weeks.length && remainingAta > 0; i++) {
+    const etaValue = weeks[i]?.eta ?? 0
+    if (etaValue > 0) {
+      coveredEtaWeeks.push(weeks[i].weekNumber)
+      remainingAta -= etaValue
     }
   }
   
-  // If we didn't find exact matches, also look forward a bit (in case of early arrival)
-  if (remainingAta > 0) {
-    for (let weekNum = expectedEtdWeekNumber + 1; weekNum <= expectedEtdWeekNumber + 3 && remainingAta > 0; weekNum++) {
-      const week = weeks.find(w => w.weekNumber === weekNum)
-      const etdValue = week?.etd ?? 0
-      if (etdValue > 0 && !sourceEtdWeeks.includes(weekNum)) {
-        sourceEtdWeeks.push(weekNum)
-        remainingAta -= etdValue
-      }
+  // Step 2: Map each ETA week back to its source ETD week
+  // ETD week = ETA week - leadTimeWeeks
+  const sourceEtdWeeks: number[] = []
+  for (const etaWeekNum of coveredEtaWeeks) {
+    const etdWeekNum = etaWeekNum - leadTimeWeeks
+    // Check if this ETD week exists in our data and has a value
+    const etdWeek = weeks.find(w => w.weekNumber === etdWeekNum)
+    if (etdWeek && (etdWeek.etd ?? 0) > 0) {
+      sourceEtdWeeks.push(etdWeekNum)
     }
   }
   
-  return sourceEtdWeeks.sort((a, b) => a - b)
+  return { 
+    etaWeeks: coveredEtaWeeks.sort((a, b) => a - b),
+    etdWeeks: sourceEtdWeeks.sort((a, b) => a - b)
+  }
 }
 
 export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataChange }: InventoryTableProps) {
@@ -181,9 +178,10 @@ export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataC
     w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
   ) || []
   
-  // State for ETD-ATA hover highlighting
+  // State for ETD-ETA-ATA hover highlighting
   const [hoveredAtaCell, setHoveredAtaCell] = useState<{ skuId: string; weekNumber: number } | null>(null)
   const [highlightedEtdWeeks, setHighlightedEtdWeeks] = useState<Set<number>>(new Set())
+  const [highlightedEtaWeeks, setHighlightedEtaWeeks] = useState<Set<number>>(new Set())
   
   const topScrollRef = useRef<HTMLDivElement>(null)
   const bottomScrollRef = useRef<HTMLDivElement>(null)
@@ -278,14 +276,17 @@ export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataC
               weekRange={weekRange}
               highlightedSet={highlightedSet}
               highlightedEtdWeeks={hoveredAtaCell?.skuId === sku.id ? highlightedEtdWeeks : new Set()}
+              highlightedEtaWeeks={hoveredAtaCell?.skuId === sku.id ? highlightedEtaWeeks : new Set()}
               onDataChange={onDataChange}
               onAtaHover={(skuId, weekNumber) => {
                 setHoveredAtaCell({ skuId, weekNumber })
-                const etdWeeks = calculateEtdSourceWeeks(sku, weekNumber)
+                const { etaWeeks, etdWeeks } = calculateSourceWeeks(sku, weekNumber)
+                setHighlightedEtaWeeks(new Set(etaWeeks))
                 setHighlightedEtdWeeks(new Set(etdWeeks))
               }}
               onAtaLeave={() => {
                 setHoveredAtaCell(null)
+                setHighlightedEtaWeeks(new Set())
                 setHighlightedEtdWeeks(new Set())
               }}
             />
@@ -303,12 +304,13 @@ interface SKURowsProps {
   weekRange: { start: number; end: number }
   highlightedSet: Set<number>
   highlightedEtdWeeks: Set<number>
+  highlightedEtaWeeks: Set<number>
   onDataChange: (skuId: string, weekNumber: number, field: keyof WeekData, value: number | null) => void
   onAtaHover: (skuId: string, weekNumber: number) => void
   onAtaLeave: () => void
 }
 
-function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedEtdWeeks, onDataChange, onAtaHover, onAtaLeave }: SKURowsProps) {
+function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedEtdWeeks, highlightedEtaWeeks, onDataChange, onAtaHover, onAtaLeave }: SKURowsProps) {
   const skuWeeks = sku.weeks.filter(
     w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
   )
@@ -361,8 +363,10 @@ function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedEtd
             const isReadOnly =
               (rowType === 'actualInventory' && week.weekNumber !== 1)
             const isHighlighted = highlightedSet.has(week.weekNumber)
-            // Check if this ETD cell should be highlighted (when hovering on corresponding ATA)
+            // Check if this ETD or ETA cell should be highlighted (when hovering on corresponding ATA)
             const isEtdHighlighted = rowType === 'etd' && highlightedEtdWeeks.has(week.weekNumber)
+            const isEtaHighlighted = rowType === 'eta' && highlightedEtaWeeks.has(week.weekNumber)
+            const isSourceHighlighted = isEtdHighlighted || isEtaHighlighted
             // Check if this is an ATA cell with a value (for hover interaction)
             const isAtaCell = rowType === 'ata' && (value ?? 0) > 0
             
@@ -372,7 +376,7 @@ function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedEtd
                 className={cn(
                   "p-0", 
                   isHighlighted && "bg-amber-50",
-                  isEtdHighlighted && "!bg-cyan-200 ring-2 ring-cyan-400 ring-inset"
+                  isSourceHighlighted && "!bg-cyan-200 ring-2 ring-cyan-400 ring-inset"
                 )}
                 onMouseEnter={isAtaCell ? () => onAtaHover(sku.id, week.weekNumber) : undefined}
                 onMouseLeave={isAtaCell ? onAtaLeave : undefined}
@@ -382,7 +386,7 @@ function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedEtd
                   onChange={(v) => onDataChange(sku.id, week.weekNumber, rowType, v)}
                   className={cn(
                     getCellBackground(rowType, value) || (isHighlighted ? 'bg-amber-50' : ''),
-                    isEtdHighlighted && '!bg-cyan-200',
+                    isSourceHighlighted && '!bg-cyan-200',
                     isAtaCell && 'cursor-pointer hover:ring-2 hover:ring-cyan-400 hover:ring-inset'
                   )}
                   isReadOnly={isReadOnly}
