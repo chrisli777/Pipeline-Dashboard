@@ -561,13 +561,9 @@ export function PipelineDashboard() {
       const wb = new ExcelJS.Workbook()
       const ws = wb.addWorksheet('Pipeline', { views: [{ state: 'frozen', xSplit: 2, ySplit: 2 }] })
 
-// ETD is hidden from display but kept in data calculations
-const ROW_TYPE_ORDER: RowType[] = [
-  'customerForecast', 'actualConsumption', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'
-  ]
-  
-// Rows that start a new group (for thick border in Excel)
-const GROUP_START_ROWS: RowType[] = ['customerForecast', 'eta', 'defect']
+      const ROW_TYPE_ORDER: RowType[] = [
+        'customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'
+      ]
 
       const weeks = filteredSkus[0]?.weeks.filter(
         w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
@@ -683,15 +679,8 @@ const GROUP_START_ROWS: RowType[] = ['customerForecast', 'eta', 'defect']
           const row = ws.addRow([skuCell, label, ...values])
 
           // Style each cell in the row
-          const isGroupStart = GROUP_START_ROWS.includes(rowType)
           row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-            // Apply thick top border for group start rows
-            cell.border = isGroupStart ? {
-              top: { style: 'medium', color: { argb: 'FF666666' } },
-              left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
-              bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } },
-              right: { style: 'thin', color: { argb: 'FFE0E0E0' } },
-            } : thinBorder
+            cell.border = thinBorder
             cell.alignment = { horizontal: colNumber <= 2 ? 'left' : 'center', vertical: 'middle', wrapText: colNumber === 1 }
             cell.font = { bold: colNumber <= 2, size: colNumber === 1 ? 9 : 8 }
 
