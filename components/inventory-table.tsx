@@ -144,18 +144,13 @@ function calculateSourceWeeksFromAta(sku: SKUData, ataWeekNumber: number): { ata
   
   const leadTimeWeeks = sku.leadTimeWeeks ?? 4
   
-  // Debug: log ETA values for this SKU
-  console.log(`[v0] ATA Week ${ataWeekNumber} = ${ataValue}, ETA values:`, 
-    weeks.slice(ataWeekIndex, ataWeekIndex + 5).map(w => ({ week: w.weekNumber, eta: w.eta }))
-  )
-  
   // Step 1: Find which ETA weeks this ATA covers
-  // Start from the SAME week (ataWeekIndex), not next week
-  // This follows the actual rollover logic
+  // Rollover logic: ATA at week X consumes ETA starting from week X+1 (NEXT week)
+  // Example: ATA 32 at week 3 consumes ETA week 4 (16) + week 5 (16) = 32
   const coveredEtaWeeks: number[] = []
   let accumulatedEta = 0
   
-  for (let i = ataWeekIndex; i < weeks.length; i++) {
+  for (let i = ataWeekIndex + 1; i < weeks.length; i++) {
     const etaValue = weeks[i]?.eta ?? 0
     if (etaValue > 0) {
       // Check if adding this ETA would exceed ATA
