@@ -122,16 +122,17 @@ const ROW_TYPE_ORDER: RowType[] = [
 
 // Calculate which ETD weeks correspond to a given ATA week
 // 
-// The relationship is: ETD → (leadTime weeks later) → ETA → ATA
+// The relationship is: ETD → (leadTime weeks later) → ETA → ATA (rollover)
 // 
-// When ATA rolls over (e.g., ATA=32 covers ETA Week15=24 + Week16=8):
-// - We first find which ETA weeks this ATA covers
-// - Then map those ETA weeks back to their source ETD weeks (ETA week - leadTime)
+// When ATA arrives EARLY, it covers FUTURE ETA weeks (rollover):
+// - ATA Week 15 = 32 means goods arrived early in week 15
+// - This ATA covers ETA from FUTURE weeks (Week 16 = 24, Week 17 = 8)
+// - Those ETA weeks came from ETD weeks (ETA week - leadTime)
 //
-// Example: ATA Week 15 = 32, Lead time = 5 weeks
-// - This ATA covers ETA Week 15 (24) and Week 16 (8) via rollover
-// - ETA Week 15 came from ETD Week 10 (15 - 5 = 10)
-// - ETA Week 16 came from ETD Week 11 (16 - 5 = 11)
+// Example: ATA Week 15 = 32, Lead time = 6 weeks
+// - This ATA covers ETA Week 16 (24) and Week 17 (8) via rollover
+// - ETA Week 16 came from ETD Week 10 (16 - 6 = 10)
+// - ETA Week 17 came from ETD Week 11 (17 - 6 = 11)
 // - So highlight ETD Weeks 10 and 11
 function calculateEtdSourceWeeks(sku: SKUData, ataWeekNumber: number): number[] {
   const weeks = sku.weeks
@@ -144,11 +145,12 @@ function calculateEtdSourceWeeks(sku: SKUData, ataWeekNumber: number): number[] 
   const leadTimeWeeks = sku.leadTimeWeeks ?? 4
   
   // Step 1: Find which ETA weeks this ATA covers (via rollover logic)
-  // Start from the ATA week and go forward, consuming ETA until we match the ATA value
+  // ATA arrives early, so it covers FUTURE ETA weeks starting from the NEXT week
   const coveredEtaWeeks: number[] = []
   let remainingAta = ataValue
   
-  for (let i = ataWeekIndex; i < weeks.length && remainingAta > 0; i++) {
+  // Start from the NEXT week after ATA (ataWeekIndex + 1), not the current week
+  for (let i = ataWeekIndex + 1; i < weeks.length && remainingAta > 0; i++) {
     const etaValue = weeks[i]?.eta ?? 0
     if (etaValue > 0) {
       coveredEtaWeeks.push(weeks[i].weekNumber)
