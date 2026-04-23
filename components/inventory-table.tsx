@@ -177,11 +177,17 @@ function calculateSourceWeeksFromAta(sku: SKUData, ataWeekNumber: number): { ata
   }
   
   // Step 3: Map each ETA week back to its source ETD week
+  // Formula: ETD week = ETA week - leadTimeWeeks
+  // Also verify that ETD value matches ETA value for proper association
   const sourceEtdWeeks: number[] = []
   for (const etaWeekNum of coveredEtaWeeks) {
     const etdWeekNum = etaWeekNum - leadTimeWeeks
     const etdWeek = weeks.find(w => w.weekNumber === etdWeekNum)
-    if (etdWeek && (etdWeek.etd ?? 0) > 0) {
+    const etaWeek = weeks.find(w => w.weekNumber === etaWeekNum)
+    const etdValue = etdWeek?.etd ?? 0
+    const etaValue = etaWeek?.eta ?? 0
+    // Only associate if ETD exists and ETD value matches ETA value
+    if (etdValue > 0 && etdValue === etaValue) {
       sourceEtdWeeks.push(etdWeekNum)
     }
   }
