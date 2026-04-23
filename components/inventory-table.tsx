@@ -122,14 +122,18 @@ const ROW_TYPE_ORDER: RowType[] = [
 
 // Calculate the relationship between ATA, ETA, and ETD
 // 
-// Logic:
-// 1. ATA at week X (early arrival) covers ETA values starting from week X+1 (NEXT week)
-// 2. Only match ETA weeks where the sum EXACTLY equals the ATA value
-// 3. Each ETA week came from ETD week (ETA week - leadTime)
+// Rollover Logic:
+// 1. ATA at week X FIRST tries to match ETA at the SAME week X
+// 2. If ATA == ETA at same week, they match directly (no rollover)
+// 3. If ATA > ETA at same week, excess rolls over to cover future ETA weeks
+// 4. Each ETA week came from ETD week (ETA week - leadTime)
 //
-// Example: ATA Week 17 = 12, Lead time = 6 weeks
-// - Look for ETA weeks starting from Week 18 that sum to exactly 12
-// - If found, map those ETA weeks back to their source ETD weeks
+// Example 1: ATA Week 4 = 48, ETA Week 4 = 48
+// - They match directly, highlight ETA Week 4
+//
+// Example 2: ATA Week 15 = 32, ETA Week 15 = 24, ETA Week 16 = 8
+// - ATA 32 covers ETA 24 (same week) + ETA 8 (next week) = 32 total
+// - Highlight ETA Weeks 15, 16
 function calculateSourceWeeksFromAta(sku: SKUData, ataWeekNumber: number): { ataWeeks: number[], etaWeeks: number[], etdWeeks: number[] } {
   const weeks = sku.weeks
   const ataWeekIndex = weeks.findIndex(w => w.weekNumber === ataWeekNumber)
@@ -141,12 +145,12 @@ function calculateSourceWeeksFromAta(sku: SKUData, ataWeekNumber: number): { ata
   const leadTimeWeeks = sku.leadTimeWeeks ?? 4
   
   // Step 1: Find which ETA weeks this ATA covers
-  // ATA is early arrival, so it covers ETA starting from NEXT week (ataWeekIndex + 1)
-  // Only include ETA weeks if they sum to EXACTLY the ATA value
+  // Start from the SAME week (ataWeekIndex), not next week
+  // This follows the actual rollover logic
   const coveredEtaWeeks: number[] = []
   let accumulatedEta = 0
   
-  for (let i = ataWeekIndex + 1; i < weeks.length; i++) {
+  for (let i = ataWeekIndex; i < weeks.length; i++) {
     const etaValue = weeks[i]?.eta ?? 0
     if (etaValue > 0) {
       // Check if adding this ETA would exceed ATA
@@ -157,11 +161,6 @@ function calculateSourceWeeksFromAta(sku: SKUData, ataWeekNumber: number): { ata
         if (accumulatedEta === ataValue) {
           break
         }
-      } else if (accumulatedEta === 0 && etaValue === ataValue) {
-        // Single ETA matches exactly
-        coveredEtaWeeks.push(weeks[i].weekNumber)
-        accumulatedEta = etaValue
-        break
       } else {
         // This ETA would exceed - stop searching
         break
