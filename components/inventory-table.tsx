@@ -177,11 +177,12 @@ function calculateSourceWeeksFromAta(sku: SKUData, ataWeekNumber: number): { ata
   }
   
   // Step 3: Map each ETA week back to its source ETD week
-  // Formula: ETD week = ETA week - leadTimeWeeks
+  // Formula from pipeline: ETA Week X = ETD Week (X - 6) - FIXED 6 weeks, not leadTimeWeeks
   // Also verify that ETD value matches ETA value for proper association
+  const ETA_ETD_OFFSET = 6  // Fixed 6 weeks as per pipeline formula
   const sourceEtdWeeks: number[] = []
   for (const etaWeekNum of coveredEtaWeeks) {
-    const etdWeekNum = etaWeekNum - leadTimeWeeks
+    const etdWeekNum = etaWeekNum - ETA_ETD_OFFSET
     const etdWeek = weeks.find(w => w.weekNumber === etdWeekNum)
     const etaWeek = weeks.find(w => w.weekNumber === etaWeekNum)
     const etdValue = etdWeek?.etd ?? 0
@@ -209,10 +210,10 @@ function calculateSourceWeeksFromEtd(sku: SKUData, etdWeekNumber: number): { ata
   const etdValue = weeks[etdWeekIndex].etd ?? 0
   if (etdValue === 0) return { ataWeeks: [], etaWeeks: [], etdWeeks: [] }
   
-  const leadTimeWeeks = sku.leadTimeWeeks ?? 4
+  const ETA_ETD_OFFSET = 6  // Fixed 6 weeks as per pipeline formula
   
-  // ETD week X arrives as ETA at week (X + leadTime)
-  const etaWeekNumber = etdWeekNumber + leadTimeWeeks
+  // ETD week X arrives as ETA at week (X + 6)
+  const etaWeekNumber = etdWeekNumber + ETA_ETD_OFFSET
   const etaWeek = weeks.find(w => w.weekNumber === etaWeekNumber)
   if (!etaWeek) return { ataWeeks: [], etaWeeks: [], etdWeeks: [etdWeekNumber] }
   
@@ -254,10 +255,10 @@ function calculateSourceWeeksFromEta(sku: SKUData, etaWeekNumber: number): { ata
   const etaValue = weeks[etaWeekIndex].eta ?? 0
   if (etaValue === 0) return { ataWeeks: [], etaWeeks: [], etdWeeks: [] }
   
-  const leadTimeWeeks = sku.leadTimeWeeks ?? 4
+  const ETA_ETD_OFFSET = 6  // Fixed 6 weeks as per pipeline formula
   
-  // Find source ETD week
-  const etdWeekNumber = etaWeekNumber - leadTimeWeeks
+  // Find source ETD week: ETD week = ETA week - 6
+  const etdWeekNumber = etaWeekNumber - ETA_ETD_OFFSET
   const etdWeek = weeks.find(w => w.weekNumber === etdWeekNumber)
   const sourceEtdWeeks = etdWeek && (etdWeek.etd ?? 0) > 0 ? [etdWeekNumber] : []
   
