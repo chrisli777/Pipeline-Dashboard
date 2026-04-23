@@ -273,6 +273,7 @@ export function PipelineDashboard() {
   const [syncing, setSyncing] = useState(false)
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<'admin' | 'viewer'>('admin')
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([])
   const [selectedVendors, setSelectedVendors] = useState<string[]>(['HX'])  // Default to HX
   const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([])
@@ -322,9 +323,27 @@ export function PipelineDashboard() {
     }
   }, [])
 
-  // Load data on mount
+  // Load data on mount and detect user role from session cookie
   useEffect(() => {
     fetchData()
+    // Get user role from session cookie
+    const getCookie = (name: string) => {
+      const value = `; ${document.cookie}`
+      const parts = value.split(`; ${name}=`)
+      if (parts.length === 2) return parts.pop()?.split(';').shift()
+      return undefined
+    }
+    try {
+      const sessionStr = getCookie('whi_session')
+      if (sessionStr) {
+        const session = JSON.parse(decodeURIComponent(sessionStr))
+        if (session.role === 'viewer') {
+          setUserRole('viewer')
+        }
+      }
+    } catch {
+      // Ignore parse errors
+    }
   }, [fetchData])
 
   // Derive inventory alerts from SKU data
@@ -430,13 +449,21 @@ export function PipelineDashboard() {
     []
   )
 
-  // Save all pending changes to database
+  // Save all pending changes to database (or locally for viewer role)
   const handleSave = useCallback(async () => {
     if (pendingChanges.length === 0) return
 
     setSaving(true)
     try {
-      // Save all changes in parallel
+      // For viewer role, just clear pending changes (local save only, no API call)
+      if (userRole === 'viewer') {
+        setPendingChanges([])
+        setHasUnsavedChanges(false)
+        setSaving(false)
+        return
+      }
+
+      // Save all changes in parallel (admin role)
       const savePromises = pendingChanges.map((change) =>
         fetch('/api/inventory/update', {
           method: 'POST',
@@ -467,7 +494,7 @@ export function PipelineDashboard() {
     } finally {
       setSaving(false)
     }
-  }, [pendingChanges, fetchData])
+  }, [pendingChanges, fetchData, userRole])
 
   // Sync data based on configuration from dialog
   // Token routing is handled server-side based on SKU
@@ -812,25 +839,34 @@ export function PipelineDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {userRole === 'viewer' && (
+              <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded font-medium">
+                View Only Mode
+              </span>
+            )}
             {hasUnsavedChanges && (
               <span className="text-sm text-blue-700 font-medium">
                 {pendingChanges.length} unsaved change{pendingChanges.length !== 1 ? 's' : ''}
+                {userRole === 'viewer' && ' (local only)'}
               </span>
             )}
-            <Button
-              variant="outline"
-              size="sm" 
-              onClick={() => setSyncDialogOpen(true)} 
-              disabled={loading || saving || syncing}
-              className="border-blue-500 text-blue-600 hover:bg-blue-50 bg-transparent"
-            >
-              {syncing ? (
-                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-              ) : (
-                <CloudDownload className="mr-1 h-4 w-4" />
-              )}
-              Sync
-            </Button>
+            {/* Sync button - hidden for viewer role */}
+            {userRole === 'admin' && (
+              <Button
+                variant="outline"
+                size="sm" 
+                onClick={() => setSyncDialogOpen(true)} 
+                disabled={loading || saving || syncing}
+                className="border-blue-500 text-blue-600 hover:bg-blue-50 bg-transparent"
+              >
+                {syncing ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <CloudDownload className="mr-1 h-4 w-4" />
+                )}
+                Sync
+              </Button>
+            )}
             <Button 
               size="sm" 
               onClick={handleSave} 
@@ -842,7 +878,7 @@ export function PipelineDashboard() {
               ) : (
                 <Save className="mr-1 h-4 w-4" />
               )}
-              Save
+              {userRole === 'viewer' ? 'Save Local' : 'Save'}
             </Button>
             <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
               <Download className="mr-1 h-4 w-4" />
@@ -881,6 +917,7 @@ export function PipelineDashboard() {
           weekRange={weekRange}
           highlightedWeeks={highlightedWeeks}
           onDataChange={handleDataChange}
+          userRole={userRole}
         />
 
         {/* Legend */}

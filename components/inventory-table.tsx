@@ -11,6 +11,7 @@ interface InventoryTableProps {
   weekRange: { start: number; end: number }
   highlightedWeeks?: number[]
   onDataChange: (skuId: string, weekNumber: number, field: keyof WeekData, value: number | null) => void
+  userRole?: 'admin' | 'viewer'  // viewer can only edit ETD
 }
 
 interface EditableCellProps {
@@ -287,7 +288,7 @@ function calculateSourceWeeksFromEta(sku: SKUData, etaWeekNumber: number): { ata
   }
 }
 
-export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataChange }: InventoryTableProps) {
+export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataChange, userRole = 'admin' }: InventoryTableProps) {
   const highlightedSet = new Set(highlightedWeeks)
   const filteredWeeks = skus[0]?.weeks.filter(
     w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
@@ -417,6 +418,7 @@ export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataC
                 setHighlightedEtaWeeks(new Set())
                 setHighlightedEtdWeeks(new Set())
               }}
+              userRole={userRole}
             />
           ))}
         </tbody>
@@ -436,10 +438,11 @@ interface SKURowsProps {
   highlightedEtaWeeks: Set<number>
   onDataChange: (skuId: string, weekNumber: number, field: keyof WeekData, value: number | null) => void
   onCellHover: (skuId: string, weekNumber: number, rowType: RowType) => void
+  userRole: 'admin' | 'viewer'
   onCellLeave: () => void
 }
 
-function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedAtaWeeks, highlightedEtdWeeks, highlightedEtaWeeks, onDataChange, onCellHover, onCellLeave }: SKURowsProps) {
+function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedAtaWeeks, highlightedEtdWeeks, highlightedEtaWeeks, onDataChange, onCellHover, onCellLeave, userRole }: SKURowsProps) {
   const skuWeeks = sku.weeks.filter(
     w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
   )
@@ -489,8 +492,10 @@ function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedAta
           {skuWeeks.map((week) => {
             const value = week[rowType]
             // Calculated Actual Inventory is read-only (except week 1)
+            // Viewer role can only edit ETD
             const isReadOnly =
-              (rowType === 'actualInventory' && week.weekNumber !== 1)
+              (rowType === 'actualInventory' && week.weekNumber !== 1) ||
+              (userRole === 'viewer' && rowType !== 'etd')
             const isHighlighted = highlightedSet.has(week.weekNumber)
             
             // Check if this cell should be highlighted based on hover

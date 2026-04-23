@@ -24,8 +24,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 })
   }
 
-  const response = NextResponse.json({ success: true, username: data[0].username })
-  response.cookies.set('whi_session', JSON.stringify({ user_id: data[0].user_id, username: data[0].username }), {
+  const userRole = data[0].role || 'admin'
+  const response = NextResponse.json({ success: true, username: data[0].username, role: userRole })
+  response.cookies.set('whi_session', JSON.stringify({ user_id: data[0].user_id, username: data[0].username, role: userRole }), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',

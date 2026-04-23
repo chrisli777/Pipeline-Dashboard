@@ -15,9 +15,38 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Already logged in on login page -> redirect to dashboard
+  // Already logged in on login page -> redirect appropriately based on role
   if (session && isLoginPage) {
+    try {
+      const sessionData = JSON.parse(session)
+      // Viewer role goes directly to pipeline dashboard
+      if (sessionData.role === 'viewer') {
+        return NextResponse.redirect(new URL('/pipeline', request.url))
+      }
+    } catch {
+      // If session parse fails, go to default
+    }
     return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  // Viewer role can only access pipeline page
+  if (session && !isPublicPath) {
+    try {
+      const sessionData = JSON.parse(session)
+      if (sessionData.role === 'viewer') {
+        const allowedPaths = ['/pipeline', '/api/']
+        const isAllowed = allowedPaths.some(path => request.nextUrl.pathname.startsWith(path))
+        if (!isAllowed && request.nextUrl.pathname !== '/') {
+          return NextResponse.redirect(new URL('/pipeline', request.url))
+        }
+        // Redirect viewer from home to pipeline
+        if (request.nextUrl.pathname === '/') {
+          return NextResponse.redirect(new URL('/pipeline', request.url))
+        }
+      }
+    } catch {
+      // If session parse fails, continue
+    }
   }
 
   return NextResponse.next()
