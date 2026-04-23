@@ -561,9 +561,13 @@ export function PipelineDashboard() {
       const wb = new ExcelJS.Workbook()
       const ws = wb.addWorksheet('Pipeline', { views: [{ state: 'frozen', xSplit: 2, ySplit: 2 }] })
 
-      const ROW_TYPE_ORDER: RowType[] = [
-        'customerForecast', 'actualConsumption', 'etd', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'
-      ]
+// ETD is hidden from display but kept in data calculations
+const ROW_TYPE_ORDER: RowType[] = [
+  'customerForecast', 'actualConsumption', 'eta', 'ata', 'defect', 'actualInventory', 'weeksOnHand'
+  ]
+  
+// Rows that start a new group (for thick border in Excel)
+const GROUP_START_ROWS: RowType[] = ['customerForecast', 'eta', 'defect']
 
       const weeks = filteredSkus[0]?.weeks.filter(
         w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end

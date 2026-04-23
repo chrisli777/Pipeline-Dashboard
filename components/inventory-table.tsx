@@ -110,15 +110,22 @@ function getCellBackground(rowType: RowType, value: number | null): string {
   return ''
 }
 
+// Row types grouped for display:
+// Group 1: Customer Forecast, Actual Consumption
+// Group 2: ETA, ATA (ETD is hidden but still used in calculations)
+// Group 3: Defect, Actual inventory on hand, Weeks on hand
 const ROW_TYPE_ORDER: RowType[] = [
   'customerForecast',
   'actualConsumption',
-  'etd',
+  // 'etd' - hidden from display but kept in data
   'eta',
   'ata',
   'defect',
   'actualInventory',
 ]
+
+// Rows that should have a thick top border (first row of each group)
+const GROUP_START_ROWS: RowType[] = ['customerForecast', 'eta', 'defect']
 
 export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataChange }: InventoryTableProps) {
   const highlightedSet = new Set(highlightedWeeks)
@@ -248,7 +255,7 @@ function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, onDataChange }
       {/* First row - with merged Part/Model cell */}
       <tr className="hover:bg-muted/30">
         <td 
-          className="sticky left-0 z-10 bg-blue-200 px-2 py-1 align-top shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]"
+          className="sticky left-0 z-10 bg-blue-200 px-2 py-1 align-top shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)] border-t-2 border-t-gray-400"
           rowSpan={totalRows}
         >
           <div className="text-sm font-bold">{sku.partModelNumber}</div>
@@ -264,11 +271,11 @@ function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, onDataChange }
             {sku.unitWeight != null && sku.unitWeight > 0 && <span>{sku.unitWeight.toLocaleString()} lbs</span>}
           </div>
         </td>
-        <td className="sticky left-[180px] z-10 bg-[#f8fafc] px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
+        <td className="sticky left-[180px] z-10 bg-[#f8fafc] px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)] border-t-2 border-t-gray-400">
           {ROW_LABELS.customerForecast}
         </td>
         {skuWeeks.map((week) => (
-          <td key={week.weekNumber} className={cn("p-0", highlightedSet.has(week.weekNumber) ? "bg-amber-50" : "bg-white")}>
+          <td key={week.weekNumber} className={cn("p-0 border-t-2 border-t-gray-400", highlightedSet.has(week.weekNumber) ? "bg-amber-50" : "bg-white")}>
             <EditableCell
               value={week.customerForecast}
               onChange={(v) => onDataChange(sku.id, week.weekNumber, 'customerForecast', v)}
@@ -278,32 +285,42 @@ function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, onDataChange }
       </tr>
 
       {/* Remaining data rows */}
-      {ROW_TYPE_ORDER.slice(1).map((rowType) => (
-        <tr key={`${sku.id}-${rowType}`} className="hover:bg-muted/30">
-          <td className="sticky left-[180px] z-10 bg-[#f8fafc] px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
-            {ROW_LABELS[rowType]}
-          </td>
-          {skuWeeks.map((week) => {
-            const value = week[rowType]
-            // Calculated Actual Inventory is read-only (except week 1)
-            const isReadOnly =
-              (rowType === 'actualInventory' && week.weekNumber !== 1)
-            const isHighlighted = highlightedSet.has(week.weekNumber)
-            return (
-              <td key={week.weekNumber} className={cn("p-0", isHighlighted && "bg-amber-50")}>
-                <EditableCell
-                  value={value}
-                  onChange={(v) => onDataChange(sku.id, week.weekNumber, rowType, v)}
-                  className={getCellBackground(rowType, value) || (isHighlighted ? 'bg-amber-50' : '')}
-                  isReadOnly={isReadOnly}
-                />
-              </td>
-            )
-          })}
-        </tr>
-      ))}
+      {ROW_TYPE_ORDER.slice(1).map((rowType) => {
+        const isGroupStart = GROUP_START_ROWS.includes(rowType)
+        return (
+          <tr key={`${sku.id}-${rowType}`} className="hover:bg-muted/30">
+            <td className={cn(
+              "sticky left-[180px] z-10 bg-[#f8fafc] px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]",
+              isGroupStart && "border-t-2 border-t-gray-400"
+            )}>
+              {ROW_LABELS[rowType]}
+            </td>
+            {skuWeeks.map((week) => {
+              const value = week[rowType]
+              // Calculated Actual Inventory is read-only (except week 1)
+              const isReadOnly =
+                (rowType === 'actualInventory' && week.weekNumber !== 1)
+              const isHighlighted = highlightedSet.has(week.weekNumber)
+              return (
+                <td key={week.weekNumber} className={cn(
+                  "p-0",
+                  isHighlighted && "bg-amber-50",
+                  isGroupStart && "border-t-2 border-t-gray-400"
+                )}>
+                  <EditableCell
+                    value={value}
+                    onChange={(v) => onDataChange(sku.id, week.weekNumber, rowType, v)}
+                    className={getCellBackground(rowType, value) || (isHighlighted ? 'bg-amber-50' : '')}
+                    isReadOnly={isReadOnly}
+                  />
+                </td>
+              )
+            })}
+          </tr>
+        )
+      })}
 
-      {/* Weeks on Hand Row - Calculated */}
+      {/* Weeks on Hand Row - Calculated (part of Group 3, no top border needed) */}
       <tr className="bg-blue-50">
         <td className="sticky left-[180px] z-10 bg-blue-50 px-2 py-1 text-xs font-bold shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]">
           Weeks on hand (actual / runout)
