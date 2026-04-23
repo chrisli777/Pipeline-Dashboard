@@ -121,8 +121,18 @@ const ROW_TYPE_ORDER: RowType[] = [
 ]
 
 // Calculate which ETD weeks correspond to a given ATA week
-// This traces back through the shipment timeline based on lead time
-// The logic matches ETD values that would have been shipped ~leadTime weeks before arrival
+// 
+// The relationship is: ETD → (leadTime weeks later) → ETA → ATA
+// 
+// When ATA rolls over (e.g., ATA=32 covers ETA Week15=24 + Week16=8):
+// - We first find which ETA weeks this ATA covers
+// - Then map those ETA weeks back to their source ETD weeks (ETA week - leadTime)
+//
+// Example: ATA Week 15 = 32, Lead time = 5 weeks
+// - This ATA covers ETA Week 15 (24) and Week 16 (8) via rollover
+// - ETA Week 15 came from ETD Week 10 (15 - 5 = 10)
+// - ETA Week 16 came from ETD Week 11 (16 - 5 = 11)
+// - So highlight ETD Weeks 10 and 11
 function calculateEtdSourceWeeks(sku: SKUData, ataWeekNumber: number): number[] {
   const weeks = sku.weeks
   const ataWeekIndex = weeks.findIndex(w => w.weekNumber === ataWeekNumber)
@@ -131,39 +141,34 @@ function calculateEtdSourceWeeks(sku: SKUData, ataWeekNumber: number): number[] 
   const ataValue = weeks[ataWeekIndex].ata ?? 0
   if (ataValue === 0) return []
   
-  // Find ETD weeks that correspond to this ATA
-  // Strategy: Look for ETD values around (ataWeek - leadTime) that sum up to the ATA value
   const leadTimeWeeks = sku.leadTimeWeeks ?? 4
-  const sourceWeeks: number[] = []
+  
+  // Step 1: Find which ETA weeks this ATA covers (via rollover logic)
+  // Start from the ATA week and go forward, consuming ETA until we match the ATA value
+  const coveredEtaWeeks: number[] = []
   let remainingAta = ataValue
   
-  // Expected ETD week is approximately ataWeek - leadTime
-  // Search in a window around that expected week
-  const expectedEtdWeekIndex = ataWeekIndex - leadTimeWeeks
-  const searchStart = Math.max(0, expectedEtdWeekIndex - 3)
-  const searchEnd = Math.min(weeks.length, expectedEtdWeekIndex + 3)
-  
-  // First pass: exact match at expected week
-  for (let i = searchStart; i < searchEnd && remainingAta > 0; i++) {
-    const etdValue = weeks[i]?.etd ?? 0
-    if (etdValue > 0 && etdValue <= remainingAta) {
-      sourceWeeks.push(weeks[i].weekNumber)
-      remainingAta -= etdValue
+  for (let i = ataWeekIndex; i < weeks.length && remainingAta > 0; i++) {
+    const etaValue = weeks[i]?.eta ?? 0
+    if (etaValue > 0) {
+      coveredEtaWeeks.push(weeks[i].weekNumber)
+      remainingAta -= etaValue
     }
   }
   
-  // If we couldn't find exact matches, look for partial matches
-  if (remainingAta > 0 && sourceWeeks.length === 0) {
-    for (let i = searchStart; i < searchEnd; i++) {
-      const etdValue = weeks[i]?.etd ?? 0
-      if (etdValue > 0) {
-        sourceWeeks.push(weeks[i].weekNumber)
-        break
-      }
+  // Step 2: Map each ETA week back to its source ETD week
+  // ETD week = ETA week - leadTimeWeeks
+  const sourceEtdWeeks: number[] = []
+  for (const etaWeekNum of coveredEtaWeeks) {
+    const etdWeekNum = etaWeekNum - leadTimeWeeks
+    // Check if this ETD week exists in our data and has a value
+    const etdWeek = weeks.find(w => w.weekNumber === etdWeekNum)
+    if (etdWeek && (etdWeek.etd ?? 0) > 0) {
+      sourceEtdWeeks.push(etdWeekNum)
     }
   }
   
-  return sourceWeeks
+  return sourceEtdWeeks
 }
 
 export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataChange }: InventoryTableProps) {
