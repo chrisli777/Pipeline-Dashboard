@@ -110,11 +110,11 @@ function getCellBackground(rowType: RowType, value: number | null): string {
   return ''
 }
 
+// Note: 'eta' is kept in data/calculations but hidden from display
+// ETD is also hidden from display but kept in calculations
 const ROW_TYPE_ORDER: RowType[] = [
   'customerForecast',
   'actualConsumption',
-  'etd',
-  'eta',
   'ata',
   'defect',
   'actualInventory',
