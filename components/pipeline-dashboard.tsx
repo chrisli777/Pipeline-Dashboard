@@ -267,15 +267,37 @@ function getDefaultWeek(): number {
 }
 
 export function PipelineDashboard() {
+  // Get user role from session cookie immediately (not in useEffect)
+  const getUserRoleFromCookie = (): 'admin' | 'viewer' => {
+    if (typeof document === 'undefined') return 'admin'
+    const value = `; ${document.cookie}`
+    const parts = value.split(`; whi_session=`)
+    if (parts.length === 2) {
+      try {
+        const sessionStr = parts.pop()?.split(';').shift()
+        if (sessionStr) {
+          const session = JSON.parse(decodeURIComponent(sessionStr))
+          if (session.role === 'viewer') return 'viewer'
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    return 'admin'
+  }
+  
+  const initialRole = getUserRoleFromCookie()
+  
   const [skus, setSkus] = useState<SKUData[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [userRole, setUserRole] = useState<'admin' | 'viewer'>('admin')
+  const [userRole] = useState<'admin' | 'viewer'>(initialRole)
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([])
-  const [selectedVendors, setSelectedVendors] = useState<string[]>(['HX'])  // Default to HX
+  // Viewer only sees HX data
+  const [selectedVendors, setSelectedVendors] = useState<string[]>(initialRole === 'viewer' ? ['HX'] : ['HX'])
   const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([])
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
   const [highlightedWeeks, setHighlightedWeeks] = useState<number[]>(() => [getDefaultWeek()])
@@ -323,33 +345,9 @@ export function PipelineDashboard() {
     }
   }, [])
 
-  // Load data on mount and detect user role from session cookie
+  // Load data on mount
   useEffect(() => {
     fetchData()
-    // Get user role from session cookie
-    const getCookie = (name: string) => {
-      const value = `; ${document.cookie}`
-      const parts = value.split(`; ${name}=`)
-      if (parts.length === 2) return parts.pop()?.split(';').shift()
-      return undefined
-    }
-    try {
-      const sessionStr = getCookie('whi_session')
-      if (sessionStr) {
-        const session = JSON.parse(decodeURIComponent(sessionStr))
-        if (session.role === 'viewer') {
-          setUserRole('viewer')
-          // Force HX filter for viewer role
-          setSelectedVendors(['HX'])
-          // Clear other filters
-          setSelectedCustomers([])
-          setSelectedWarehouses([])
-          setSelectedSkus([])
-        }
-      }
-    } catch {
-      // Ignore parse errors
-    }
   }, [fetchData])
 
   // Derive inventory alerts from SKU data
@@ -462,14 +460,14 @@ export function PipelineDashboard() {
     setSaving(true)
     try {
       // For viewer role, just clear pending changes (local save only, no API call)
+      // The data is already updated in local state via handleDataChange, 
+      // so calculations will reflect the changes - we just don't persist to database
       if (userRole === 'viewer') {
         setPendingChanges([])
         setHasUnsavedChanges(false)
         setSaving(false)
         return
       }
-      
-      console.log('[v0] Admin role - saving to database')
 
       // Save all changes in parallel (admin role)
       const savePromises = pendingChanges.map((change) =>
