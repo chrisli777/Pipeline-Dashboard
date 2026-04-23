@@ -339,6 +339,12 @@ export function PipelineDashboard() {
         const session = JSON.parse(decodeURIComponent(sessionStr))
         if (session.role === 'viewer') {
           setUserRole('viewer')
+          // Force HX filter for viewer role
+          setSelectedVendors(['HX'])
+          // Clear other filters
+          setSelectedCustomers([])
+          setSelectedWarehouses([])
+          setSelectedSkus([])
         }
       }
     } catch {
@@ -893,23 +899,31 @@ export function PipelineDashboard() {
         {/* Alert Bar */}
         <InventoryAlertBar alerts={alerts} />
 
-        {/* Filters */}
-        <InventoryFilters
-          skus={skus}
-          selectedCustomers={selectedCustomers}
-          onCustomersChange={setSelectedCustomers}
-          selectedVendors={selectedVendors}
-          onVendorsChange={setSelectedVendors}
-          selectedWarehouses={selectedWarehouses}
-          onWarehousesChange={setSelectedWarehouses}
-          selectedSkus={selectedSkus}
-          onSkusChange={setSelectedSkus}
-          highlightedWeeks={highlightedWeeks}
-          onHighlightedWeeksChange={setHighlightedWeeks}
-          weekRange={weekRange}
-          onWeekRangeChange={setWeekRange}
-          totalWeeks={TOTAL_WEEKS}
-        />
+        {/* Filters - hidden for viewer role (they only see HX data) */}
+        {userRole === 'admin' ? (
+          <InventoryFilters
+            skus={skus}
+            selectedCustomers={selectedCustomers}
+            onCustomersChange={setSelectedCustomers}
+            selectedVendors={selectedVendors}
+            onVendorsChange={setSelectedVendors}
+            selectedWarehouses={selectedWarehouses}
+            onWarehousesChange={setSelectedWarehouses}
+            selectedSkus={selectedSkus}
+            onSkusChange={setSelectedSkus}
+            highlightedWeeks={highlightedWeeks}
+            onHighlightedWeeksChange={setHighlightedWeeks}
+            weekRange={weekRange}
+            onWeekRangeChange={setWeekRange}
+            totalWeeks={TOTAL_WEEKS}
+          />
+        ) : (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-sm text-amber-700">
+              <strong>Viewing HX data only.</strong> Contact admin for access to other data.
+            </p>
+          </div>
+        )}
 
         {/* Data Table */}
         <InventoryTable
