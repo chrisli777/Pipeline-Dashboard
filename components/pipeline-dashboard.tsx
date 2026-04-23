@@ -330,29 +330,22 @@ export function PipelineDashboard() {
     
     // Get user role from session cookie (client-side only)
     const value = `; ${document.cookie}`
-    console.log('[v0] Cookie value:', value)
     const parts = value.split(`; whi_session=`)
-    console.log('[v0] Parts length:', parts.length)
     if (parts.length === 2) {
       try {
         const sessionStr = parts.pop()?.split(';').shift()
-        console.log('[v0] Session string:', sessionStr)
         if (sessionStr) {
           const session = JSON.parse(decodeURIComponent(sessionStr))
-          console.log('[v0] Parsed session:', session)
-          console.log('[v0] Session role:', session.role)
           if (session.role === 'viewer') {
-            console.log('[v0] Setting userRole to viewer')
             setUserRole('viewer')
             setSelectedVendors(['HX'])  // Force HX only for viewer
           }
         }
-      } catch (e) {
-        console.log('[v0] Parse error:', e)
+      } catch {
+        // Ignore parse errors
       }
     }
     setRoleLoaded(true)
-    console.log('[v0] Role loaded, userRole will be:', userRole)
   }, [fetchData])
 
   // Derive inventory alerts from SKU data
