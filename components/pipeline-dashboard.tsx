@@ -459,15 +459,20 @@ export function PipelineDashboard() {
   const handleSave = useCallback(async () => {
     if (pendingChanges.length === 0) return
 
+    console.log('[v0] handleSave called, userRole:', userRole)
+    
     setSaving(true)
     try {
       // For viewer role, just clear pending changes (local save only, no API call)
       if (userRole === 'viewer') {
+        console.log('[v0] Viewer role detected - saving locally only, no API call')
         setPendingChanges([])
         setHasUnsavedChanges(false)
         setSaving(false)
         return
       }
+      
+      console.log('[v0] Admin role - saving to database')
 
       // Save all changes in parallel (admin role)
       const savePromises = pendingChanges.map((change) =>
