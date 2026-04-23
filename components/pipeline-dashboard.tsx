@@ -267,37 +267,16 @@ function getDefaultWeek(): number {
 }
 
 export function PipelineDashboard() {
-  // Get user role from session cookie immediately (not in useEffect)
-  const getUserRoleFromCookie = (): 'admin' | 'viewer' => {
-    if (typeof document === 'undefined') return 'admin'
-    const value = `; ${document.cookie}`
-    const parts = value.split(`; whi_session=`)
-    if (parts.length === 2) {
-      try {
-        const sessionStr = parts.pop()?.split(';').shift()
-        if (sessionStr) {
-          const session = JSON.parse(decodeURIComponent(sessionStr))
-          if (session.role === 'viewer') return 'viewer'
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    }
-    return 'admin'
-  }
-  
-  const initialRole = getUserRoleFromCookie()
-  
   const [skus, setSkus] = useState<SKUData[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [userRole] = useState<'admin' | 'viewer'>(initialRole)
+  const [userRole, setUserRole] = useState<'admin' | 'viewer'>('admin')
+  const [roleLoaded, setRoleLoaded] = useState(false)
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([])
-  // Viewer only sees HX data
-  const [selectedVendors, setSelectedVendors] = useState<string[]>(initialRole === 'viewer' ? ['HX'] : ['HX'])
+  const [selectedVendors, setSelectedVendors] = useState<string[]>(['HX'])
   const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([])
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
   const [highlightedWeeks, setHighlightedWeeks] = useState<number[]>(() => [getDefaultWeek()])
@@ -345,9 +324,28 @@ export function PipelineDashboard() {
     }
   }, [])
 
-  // Load data on mount
+  // Load data on mount and detect user role from cookie
   useEffect(() => {
     fetchData()
+    
+    // Get user role from session cookie (client-side only)
+    const value = `; ${document.cookie}`
+    const parts = value.split(`; whi_session=`)
+    if (parts.length === 2) {
+      try {
+        const sessionStr = parts.pop()?.split(';').shift()
+        if (sessionStr) {
+          const session = JSON.parse(decodeURIComponent(sessionStr))
+          if (session.role === 'viewer') {
+            setUserRole('viewer')
+            setSelectedVendors(['HX'])  // Force HX only for viewer
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    setRoleLoaded(true)
   }, [fetchData])
 
   // Derive inventory alerts from SKU data
@@ -457,17 +455,22 @@ export function PipelineDashboard() {
   const handleSave = useCallback(async () => {
     if (pendingChanges.length === 0) return
 
+    console.log('[v0] handleSave - userRole:', userRole, 'roleLoaded:', roleLoaded)
+    
     setSaving(true)
     try {
       // For viewer role, just clear pending changes (local save only, no API call)
       // The data is already updated in local state via handleDataChange, 
       // so calculations will reflect the changes - we just don't persist to database
       if (userRole === 'viewer') {
+        console.log('[v0] Viewer mode - not saving to database')
         setPendingChanges([])
         setHasUnsavedChanges(false)
         setSaving(false)
         return
       }
+      
+      console.log('[v0] Admin mode - saving to database')
 
       // Save all changes in parallel (admin role)
       const savePromises = pendingChanges.map((change) =>
@@ -500,7 +503,7 @@ export function PipelineDashboard() {
     } finally {
       setSaving(false)
     }
-  }, [pendingChanges, fetchData, userRole])
+  }, [pendingChanges, fetchData, userRole, roleLoaded])
 
   // Sync data based on configuration from dialog
   // Token routing is handled server-side based on SKU
@@ -900,7 +903,8 @@ export function PipelineDashboard() {
         <InventoryAlertBar alerts={alerts} />
 
         {/* Filters - hidden for viewer role (they only see HX data) */}
-        {userRole === 'admin' ? (
+        {/* Wait for role to be loaded before rendering to avoid flash of wrong UI */}
+        {!roleLoaded ? null : userRole === 'admin' ? (
           <InventoryFilters
             skus={skus}
             selectedCustomers={selectedCustomers}
