@@ -120,20 +120,20 @@ const ROW_TYPE_ORDER: RowType[] = [
   'actualInventory',
 ]
 
-// Calculate the relationship between ATA, ETA, and ETD
+// Calculate the relationship between ATA, ETA, and ETD using CUMULATIVE rollover logic
 // 
-// Rollover Logic:
-// 1. ATA at week X FIRST tries to match ETA at the SAME week X
-// 2. If ATA == ETA at same week, they match directly (no rollover)
-// 3. If ATA > ETA at same week, excess rolls over to cover future ETA weeks
-// 4. Each ETA week came from ETD week (ETA week - leadTime)
+// Cumulative Rollover Logic:
+// 1. Calculate cumulative ATA and cumulative ETA week by week
+// 2. For ATA at week X, find which ETA weeks it "consumes" based on cumulative matching
+// 3. This ATA's value fills the gap in cumulative ETA that matches its cumulative ATA range
 //
-// Example 1: ATA Week 4 = 48, ETA Week 4 = 48
-// - They match directly, highlight ETA Week 4
+// Example: 
+// Week:  1   2   3   4   5
+// ETA:  16  16  16  16  16  (cumETA: 16, 32, 48, 64, 80)
+// ATA:   0  16   0  32   0  (cumATA:  0, 16, 16, 48, 48)
 //
-// Example 2: ATA Week 15 = 32, ETA Week 15 = 24, ETA Week 16 = 8
-// - ATA 32 covers ETA 24 (same week) + ETA 8 (next week) = 32 total
-// - Highlight ETA Weeks 15, 16
+// ATA 16 at week 2: cumATA goes from 0 to 16, matches cumETA 0-16 → ETA week 1 (16)
+// ATA 32 at week 4: cumATA goes from 16 to 48, matches cumETA 16-48 → ETA weeks 2,3 (16+16=32)
 function calculateSourceWeeksFromAta(sku: SKUData, ataWeekNumber: number): { ataWeeks: number[], etaWeeks: number[], etdWeeks: number[] } {
   const weeks = sku.weeks
   const ataWeekIndex = weeks.findIndex(w => w.weekNumber === ataWeekNumber)
@@ -144,37 +144,39 @@ function calculateSourceWeeksFromAta(sku: SKUData, ataWeekNumber: number): { ata
   
   const leadTimeWeeks = sku.leadTimeWeeks ?? 4
   
-  // Step 1: Find which ETA weeks this ATA covers
-  // Rollover logic: ATA at week X consumes ETA starting from week X+1 (NEXT week)
-  // Example: ATA 32 at week 3 consumes ETA week 4 (16) + week 5 (16) = 32
-  const coveredEtaWeeks: number[] = []
-  let accumulatedEta = 0
+  // Step 1: Calculate cumulative ATA up to (but not including) the current week
+  // and cumulative ATA including the current week
+  let cumAtaBefore = 0
+  for (let i = 0; i < ataWeekIndex; i++) {
+    cumAtaBefore += weeks[i].ata ?? 0
+  }
+  const cumAtaAfter = cumAtaBefore + ataValue
   
-  for (let i = ataWeekIndex + 1; i < weeks.length; i++) {
+  // Step 2: Find ETA weeks whose cumulative range overlaps with [cumAtaBefore, cumAtaAfter]
+  // This ATA "consumes" ETA in the range (cumAtaBefore, cumAtaAfter]
+  const coveredEtaWeeks: number[] = []
+  let cumEta = 0
+  
+  for (let i = 0; i < weeks.length; i++) {
     const etaValue = weeks[i]?.eta ?? 0
     if (etaValue > 0) {
-      // Check if adding this ETA would exceed ATA
-      if (accumulatedEta + etaValue <= ataValue) {
+      const prevCumEta = cumEta
+      cumEta += etaValue
+      
+      // This ETA contributes to range (prevCumEta, cumEta]
+      // Check if it overlaps with our ATA range (cumAtaBefore, cumAtaAfter]
+      if (cumEta > cumAtaBefore && prevCumEta < cumAtaAfter) {
         coveredEtaWeeks.push(weeks[i].weekNumber)
-        accumulatedEta += etaValue
-        // Stop if we've reached exactly the ATA value
-        if (accumulatedEta === ataValue) {
-          break
-        }
-      } else {
-        // This ETA would exceed - stop searching
+      }
+      
+      // Stop if we've passed the ATA range
+      if (cumEta >= cumAtaAfter) {
         break
       }
     }
   }
   
-  // Only return results if we found an exact match
-  if (accumulatedEta !== ataValue) {
-    return { ataWeeks: [ataWeekNumber], etaWeeks: [], etdWeeks: [] }
-  }
-  
-  // Step 2: Map each ETA week back to its source ETD week
-  // ETD week = ETA week - leadTimeWeeks
+  // Step 3: Map each ETA week back to its source ETD week
   const sourceEtdWeeks: number[] = []
   for (const etaWeekNum of coveredEtaWeeks) {
     const etdWeekNum = etaWeekNum - leadTimeWeeks
