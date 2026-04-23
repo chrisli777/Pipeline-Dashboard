@@ -454,25 +454,11 @@ export function PipelineDashboard() {
   // Save all pending changes to database (or locally for viewer role)
   const handleSave = useCallback(async () => {
     if (pendingChanges.length === 0) return
-
-    console.log('[v0] handleSave - userRole:', userRole, 'roleLoaded:', roleLoaded)
     
     setSaving(true)
     try {
-      // For viewer role, just clear pending changes (local save only, no API call)
-      // The data is already updated in local state via handleDataChange, 
-      // so calculations will reflect the changes - we just don't persist to database
-      if (userRole === 'viewer') {
-        console.log('[v0] Viewer mode - not saving to database')
-        setPendingChanges([])
-        setHasUnsavedChanges(false)
-        setSaving(false)
-        return
-      }
-      
-      console.log('[v0] Admin mode - saving to database')
-
-      // Save all changes in parallel (admin role)
+      // Both admin and viewer can save to database (shared data)
+      // Viewer can only edit ETD field (enforced in InventoryTable)
       const savePromises = pendingChanges.map((change) =>
         fetch('/api/inventory/update', {
           method: 'POST',
@@ -503,7 +489,7 @@ export function PipelineDashboard() {
     } finally {
       setSaving(false)
     }
-  }, [pendingChanges, fetchData, userRole, roleLoaded])
+  }, [pendingChanges, fetchData])
 
   // Sync data based on configuration from dialog
   // Token routing is handled server-side based on SKU
@@ -856,7 +842,6 @@ export function PipelineDashboard() {
             {hasUnsavedChanges && (
               <span className="text-sm text-blue-700 font-medium">
                 {pendingChanges.length} unsaved change{pendingChanges.length !== 1 ? 's' : ''}
-                {userRole === 'viewer' && ' (local only)'}
               </span>
             )}
             {/* Sync button - hidden for viewer role */}
@@ -887,7 +872,7 @@ export function PipelineDashboard() {
               ) : (
                 <Save className="mr-1 h-4 w-4" />
               )}
-              {userRole === 'viewer' ? 'Save Local' : 'Save'}
+              Save
             </Button>
             <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
               <Download className="mr-1 h-4 w-4" />
@@ -902,9 +887,8 @@ export function PipelineDashboard() {
         {/* Alert Bar */}
         <InventoryAlertBar alerts={alerts} />
 
-        {/* Filters - hidden for viewer role (they only see HX data) */}
-        {/* Wait for role to be loaded before rendering to avoid flash of wrong UI */}
-        {!roleLoaded ? null : userRole === 'admin' ? (
+        {/* Filters - viewer has locked vendor filter (HX only) */}
+        {roleLoaded && (
           <InventoryFilters
             skus={skus}
             selectedCustomers={selectedCustomers}
@@ -920,13 +904,8 @@ export function PipelineDashboard() {
             weekRange={weekRange}
             onWeekRangeChange={setWeekRange}
             totalWeeks={TOTAL_WEEKS}
+            userRole={userRole}
           />
-        ) : (
-          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-            <p className="text-sm text-amber-700">
-              <strong>Viewing HX data only.</strong> Contact admin for access to other data.
-            </p>
-          </div>
         )}
 
         {/* Data Table */}

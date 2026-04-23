@@ -27,6 +27,7 @@ interface InventoryFiltersProps {
   weekRange: { start: number; end: number }
   onWeekRangeChange: (range: { start: number; end: number }) => void
   totalWeeks: number
+  userRole?: 'admin' | 'viewer'  // viewer can only see HX
 }
 
 // Multi-select dropdown component
@@ -149,6 +150,7 @@ export function InventoryFilters({
   weekRange,
   onWeekRangeChange,
   totalWeeks,
+  userRole = 'admin',
 }: InventoryFiltersProps) {
   const weekOptions = Array.from({ length: totalWeeks }, (_, i) => i + 1)
 
@@ -247,17 +249,23 @@ export function InventoryFilters({
         />
       </div>
 
-      {/* Tier 2: Vendor */}
-      <div className="flex items-center gap-2">
-        <label className="text-sm text-muted-foreground">Vendor:</label>
-        <MultiSelect
-          label="Vendor"
-          options={vendors.map((v) => ({ value: v, label: v }))}
-          selected={selectedVendors}
-          onChange={onVendorsChange}
-          width="w-[140px]"
-        />
-      </div>
+  {/* Tier 2: Vendor */}
+  <div className="flex items-center gap-2">
+  <label className="text-sm text-muted-foreground">Vendor:</label>
+  {userRole === 'viewer' ? (
+    <div className="px-3 py-1.5 bg-blue-100 text-blue-800 rounded text-sm font-medium">
+      HX (locked)
+    </div>
+  ) : (
+    <MultiSelect
+      label="Vendor"
+      options={vendors.map((v) => ({ value: v, label: v }))}
+      selected={selectedVendors}
+      onChange={onVendorsChange}
+      width="w-[140px]"
+    />
+  )}
+  </div>
 
       {/* Tier 3: Warehouse */}
       <div className="flex items-center gap-2">

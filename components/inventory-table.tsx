@@ -202,7 +202,7 @@ function calculateSourceWeeksFromAta(sku: SKUData, ataWeekNumber: number): { ata
 }
 
 // Calculate relationship starting from ETD
-// ETD week X → ETA week (X + leadTime) → ATA that covers it
+// ETD week X → ETA week (X + 6) → find which ATA covers that ETA using cumulative logic
 function calculateSourceWeeksFromEtd(sku: SKUData, etdWeekNumber: number): { ataWeeks: number[], etaWeeks: number[], etdWeeks: number[] } {
   const weeks = sku.weeks
   const etdWeekIndex = weeks.findIndex(w => w.weekNumber === etdWeekNumber)
@@ -215,26 +215,31 @@ function calculateSourceWeeksFromEtd(sku: SKUData, etdWeekNumber: number): { ata
   
   // ETD week X arrives as ETA at week (X + 6)
   const etaWeekNumber = etdWeekNumber + ETA_ETD_OFFSET
-  const etaWeek = weeks.find(w => w.weekNumber === etaWeekNumber)
-  if (!etaWeek) return { ataWeeks: [], etaWeeks: [], etdWeeks: [etdWeekNumber] }
-  
-  // Find which ATA covers this ETA (look at weeks before the ETA week)
   const etaWeekIndex = weeks.findIndex(w => w.weekNumber === etaWeekNumber)
-  const coveringAtaWeeks: number[] = []
+  if (etaWeekIndex < 0) return { ataWeeks: [], etaWeeks: [], etdWeeks: [etdWeekNumber] }
   
-  for (let i = etaWeekIndex - 1; i >= 0; i--) {
+  const etaValue = weeks[etaWeekIndex]?.eta ?? 0
+  if (etaValue === 0) return { ataWeeks: [], etaWeeks: [], etdWeeks: [etdWeekNumber] }
+  
+  // Use cumulative logic to find which ATA covers this ETA
+  // Calculate cumulative ETA position of this ETA
+  let cumEtaBefore = 0
+  for (let i = 0; i < etaWeekIndex; i++) {
+    cumEtaBefore += weeks[i]?.eta ?? 0
+  }
+  const cumEtaAfter = cumEtaBefore + etaValue
+  
+  // Find ATA weeks whose cumulative range overlaps with this ETA's range
+  const coveringAtaWeeks: number[] = []
+  let cumAta = 0
+  for (let i = 0; i < weeks.length; i++) {
     const ataValue = weeks[i]?.ata ?? 0
     if (ataValue > 0) {
-      // Check if this ATA's rollover reaches our ETA week
-      let remaining = ataValue
-      for (let j = i + 1; j <= etaWeekIndex && remaining > 0; j++) {
-        const eta = weeks[j]?.eta ?? 0
-        if (eta > 0) {
-          if (j === etaWeekIndex) {
-            coveringAtaWeeks.push(weeks[i].weekNumber)
-          }
-          remaining -= eta
-        }
+      const prevCumAta = cumAta
+      cumAta += ataValue
+      // Check if this ATA's range (prevCumAta, cumAta] overlaps with ETA's range (cumEtaBefore, cumEtaAfter]
+      if (cumAta > cumEtaBefore && prevCumAta < cumEtaAfter) {
+        coveringAtaWeeks.push(weeks[i].weekNumber)
       }
     }
   }

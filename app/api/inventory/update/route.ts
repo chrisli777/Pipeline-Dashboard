@@ -1,24 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 
 export async function POST(request: NextRequest) {
-  // Check user role from session cookie - viewer cannot update database
-  const cookieStore = await cookies()
-  const sessionCookie = cookieStore.get('whi_session')
-  if (sessionCookie) {
-    try {
-      const session = JSON.parse(sessionCookie.value)
-      if (session.role === 'viewer') {
-        // Viewer role cannot update database - return success but don't actually save
-        // This ensures the frontend thinks save succeeded but data is not persisted
-        return NextResponse.json({ success: true, viewerMode: true, message: 'Changes saved locally only (viewer mode)' })
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }
-  
+  // Both admin and viewer can save to database (shared data)
+  // Viewer can only edit ETD field (enforced in frontend)
   const supabase = await createClient()
   
   const { skuId, weekNumber, field, value } = await request.json()
