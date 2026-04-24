@@ -557,16 +557,33 @@ export async function POST(request: Request) {
     }
 
     // Get existing week numbers from database for each SKU
-    // Note: Need to fetch part_model (which is sku_code) to match with forecast data
+    // Note: inventory_data uses sku_id, we need to look up sku_code from skus table
     // Supabase default limit is 1000, so we need to fetch all records
-    let allExistingData: { sku_id: string; week_number: number; part_model: string }[] = []
+    
+    // First, get sku_id -> sku_code mapping from skus table
+    const { data: skusData, error: skusError } = await supabase
+      .from('skus')
+      .select('id, sku_code')
+    
+    if (skusError) {
+      console.error('[v0] Failed to fetch SKUs:', skusError)
+      return NextResponse.json({ error: 'Failed to fetch SKUs' }, { status: 500 })
+    }
+    
+    const skuIdToCode = new Map<string, string>()
+    for (const sku of skusData || []) {
+      skuIdToCode.set(sku.id, sku.sku_code)
+    }
+    console.log(`[v0] Loaded ${skuIdToCode.size} SKU id->code mappings`)
+    
+    let allExistingData: { sku_id: string; week_number: number }[] = []
     let offset = 0
     const batchSize = 1000
     
     while (true) {
       const { data: batchData, error: batchError } = await supabase
         .from('inventory_data')
-        .select('sku_id, week_number, part_model')
+        .select('sku_id, week_number')
         .range(offset, offset + batchSize - 1)
       
       if (batchError) {
@@ -595,9 +612,12 @@ export async function POST(request: Request) {
     const skuCodeToId = new Map<string, string>()
     const existingCombinations = new Set<string>()
     for (const d of allExistingData) {
-      const key = `${d.part_model}_${d.week_number}`
-      existingCombinations.add(key)
-      skuCodeToId.set(key, d.sku_id)
+      const skuCode = skuIdToCode.get(d.sku_id)
+      if (skuCode) {
+        const key = `${skuCode}_${d.week_number}`
+        existingCombinations.add(key)
+        skuCodeToId.set(key, d.sku_id)
+      }
     }
 
     // Build machine model to SKUs lookup from forecast_multiplier_config
