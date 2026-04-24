@@ -510,6 +510,36 @@ export function PipelineDashboard() {
     }
   }, [pendingChanges, fetchData])
 
+  // Handle model config changes (machine model binding and multiplier)
+  const handleModelConfigChange = useCallback(async (
+    skuCode: string, 
+    supplierCode: string, 
+    machineModel: string, 
+    multiplier: number
+  ) => {
+    try {
+      const res = await fetch('/api/sku-model-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skuCode, supplierCode, machineModel, multiplier }),
+      })
+      
+      if (!res.ok) {
+        throw new Error('Failed to update model config')
+      }
+      
+      // Update local state immediately
+      setSkus(prevSkus => prevSkus.map(sku => {
+        if (sku.partModelNumber === skuCode) {
+          return { ...sku, machineModel, forecastMultiplier: multiplier }
+        }
+        return sku
+      }))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update model config')
+    }
+  }, [])
+
   // Sync data based on configuration from dialog
   // Token routing is handled server-side based on SKU
   const handleSync = useCallback(async (config: SyncConfig) => {
@@ -928,12 +958,13 @@ export function PipelineDashboard() {
         )}
 
         {/* Data Table */}
-        <InventoryTable
-          skus={filteredSkus}
-          weekRange={weekRange}
-          highlightedWeeks={highlightedWeeks}
-          onDataChange={handleDataChange}
-          userRole={userRole}
+<InventoryTable
+  skus={filteredSkus}
+  weekRange={weekRange}
+  highlightedWeeks={highlightedWeeks}
+  onDataChange={handleDataChange}
+  onModelConfigChange={handleModelConfigChange}
+  userRole={userRole}
         />
 
         {/* Legend */}

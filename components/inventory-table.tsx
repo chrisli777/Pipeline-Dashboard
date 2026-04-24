@@ -11,6 +11,7 @@ interface InventoryTableProps {
   weekRange: { start: number; end: number }
   highlightedWeeks?: number[]
   onDataChange: (skuId: string, weekNumber: number, field: keyof WeekData, value: number | null) => void
+  onModelConfigChange?: (skuCode: string, supplierCode: string, machineModel: string, multiplier: number) => void
   userRole?: 'admin' | 'viewer'  // viewer can only edit ETD
 }
 
@@ -20,6 +21,94 @@ interface EditableCellProps {
   className?: string
   isWeeksOnHand?: boolean
   isReadOnly?: boolean
+}
+
+interface EditableModelConfigProps {
+  skuCode: string
+  supplierCode: string
+  machineModel: string
+  multiplier: number
+  onChange: (skuCode: string, supplierCode: string, machineModel: string, multiplier: number) => void
+}
+
+function EditableModelConfig({ skuCode, supplierCode, machineModel, multiplier, onChange }: EditableModelConfigProps) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editModel, setEditModel] = useState(machineModel)
+  const [editMultiplier, setEditMultiplier] = useState(multiplier.toString())
+  
+  const handleSave = () => {
+    const newMultiplier = parseFloat(editMultiplier) || 1
+    if (editModel !== machineModel || newMultiplier !== multiplier) {
+      onChange(skuCode, supplierCode, editModel, newMultiplier)
+    }
+    setIsEditing(false)
+  }
+  
+  const handleCancel = () => {
+    setEditModel(machineModel)
+    setEditMultiplier(multiplier.toString())
+    setIsEditing(false)
+  }
+  
+  if (isEditing) {
+    return (
+      <div className="mt-1 flex flex-col gap-1 rounded border border-purple-300 bg-purple-50 p-1.5">
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-purple-700 w-12">Model:</span>
+          <input
+            type="text"
+            value={editModel}
+            onChange={(e) => setEditModel(e.target.value)}
+            className="flex-1 rounded border border-purple-200 px-1 py-0.5 text-[10px] w-16"
+            placeholder="e.g. GS-4655"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-purple-700 w-12">Multiplier:</span>
+          <input
+            type="number"
+            value={editMultiplier}
+            onChange={(e) => setEditMultiplier(e.target.value)}
+            className="w-12 rounded border border-purple-200 px-1 py-0.5 text-[10px]"
+            min="0.1"
+            step="0.1"
+          />
+          <span className="text-[10px] text-purple-600">x</span>
+        </div>
+        <div className="flex gap-1 mt-0.5">
+          <button
+            onClick={handleSave}
+            className="rounded bg-purple-600 px-2 py-0.5 text-[10px] text-white hover:bg-purple-700"
+          >
+            Save
+          </button>
+          <button
+            onClick={handleCancel}
+            className="rounded bg-gray-200 px-2 py-0.5 text-[10px] text-gray-700 hover:bg-gray-300"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+  
+  return (
+    <div
+      className="mt-0.5 inline-flex items-center gap-1 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-800 cursor-pointer hover:bg-purple-200"
+      onClick={() => setIsEditing(true)}
+      title="Click to edit machine model binding"
+    >
+      {machineModel ? (
+        <>
+          Model: {machineModel}
+          {multiplier > 1 && <span className="text-purple-600">({multiplier}x)</span>}
+        </>
+      ) : (
+        <span className="text-purple-400 italic">+ Add Model</span>
+      )}
+    </div>
+  )
 }
 
 function EditableCell({ value, onChange, className, isWeeksOnHand = false, isReadOnly = false }: EditableCellProps) {
@@ -298,7 +387,7 @@ function calculateSourceWeeksFromEta(sku: SKUData, etaWeekNumber: number): { ata
   }
 }
 
-export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataChange, userRole = 'admin' }: InventoryTableProps) {
+export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataChange, onModelConfigChange, userRole = 'admin' }: InventoryTableProps) {
   const highlightedSet = new Set(highlightedWeeks)
   const filteredWeeks = skus[0]?.weeks.filter(
     w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
@@ -472,7 +561,17 @@ function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedAta
             <div className="text-xs text-muted-foreground">({sku.description})</div>
           )}
           <div className="text-xs font-bold">{sku.category}</div>
-          {sku.machineModel && (
+          {/* Editable Machine Model and Multiplier */}
+          {userRole === 'admin' && onModelConfigChange && (
+            <EditableModelConfig
+              skuCode={sku.partModelNumber}
+              supplierCode={sku.supplierCode || ''}
+              machineModel={sku.machineModel || ''}
+              multiplier={sku.forecastMultiplier || 1}
+              onChange={onModelConfigChange}
+            />
+          )}
+          {userRole === 'viewer' && sku.machineModel && (
             <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-800">
               Model: {sku.machineModel}
               {sku.forecastMultiplier && sku.forecastMultiplier > 1 && (

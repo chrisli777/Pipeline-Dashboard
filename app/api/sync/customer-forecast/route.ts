@@ -600,6 +600,27 @@ export async function POST(request: Request) {
       skuCodeToId.set(key, d.sku_id)
     }
 
+    // Build machine model to SKUs lookup from forecast_multiplier_config
+    // This allows forecast to identify by machine model and distribute to bound SKUs
+    const modelToSkusMap = new Map<string, { skuCode: string; multiplier: number }[]>()
+    const { data: modelConfig } = await supabase
+      .from('forecast_multiplier_config')
+      .select('sku_code, part_model, multiplier')
+    
+    if (modelConfig) {
+      for (const row of modelConfig) {
+        const normalizedModel = row.part_model.toLowerCase().replace(/[-\s]/g, '')
+        if (!modelToSkusMap.has(normalizedModel)) {
+          modelToSkusMap.set(normalizedModel, [])
+        }
+        modelToSkusMap.get(normalizedModel)!.push({
+          skuCode: row.sku_code,
+          multiplier: Number(row.multiplier) || 1
+        })
+      }
+    }
+    console.log(`[v0] Loaded ${modelToSkusMap.size} machine model mappings from config`)
+
     // Update database with extracted forecast data
     const updates: { skuId: string; weekNumber: number; value: number }[] = []
     const skippedWeeks: number[] = []
@@ -608,26 +629,49 @@ export async function POST(request: Request) {
     const unmatchedModels: string[] = []
 
     for (const model of output.models) {
-      let matchingSkus: string[] | undefined
+      // Normalize the model name for lookup
+      const normalizedModelName = model.modelName.toLowerCase().replace(/[-\s]/g, '')
+      
+      // First, try to find SKUs from the machine model config
+      let skusFromConfig = modelToSkusMap.get(normalizedModelName)
+      
+      // Also check with common variations
+      if (!skusFromConfig) {
+        // Try with hyphen variations: gs4655 -> gs-4655
+        const withHyphen = normalizedModelName.replace(/([a-z])(\d)/, '$1-$2')
+        skusFromConfig = modelToSkusMap.get(withHyphen)
+      }
+      
+      let matchingSkusWithMultipliers: { skuCode: string; multiplier: number }[] = []
 
       if (model.modelName.startsWith('SKU:')) {
         // Direct SKU code match (from Excel/CSV SKU-based format)
         const skuCode = model.modelName.replace('SKU:', '')
-        matchingSkus = [skuCode]
+        matchingSkusWithMultipliers = [{ skuCode, multiplier: FORECAST_MULTIPLIERS[skuCode] || 1 }]
+      } else if (skusFromConfig && skusFromConfig.length > 0) {
+        // Use SKUs from machine model config (with their configured multipliers)
+        matchingSkusWithMultipliers = skusFromConfig
+        console.log(`[v0] Model "${model.modelName}" found in config, bound to ${skusFromConfig.length} SKUs`)
       } else {
-        // Dynamic DB lookup: find SKUs whose part_model matches the forecast model name
-        matchingSkus = await findMatchingSkuCodes(supabase, model.modelName)
+        // Fallback: Dynamic DB lookup by part_model field
+        const matchingSkus = await findMatchingSkuCodes(supabase, model.modelName)
+        if (matchingSkus && matchingSkus.length > 0) {
+          matchingSkusWithMultipliers = matchingSkus.map(skuCode => ({
+            skuCode,
+            multiplier: FORECAST_MULTIPLIERS[skuCode] || 1
+          }))
+        }
       }
 
-      if (!matchingSkus || matchingSkus.length === 0) {
+      if (matchingSkusWithMultipliers.length === 0) {
         unmatchedModels.push(model.modelName)
         continue
       }
       
-      console.log(`[v0] Model "${model.modelName}" matched to SKUs: ${matchingSkus.join(', ')}`)
+      console.log(`[v0] Model "${model.modelName}" matched to SKUs: ${matchingSkusWithMultipliers.map(s => `${s.skuCode}(${s.multiplier}x)`).join(', ')}`)
       if (model.weeklyData.length > 0) {
         const sampleWeek = model.weeklyData[0].weekNumber
-        const sampleKeys = matchingSkus.map(sku => `${sku}_${sampleWeek}`)
+        const sampleKeys = matchingSkusWithMultipliers.map(s => `${s.skuCode}_${sampleWeek}`)
         console.log(`[v0] Sample keys for week ${sampleWeek}: ${sampleKeys.join(', ')}`)
         console.log(`[v0] Keys exist in DB: ${sampleKeys.map(k => existingCombinations.has(k)).join(', ')}`)
       }
@@ -635,15 +679,14 @@ export async function POST(request: Request) {
       let modelHasUpdates = false
       for (const weekData of model.weeklyData) {
         let weekFoundForAnySku = false
-        for (const skuCode of matchingSkus) {
+        for (const { skuCode, multiplier } of matchingSkusWithMultipliers) {
           const key = `${skuCode}_${weekData.weekNumber}`
           if (existingCombinations.has(key)) {
             // Get actual sku_id from the lookup map
             const skuId = skuCodeToId.get(key)
             if (!skuId) continue
             
-            // SKU-specific forecast multipliers (keyed by sku_code)
-            const multiplier = FORECAST_MULTIPLIERS[skuCode] || 1
+            // Apply the multiplier from config
             updates.push({
               skuId,
               weekNumber: weekData.weekNumber,
