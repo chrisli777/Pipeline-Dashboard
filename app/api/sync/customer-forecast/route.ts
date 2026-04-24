@@ -36,6 +36,8 @@ const COMPOUND_MODELS: Record<string, string[]> = {
 const MODEL_ALIASES: Record<string, string[]> = {
   's60j': ['t60'],     // Genie S60J = HX T60 (Engine Side)
   's80j': ['t80'],     // Genie S80J = HX T80 (Control Side)
+  'gs-4655': ['gs4655', 'gs-4655'],  // Tianjin GS-4655
+  'gs4655': ['gs4655', 'gs-4655'],
 }
 
 // Find matching SKU codes from the database for a given model name
@@ -555,15 +557,16 @@ export async function POST(request: Request) {
     }
 
     // Get existing week numbers from database for each SKU
-    // Note: Supabase default limit is 1000, so we need to fetch all records
-    let allExistingData: { sku_id: string; week_number: number }[] = []
+    // Note: Need to fetch part_model (which is sku_code) to match with forecast data
+    // Supabase default limit is 1000, so we need to fetch all records
+    let allExistingData: { sku_id: string; week_number: number; part_model: string }[] = []
     let offset = 0
     const batchSize = 1000
     
     while (true) {
       const { data: batchData, error: batchError } = await supabase
         .from('inventory_data')
-        .select('sku_id, week_number')
+        .select('sku_id, week_number, part_model')
         .range(offset, offset + batchSize - 1)
       
       if (batchError) {
@@ -587,10 +590,15 @@ export async function POST(request: Request) {
     
     console.log(`[v0] Fetched ${allExistingData.length} existing inventory_data records`)
 
-    // Create a Set of existing sku_id + week_number combinations
-    const existingCombinations = new Set(
-      allExistingData.map(d => `${d.sku_id}_${d.week_number}`)
-    )
+    // Create a lookup map: sku_code + week_number -> sku_id (for database updates)
+    // And a Set for quick existence checks using sku_code
+    const skuCodeToId = new Map<string, string>()
+    const existingCombinations = new Set<string>()
+    for (const d of allExistingData) {
+      const key = `${d.part_model}_${d.week_number}`
+      existingCombinations.add(key)
+      skuCodeToId.set(key, d.sku_id)
+    }
 
     // Update database with extracted forecast data
     const updates: { skuId: string; weekNumber: number; value: number }[] = []
@@ -627,11 +635,15 @@ export async function POST(request: Request) {
       let modelHasUpdates = false
       for (const weekData of model.weeklyData) {
         let weekFoundForAnySku = false
-        for (const skuId of matchingSkus) {
-          const key = `${skuId}_${weekData.weekNumber}`
+        for (const skuCode of matchingSkus) {
+          const key = `${skuCode}_${weekData.weekNumber}`
           if (existingCombinations.has(key)) {
-            // SKU-specific forecast multipliers
-            const multiplier = FORECAST_MULTIPLIERS[skuId] || 1
+            // Get actual sku_id from the lookup map
+            const skuId = skuCodeToId.get(key)
+            if (!skuId) continue
+            
+            // SKU-specific forecast multipliers (keyed by sku_code)
+            const multiplier = FORECAST_MULTIPLIERS[skuCode] || 1
             updates.push({
               skuId,
               weekNumber: weekData.weekNumber,
