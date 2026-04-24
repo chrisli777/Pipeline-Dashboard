@@ -273,8 +273,10 @@ export function PipelineDashboard() {
   const [syncing, setSyncing] = useState(false)
   const [syncDialogOpen, setSyncDialogOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<'admin' | 'viewer'>('admin')
+  const [roleLoaded, setRoleLoaded] = useState(false)
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([])
-  const [selectedVendors, setSelectedVendors] = useState<string[]>(['HX'])  // Default to HX
+  const [selectedVendors, setSelectedVendors] = useState<string[]>(['HX'])
   const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([])
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
   const [highlightedWeeks, setHighlightedWeeks] = useState<number[]>(() => [getDefaultWeek()])
@@ -322,9 +324,28 @@ export function PipelineDashboard() {
     }
   }, [])
 
-  // Load data on mount
+  // Load data on mount and detect user role from cookie
   useEffect(() => {
     fetchData()
+    
+    // Get user role from session cookie (client-side only)
+    const value = `; ${document.cookie}`
+    const parts = value.split(`; whi_session=`)
+    if (parts.length === 2) {
+      try {
+        const sessionStr = parts.pop()?.split(';').shift()
+        if (sessionStr) {
+          const session = JSON.parse(decodeURIComponent(sessionStr))
+          if (session.role === 'viewer') {
+            setUserRole('viewer')
+            setSelectedVendors(['HX'])  // Force HX only for viewer
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    setRoleLoaded(true)
   }, [fetchData])
 
   // Derive inventory alerts from SKU data
@@ -430,13 +451,14 @@ export function PipelineDashboard() {
     []
   )
 
-  // Save all pending changes to database
+  // Save all pending changes to database (or locally for viewer role)
   const handleSave = useCallback(async () => {
     if (pendingChanges.length === 0) return
-
+    
     setSaving(true)
     try {
-      // Save all changes in parallel
+      // Both admin and viewer can save to database (shared data)
+      // Viewer can only edit ETD field (enforced in InventoryTable)
       const savePromises = pendingChanges.map((change) =>
         fetch('/api/inventory/update', {
           method: 'POST',
@@ -812,25 +834,33 @@ export function PipelineDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {userRole === 'viewer' && (
+              <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded font-medium">
+                View Only Mode
+              </span>
+            )}
             {hasUnsavedChanges && (
               <span className="text-sm text-blue-700 font-medium">
                 {pendingChanges.length} unsaved change{pendingChanges.length !== 1 ? 's' : ''}
               </span>
             )}
-            <Button
-              variant="outline"
-              size="sm" 
-              onClick={() => setSyncDialogOpen(true)} 
-              disabled={loading || saving || syncing}
-              className="border-blue-500 text-blue-600 hover:bg-blue-50 bg-transparent"
-            >
-              {syncing ? (
-                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-              ) : (
-                <CloudDownload className="mr-1 h-4 w-4" />
-              )}
-              Sync
-            </Button>
+            {/* Sync button - hidden for viewer role */}
+            {userRole === 'admin' && (
+              <Button
+                variant="outline"
+                size="sm" 
+                onClick={() => setSyncDialogOpen(true)} 
+                disabled={loading || saving || syncing}
+                className="border-blue-500 text-blue-600 hover:bg-blue-50 bg-transparent"
+              >
+                {syncing ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <CloudDownload className="mr-1 h-4 w-4" />
+                )}
+                Sync
+              </Button>
+            )}
             <Button 
               size="sm" 
               onClick={handleSave} 
@@ -857,23 +887,26 @@ export function PipelineDashboard() {
         {/* Alert Bar */}
         <InventoryAlertBar alerts={alerts} />
 
-        {/* Filters */}
-        <InventoryFilters
-          skus={skus}
-          selectedCustomers={selectedCustomers}
-          onCustomersChange={setSelectedCustomers}
-          selectedVendors={selectedVendors}
-          onVendorsChange={setSelectedVendors}
-          selectedWarehouses={selectedWarehouses}
-          onWarehousesChange={setSelectedWarehouses}
-          selectedSkus={selectedSkus}
-          onSkusChange={setSelectedSkus}
-          highlightedWeeks={highlightedWeeks}
-          onHighlightedWeeksChange={setHighlightedWeeks}
-          weekRange={weekRange}
-          onWeekRangeChange={setWeekRange}
-          totalWeeks={TOTAL_WEEKS}
-        />
+        {/* Filters - viewer has locked vendor filter (HX only) */}
+        {roleLoaded && (
+          <InventoryFilters
+            skus={skus}
+            selectedCustomers={selectedCustomers}
+            onCustomersChange={setSelectedCustomers}
+            selectedVendors={selectedVendors}
+            onVendorsChange={setSelectedVendors}
+            selectedWarehouses={selectedWarehouses}
+            onWarehousesChange={setSelectedWarehouses}
+            selectedSkus={selectedSkus}
+            onSkusChange={setSelectedSkus}
+            highlightedWeeks={highlightedWeeks}
+            onHighlightedWeeksChange={setHighlightedWeeks}
+            weekRange={weekRange}
+            onWeekRangeChange={setWeekRange}
+            totalWeeks={TOTAL_WEEKS}
+            userRole={userRole}
+          />
+        )}
 
         {/* Data Table */}
         <InventoryTable
@@ -881,6 +914,7 @@ export function PipelineDashboard() {
           weekRange={weekRange}
           highlightedWeeks={highlightedWeeks}
           onDataChange={handleDataChange}
+          userRole={userRole}
         />
 
         {/* Legend */}

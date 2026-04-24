@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(request: NextRequest) {
+  // Both admin and viewer can save to database (shared data)
+  // Viewer can only edit ETD field (enforced in frontend)
   const supabase = await createClient()
   
   const { skuId, weekNumber, field, value } = await request.json()
