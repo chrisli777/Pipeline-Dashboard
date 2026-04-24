@@ -5,9 +5,18 @@ import * as XLSX from 'xlsx'
 const BUCKET_NAME = 'forecast-files'
 
 // SKU-specific forecast multipliers (sku_code -> multiplier)
+// TJJSH (Tianjin) SKUs for GS-4655 model:
+// - 1274333GT, 1284781GT, 1295212GT: forecast * 2
+// - 1296913GT, 1303372GT: forecast * 3
 const FORECAST_MULTIPLIERS: Record<string, number> = {
   '229579': 8,
   '60342': 3,
+  // TJJSH (Tianjin) GS-4655 multipliers
+  '1274333GT': 2,
+  '1284781GT': 2,
+  '1295212GT': 2,
+  '1296913GT': 3,
+  '1303372GT': 3,
 }
 
 // Compound model names that map to multiple model lookups
