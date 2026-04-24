@@ -495,6 +495,7 @@ export function InventoryTable({ skus, weekRange, highlightedWeeks = [], onDataC
               highlightedEtdWeeks={hoveredSkuId === sku.id ? highlightedEtdWeeks : new Set()}
               highlightedEtaWeeks={hoveredSkuId === sku.id ? highlightedEtaWeeks : new Set()}
               onDataChange={onDataChange}
+              onModelConfigChange={onModelConfigChange}
               onCellHover={(skuId, weekNumber, rowType) => {
                 setHoveredSkuId(skuId)
                 let result: { ataWeeks: number[], etaWeeks: number[], etdWeeks: number[] }
@@ -536,12 +537,13 @@ interface SKURowsProps {
   highlightedEtdWeeks: Set<number>
   highlightedEtaWeeks: Set<number>
   onDataChange: (skuId: string, weekNumber: number, field: keyof WeekData, value: number | null) => void
+  onModelConfigChange?: (skuCode: string, supplierCode: string, machineModel: string, multiplier: number) => void
   onCellHover: (skuId: string, weekNumber: number, rowType: RowType) => void
   userRole: 'admin' | 'viewer'
   onCellLeave: () => void
 }
 
-function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedAtaWeeks, highlightedEtdWeeks, highlightedEtaWeeks, onDataChange, onCellHover, onCellLeave, userRole }: SKURowsProps) {
+function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedAtaWeeks, highlightedEtdWeeks, highlightedEtaWeeks, onDataChange, onModelConfigChange, onCellHover, onCellLeave, userRole }: SKURowsProps) {
   const skuWeeks = sku.weeks.filter(
     w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
   )
