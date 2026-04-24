@@ -472,6 +472,14 @@ function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedAta
             <div className="text-xs text-muted-foreground">({sku.description})</div>
           )}
           <div className="text-xs font-bold">{sku.category}</div>
+          {sku.machineModel && (
+            <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-800">
+              Model: {sku.machineModel}
+              {sku.forecastMultiplier && sku.forecastMultiplier > 1 && (
+                <span className="text-purple-600">({sku.forecastMultiplier}x)</span>
+              )}
+            </div>
+          )}
           <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
             {sku.supplierCode && <span>Vendor: {sku.supplierCode}</span>}
             {sku.warehouse && <span>WH: {sku.warehouse}</span>}

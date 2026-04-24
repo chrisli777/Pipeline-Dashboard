@@ -4,19 +4,26 @@ import * as XLSX from 'xlsx'
 
 const BUCKET_NAME = 'forecast-files'
 
-// SKU-specific forecast multipliers (sku_code -> multiplier)
-// TJJSH (Tianjin) SKUs for GS-4655 model:
-// - 1274333GT, 1284781GT, 1295212GT: forecast * 2
-// - 1296913GT, 1303372GT: forecast * 3
-const FORECAST_MULTIPLIERS: Record<string, number> = {
-  '229579': 8,
-  '60342': 3,
-  // TJJSH (Tianjin) GS-4655 multipliers
-  '1274333GT': 2,
-  '1284781GT': 2,
-  '1295212GT': 2,
-  '1296913GT': 3,
-  '1303372GT': 3,
+// Load forecast multipliers from database config table
+async function loadForecastMultipliers(supabase: any): Promise<Record<string, number>> {
+  const multipliers: Record<string, number> = {}
+  
+  const { data, error } = await supabase
+    .from('forecast_multiplier_config')
+    .select('sku_code, multiplier')
+  
+  if (error) {
+    console.error('Error loading forecast multipliers:', error)
+    return multipliers
+  }
+  
+  if (data) {
+    for (const row of data) {
+      multipliers[row.sku_code] = Number(row.multiplier)
+    }
+  }
+  
+  return multipliers
 }
 
 // Compound model names that map to multiple model lookups
@@ -448,6 +455,10 @@ export async function POST(request: Request) {
     const { fileId } = await request.json()
 
     const supabase = await createClient()
+    
+    // Load forecast multipliers from database
+    const FORECAST_MULTIPLIERS = await loadForecastMultipliers(supabase)
+    console.log(`[v0] Loaded ${Object.keys(FORECAST_MULTIPLIERS).length} forecast multipliers from config`)
 
     // Get the specified file or the latest uploaded forecast file
     let fileQuery = supabase
