@@ -59,11 +59,12 @@ export async function POST(request: Request) {
     }
 
     // Look up the SKU's warehouse from the database to route to the correct WMS credentials
+    // Use 'id' for lookup since skuId from frontend is the database id
     const supabaseForLookup = await createClient()
     const { data: skuRow } = await supabaseForLookup
       .from('skus')
-      .select('warehouse, supplier_code')
-      .eq('sku_code', skuId)
+      .select('warehouse, supplier_code, sku_code')
+      .eq('id', skuId)
       .single()
 
     if (!skuRow) {
@@ -72,6 +73,9 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
+    
+    // Use sku_code for WMS API queries (e.g., "60342GT" not "60342")
+    const skuCode = skuRow.sku_code
 
     // Get a fresh OAuth2 token for the correct warehouse
     let wmsToken: string
@@ -132,10 +136,10 @@ export async function POST(request: Request) {
           const items = Array.isArray(receiveItems) ? receiveItems : []
 
           for (const item of items) {
-            // SKU in WMS has "GT" suffix (e.g. "61415GT" for SKU "61415")
+            // Match using sku_code from database (e.g., "60342GT")
             const itemSku = item.ItemIdentifier?.Sku || ''
-            // Match by checking if the WMS SKU starts with our target SKU ID
-            if (itemSku === skuId || itemSku === `${skuId}GT` || itemSku.startsWith(skuId)) {
+            // Match by checking if the WMS SKU matches our target SKU code
+            if (itemSku === skuCode || itemSku.includes(skuCode)) {
               const qty = item.Qty || 0
               total += qty
             }

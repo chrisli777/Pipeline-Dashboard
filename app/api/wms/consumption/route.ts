@@ -56,16 +56,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Look up the SKU's warehouse from the database to route to the correct WMS credentials
+    // Use 'id' for lookup since skuId from frontend is the database id
     const supabaseForLookup = await createClient()
     const { data: skuRow } = await supabaseForLookup
       .from('skus')
-      .select('warehouse, supplier_code')
-      .eq('sku_code', skuId)
+      .select('warehouse, supplier_code, sku_code')
+      .eq('id', skuId)
       .single()
 
     if (!skuRow) {
       return NextResponse.json({ error: `SKU ${skuId} not found in database` }, { status: 400 })
     }
+    
+    // Use sku_code for WMS API queries (e.g., "60342GT" not "60342")
+    const skuCode = skuRow.sku_code
 
     // Get a fresh OAuth2 token for the correct warehouse
     let wmsToken: string
@@ -84,7 +88,8 @@ export async function POST(request: NextRequest) {
     const rqlEncoded = encodeURIComponent(rqlRaw)
 
     // Build WMS API URL with detail=OrderItems to get order line items
-    const wmsUrl = `https://secure-wms.com/orders?pgsiz=100&pgnum=1&skucontains=${skuId}&rql=${rqlEncoded}&detail=OrderItems`
+    // Use skuCode (e.g., "60342GT") not skuId (e.g., "60342") for WMS API
+    const wmsUrl = `https://secure-wms.com/orders?pgsiz=100&pgnum=1&skucontains=${skuCode}&rql=${rqlEncoded}&detail=OrderItems`
 
     // Paginate through all results and sum qty
     let totalConsumption = 0
@@ -94,7 +99,7 @@ export async function POST(request: NextRequest) {
     while (currentPage <= totalPages) {
       const pageUrl = currentPage === 1 
         ? wmsUrl 
-        : `https://secure-wms.com/orders?pgsiz=100&pgnum=${currentPage}&skucontains=${skuId}&rql=${rqlEncoded}&detail=OrderItems`
+        : `https://secure-wms.com/orders?pgsiz=100&pgnum=${currentPage}&skucontains=${skuCode}&rql=${rqlEncoded}&detail=OrderItems`
 
       const wmsResponse = await fetch(pageUrl, {
         method: 'GET',
@@ -136,7 +141,7 @@ export async function POST(request: NextRequest) {
         // Iterate through each OrderItem and sum Qty for matching SKUs
         for (const item of orderItems) {
           const itemSku = item.Sku || item.ItemIdentifier?.Sku || ''
-          if (itemSku.includes(skuId)) {
+          if (itemSku.includes(skuCode)) {
             totalConsumption += item.Qty || 0
           }
         }
