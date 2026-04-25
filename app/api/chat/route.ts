@@ -12,12 +12,10 @@ async function getInventoryContext() {
     .from('skus')
     .select('*')
   
-  // Get recent inventory data (display weeks 1-10)
+  // Get all inventory data (all weeks)
   const { data: inventoryData } = await supabase
     .from('inventory_data')
     .select('*')
-    .gte('week_number', 1)
-    .lte('week_number', 10)
     .order('sku_id')
     .order('week_number')
   
@@ -37,7 +35,7 @@ You help users analyze inventory data, identify potential stockout risks, and pr
 Current SKU Information:
 ${JSON.stringify(skuData, null, 2)}
 
-Recent Inventory Data (Weeks 1-10):
+Inventory Data (All Weeks):
 ${JSON.stringify(inventoryData, null, 2)}
 
 Key metrics explanation:
