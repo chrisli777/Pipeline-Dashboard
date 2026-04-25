@@ -21,6 +21,8 @@ export interface SKUData {
   customerCode: string | null // e.g., "GENIE" or "CLARK"
   supplierCode: string | null // e.g., "HX" or "AMC"
   warehouse: string | null // e.g., "Moses Lake" or "Kent"
+  machineModel: string | null // e.g., "GS-4655" - from forecast_multiplier_config
+  forecastMultiplier: number | null // e.g., 2 or 3 - from forecast_multiplier_config
   unitWeight: number | null // lbs
   unitCost: number | null // USD
   leadTimeWeeks: number | null

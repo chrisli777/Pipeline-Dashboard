@@ -48,7 +48,11 @@ function calculateWeeksOnHand(weeks: WeekData[], currentWeekIndex: number): numb
   return parseFloat((currentInventory / avgConsumption).toFixed(2))
 }
 
-function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUData[] {
+function transformDatabaseData(
+  inventoryData: any[], 
+  skusMeta: any[] = [],
+  forecastConfigMap: Map<string, { partModel: string; multiplier: number }> = new Map()
+): SKUData[] {
   // Build a lookup map for SKU metadata (unit_weight, unit_cost, lead_time, moq, qty_per_container)
   const skuMetaMap = new Map<string, any>()
   skusMeta.forEach((s) => skuMetaMap.set(s.id, s))
@@ -58,6 +62,8 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
   inventoryData.forEach((row) => {
     if (!skuMap.has(row.sku_id)) {
       const meta = skuMetaMap.get(row.sku_id)
+      // Get machine model and multiplier from forecast config
+      const forecastConfig = forecastConfigMap.get(row.part_model)
       skuMap.set(row.sku_id, {
         id: row.sku_id,
         partModelNumber: row.part_model,
@@ -66,6 +72,8 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []): SKUD
         customerCode: row.customer_code || null,
         supplierCode: row.supplier_code || null,
         warehouse: row.warehouse || null,
+        machineModel: forecastConfig?.partModel || null,
+        forecastMultiplier: forecastConfig?.multiplier || null,
         unitWeight: meta?.unit_weight ? parseFloat(meta.unit_weight) : null,
         unitCost: meta?.unit_cost ? parseFloat(meta.unit_cost) : null,
         leadTimeWeeks: meta?.lead_time_weeks ?? null,
@@ -309,8 +317,19 @@ export function PipelineDashboard() {
       if (data.error) {
         throw new Error(data.error)
       }
+      
+      // Build forecast config lookup map
+      const forecastConfigMap = new Map<string, { partModel: string; multiplier: number }>()
+      if (data.forecastConfig) {
+        for (const row of data.forecastConfig) {
+          forecastConfigMap.set(row.sku_code, {
+            partModel: row.part_model,
+            multiplier: Number(row.multiplier)
+          })
+        }
+      }
 
-      const transformedData = transformDatabaseData(data.inventoryData || [], data.skus || [])
+      const transformedData = transformDatabaseData(data.inventoryData || [], data.skus || [], forecastConfigMap)
       setSkus(transformedData)
       setLoading(false)
     } catch (err) {
@@ -490,6 +509,36 @@ export function PipelineDashboard() {
       setSaving(false)
     }
   }, [pendingChanges, fetchData])
+
+  // Handle model config changes (machine model binding and multiplier)
+  const handleModelConfigChange = useCallback(async (
+    skuCode: string, 
+    supplierCode: string, 
+    machineModel: string, 
+    multiplier: number
+  ) => {
+    try {
+      const res = await fetch('/api/sku-model-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skuCode, supplierCode, machineModel, multiplier }),
+      })
+      
+      if (!res.ok) {
+        throw new Error('Failed to update model config')
+      }
+      
+      // Update local state immediately
+      setSkus(prevSkus => prevSkus.map(sku => {
+        if (sku.partModelNumber === skuCode) {
+          return { ...sku, machineModel, forecastMultiplier: multiplier }
+        }
+        return sku
+      }))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update model config')
+    }
+  }, [])
 
   // Sync data based on configuration from dialog
   // Token routing is handled server-side based on SKU
@@ -909,12 +958,13 @@ export function PipelineDashboard() {
         )}
 
         {/* Data Table */}
-        <InventoryTable
-          skus={filteredSkus}
-          weekRange={weekRange}
-          highlightedWeeks={highlightedWeeks}
-          onDataChange={handleDataChange}
-          userRole={userRole}
+<InventoryTable
+  skus={filteredSkus}
+  weekRange={weekRange}
+  highlightedWeeks={highlightedWeeks}
+  onDataChange={handleDataChange}
+  onModelConfigChange={handleModelConfigChange}
+  userRole={userRole}
         />
 
         {/* Legend */}

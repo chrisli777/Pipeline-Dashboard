@@ -59,12 +59,10 @@ export async function GET() {
 
   const inventoryData = allInventoryData
   
-  // Debug: log pagination results
-  const uniqueSkuIds = [...new Set(inventoryData?.map((r: any) => r.sku_id) || [])]
-  console.log('[v0] Pagination complete - total rows:', inventoryData.length, 'pages:', page)
-  console.log('[v0] Unique SKU IDs:', uniqueSkuIds.length)
-  console.log('[v0] SKU IDs include 61415:', uniqueSkuIds.includes('61415'))
-  console.log('[v0] SKU IDs include 824433:', uniqueSkuIds.includes('824433'))
+  // Fetch forecast multiplier config (for machine model display)
+  const { data: forecastConfig } = await supabase
+    .from('forecast_multiplier_config')
+    .select('sku_code, part_model, multiplier')
 
-  return NextResponse.json({ skus, weeks, inventoryData })
+  return NextResponse.json({ skus, weeks, inventoryData, forecastConfig })
 }

@@ -26,9 +26,25 @@ export async function GET() {
     if (skuError) {
       return NextResponse.json({ error: skuError.message }, { status: 500 })
     }
+    
+    // Fetch forecast multiplier config (for machine model display)
+    const { data: forecastConfig } = await supabase
+      .from('forecast_multiplier_config')
+      .select('sku_code, part_model, multiplier')
+    
+    // Build lookup map: sku_code -> { partModel, multiplier }
+    const forecastConfigMap = new Map<string, { partModel: string; multiplier: number }>()
+    if (forecastConfig) {
+      for (const row of forecastConfig) {
+        forecastConfigMap.set(row.sku_code, {
+          partModel: row.part_model,
+          multiplier: Number(row.multiplier)
+        })
+      }
+    }
 
     // Transform data using same logic as Pipeline Dashboard
-    const calculatedData = transformDatabaseData(inventoryData || [], skusMeta || [])
+    const calculatedData = transformDatabaseData(inventoryData || [], skusMeta || [], forecastConfigMap)
     
     return NextResponse.json({
       skus: calculatedData,
@@ -57,7 +73,11 @@ function getDefaultWeek(): number {
 }
 
 // Transform database data to frontend format - EXACT SAME LOGIC as Pipeline Dashboard
-function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []) {
+function transformDatabaseData(
+  inventoryData: any[], 
+  skusMeta: any[] = [],
+  forecastConfigMap: Map<string, { partModel: string; multiplier: number }> = new Map()
+) {
   const skuMetaMap = new Map<string, any>()
   skusMeta.forEach((s) => skuMetaMap.set(s.id, s))
 
@@ -66,6 +86,8 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []) {
   inventoryData.forEach((row) => {
     if (!skuMap.has(row.sku_id)) {
       const meta = skuMetaMap.get(row.sku_id)
+      // Get machine model and multiplier from forecast config
+      const forecastConfig = forecastConfigMap.get(row.part_model)
       skuMap.set(row.sku_id, {
         id: row.sku_id,
         partModelNumber: row.part_model,
@@ -74,6 +96,8 @@ function transformDatabaseData(inventoryData: any[], skusMeta: any[] = []) {
         customerCode: row.customer_code || null,
         supplierCode: row.supplier_code || null,
         warehouse: row.warehouse || null,
+        machineModel: forecastConfig?.partModel || null,
+        forecastMultiplier: forecastConfig?.multiplier || null,
         unitWeight: meta?.unit_weight ? parseFloat(meta.unit_weight) : null,
         unitCost: meta?.unit_cost ? parseFloat(meta.unit_cost) : null,
         leadTimeWeeks: meta?.lead_time_weeks ?? null,
