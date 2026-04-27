@@ -138,13 +138,14 @@ function transformDatabaseData(
   skuMap.forEach((sku) => {
     sku.allWeeks.sort((a: any, b: any) => a.weekNumber - b.weekNumber)
     
-    // Apply defect default
+    // Apply defect inheritance - defect is cumulative, always take the max of current and previous
     for (let i = 1; i < sku.allWeeks.length; i++) {
       const currentWeek = sku.allWeeks[i]
       const prevWeek = sku.allWeeks[i - 1]
-      if (currentWeek.defect === null || currentWeek.defect === 0) {
-        currentWeek.defect = prevWeek.defect
-      }
+      const prevDefect = prevWeek.defect ?? 0
+      const currentDefect = currentWeek.defect ?? 0
+      // Defect should never decrease - take the maximum of previous and current
+      currentWeek.defect = Math.max(prevDefect, currentDefect)
     }
     
     // Build ETD lookup
