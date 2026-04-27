@@ -170,18 +170,31 @@ export async function POST(request: Request) {
     const referenceNumbers = [...new Set([...normalRefs, ...asnRefs, ...defectRefs])]
 
     // Update ATA in database
-    // Only update defect if WMS actually returned defect data (totalDefect > 0)
-    // This preserves manually entered defect values
+    // Defect should ACCUMULATE - add return qty to previous week's defect
     const supabase = await createClient()
+    
+    // First, get the previous week's defect value to accumulate
+    let accumulatedDefect = 0
+    if (totalDefect > 0) {
+      const { data: prevWeekData } = await supabase
+        .from('inventory_data')
+        .select('defect')
+        .eq('sku_id', skuId)
+        .eq('week_number', weekNumber - 1)
+        .single()
+      
+      const prevDefect = prevWeekData?.defect ?? 0
+      accumulatedDefect = prevDefect + totalDefect
+    }
     
     const updateData: { ata: number; defect?: number; updated_at: string } = {
       ata: totalAta,
       updated_at: new Date().toISOString(),
     }
     
-    // Only overwrite defect if WMS returned defect data
+    // Only update defect if WMS returned return/defect data - accumulate with previous
     if (totalDefect > 0) {
-      updateData.defect = totalDefect
+      updateData.defect = accumulatedDefect
     }
     
     const { error: updateError } = await supabase
