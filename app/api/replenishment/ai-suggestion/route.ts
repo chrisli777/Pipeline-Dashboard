@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     }, null, 2)
 
     // Step 1: Create a new session with the agent via HTTP
-    const sessionResponse = await fetch('https://api.anthropic.com/v1/beta/sessions', {
+    const sessionResponse = await fetch('https://api.anthropic.com/v1/sessions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     console.log('[v0] Session created:', session.id)
 
     // Step 2: Send inventory data via events
-    const eventsResponse = await fetch(`https://api.anthropic.com/v1/beta/sessions/${session.id}/events`, {
+    const eventsResponse = await fetch(`https://api.anthropic.com/v1/sessions/${session.id}/events`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -76,10 +76,12 @@ export async function POST(req: Request) {
         'anthropic-beta': 'managed-agents-2026-04-01',
       },
       body: JSON.stringify({
-        event: {
-          type: 'user',
-          content: inventorySnapshot,
-        },
+        events: [
+          {
+            type: 'user.message',
+            content: [{ type: 'text', text: inventorySnapshot }],
+          },
+        ],
       }),
     })
 
