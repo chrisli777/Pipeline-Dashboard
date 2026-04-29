@@ -1,4 +1,8 @@
-import { generateText } from 'ai'
+import Anthropic from '@anthropic-ai/sdk'
+
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+})
 
 export async function POST(req: Request) {
   try {
@@ -29,37 +33,36 @@ export async function POST(req: Request) {
     const warningCount = projections.filter((p: any) => p.urgency === 'WARNING').length
     const okCount = projections.filter((p: any) => p.urgency === 'OK').length
 
-    const prompt = `You are an inventory management expert for HX supplier products. Analyze the following inventory data and provide actionable recommendations.
+    // Prepare inventory snapshot JSON for the agent
+    const inventorySnapshot = {
+      currentWeek,
+      summary: {
+        criticalCount,
+        warningCount,
+        okCount,
+      },
+      skuDetails: skuSummaries,
+      replenishmentSuggestions: suggestionSummaries,
+    }
 
-Current Week: ${currentWeek}
-
-Inventory Status Summary:
-- Critical SKUs: ${criticalCount}
-- Warning SKUs: ${warningCount}
-- OK SKUs: ${okCount}
-
-Top SKU Details:
-${JSON.stringify(skuSummaries, null, 2)}
-
-Replenishment Suggestions:
-${JSON.stringify(suggestionSummaries, null, 2)}
-
-Please provide:
-1. Overall inventory health assessment (1-2 sentences)
-2. Top 3 priority actions with specific SKU recommendations
-3. Any concerns about upcoming stockouts
-4. Recommendations for optimizing order timing
-
-Keep your response concise and actionable. Focus on specific SKUs and weeks when making recommendations.`
-
-    const result = await generateText({
-      model: 'anthropic/agent_-gbmaw2',
-      prompt,
-      maxOutputTokens: 800,
+    // Call Anthropic Agent API directly
+    const response = await client.beta.agents.run({
+      agent_id: 'agent_011CaYomWFdBAQjuMAgbmaw2',
+      input: JSON.stringify(inventorySnapshot),
     })
 
+    // Extract the text response from the agent
+    let suggestionText = ''
+    if (response.output && Array.isArray(response.output)) {
+      for (const block of response.output) {
+        if (block.type === 'text') {
+          suggestionText += block.text
+        }
+      }
+    }
+
     return Response.json({ 
-      suggestion: result.text,
+      suggestion: suggestionText || 'No suggestion generated',
       metadata: {
         criticalCount,
         warningCount,
