@@ -98,15 +98,15 @@ export async function POST(req: Request) {
 
     console.log('[v0] Inventory data sent, polling for agent response...')
 
-    // Step 3: Poll for agent response (agent takes ~1-2 minutes)
+    // Step 3: Poll for agent response by checking session status
     let suggestionText = ''
     const maxAttempts = 30 // Poll for up to 2.5 minutes (30 * 5 seconds)
     
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await sleep(5000) // Wait 5 seconds between polls
       
-      // Fetch session events
-      const getEventsResponse = await fetch(`https://api.anthropic.com/v1/sessions/${session.id}/events`, {
+      // First check session status
+      const sessionStatusResponse = await fetch(`https://api.anthropic.com/v1/sessions/${session.id}`, {
         method: 'GET',
         headers: {
           'x-api-key': ANTHROPIC_API_KEY!,
@@ -115,34 +115,56 @@ export async function POST(req: Request) {
         },
       })
 
-      if (!getEventsResponse.ok) {
-        console.log('[v0] Poll attempt', attempt + 1, 'failed, retrying...')
-        continue
-      }
-
-      const eventsData = await getEventsResponse.json()
-      console.log('[v0] Poll attempt', attempt + 1, 'events count:', eventsData.events?.length || 0)
-
-      // Look for agent message in events
-      if (eventsData.events && Array.isArray(eventsData.events)) {
-        for (const event of eventsData.events) {
-          if (event.type === 'agent.message' || event.type === 'assistant') {
-            // Extract text content from agent message
-            if (event.content) {
-              if (typeof event.content === 'string') {
-                suggestionText = event.content
-              } else if (Array.isArray(event.content)) {
-                suggestionText = event.content
+      if (sessionStatusResponse.ok) {
+        const sessionStatus = await sessionStatusResponse.json()
+        console.log('[v0] Poll attempt', attempt + 1, 'session status:', sessionStatus.status, 'messages:', sessionStatus.messages?.length || 0)
+        
+        // Check if session has completed messages
+        if (sessionStatus.messages && Array.isArray(sessionStatus.messages)) {
+          for (const msg of sessionStatus.messages) {
+            if (msg.role === 'assistant' || msg.type === 'agent.message') {
+              if (msg.content) {
+                if (typeof msg.content === 'string') {
+                  suggestionText = msg.content
+                } else if (Array.isArray(msg.content)) {
+                  suggestionText = msg.content
+                    .filter((c: any) => c.type === 'text')
+                    .map((c: any) => c.text)
+                    .join('\n')
+                }
+              }
+              if (suggestionText) {
+                console.log('[v0] Found agent response in session messages!')
+                break
+              }
+            }
+          }
+        }
+        
+        // Also check transcript field
+        if (!suggestionText && sessionStatus.transcript) {
+          console.log('[v0] Checking transcript, length:', sessionStatus.transcript.length)
+          for (const entry of sessionStatus.transcript) {
+            if (entry.role === 'assistant' && entry.content) {
+              if (typeof entry.content === 'string') {
+                suggestionText = entry.content
+              } else if (Array.isArray(entry.content)) {
+                suggestionText = entry.content
                   .filter((c: any) => c.type === 'text')
                   .map((c: any) => c.text)
                   .join('\n')
               }
-            }
-            if (suggestionText) {
-              console.log('[v0] Found agent response!')
-              break
+              if (suggestionText) {
+                console.log('[v0] Found agent response in transcript!')
+                break
+              }
             }
           }
+        }
+        
+        // If session is idle and we found a response, we're done
+        if (sessionStatus.status === 'idle' && suggestionText) {
+          break
         }
       }
 
