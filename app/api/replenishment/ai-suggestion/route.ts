@@ -4,21 +4,9 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-// System prompt for "库存早期预警分析师" agent
-const SYSTEM_PROMPT = `你是库存早期预警分析师，专门分析供应链库存数据并提供补货建议。
-
-你的职责：
-1. 分析库存数据，识别即将缺货的SKU
-2. 根据紧急程度(CRITICAL/WARNING/OK)给出优先级建议
-3. 提供具体的补货数量和时间建议
-4. 用简洁的中文回复，重点突出关键行动项
-
-回复格式：
-- 先给出总体概况（几个紧急、几个预警、几个正常）
-- 然后列出需要立即关注的SKU及建议
-- 最后给出整体建议
-
-保持回复简洁，不超过300字。`
+// Agent configuration
+const AGENT_ID = 'agent_011CaYomWFdBAQjuMAgbmaw2'
+const ENVIRONMENT_ID = process.env.ANTHROPIC_ENVIRONMENT_ID || ''
 
 export async function POST(req: Request) {
   try {
@@ -50,35 +38,33 @@ export async function POST(req: Request) {
     const okCount = projections.filter((p: any) => p.urgency === 'OK').length
 
     // Prepare inventory snapshot JSON
-    const inventorySnapshot = {
+    const inventorySnapshot = JSON.stringify({
       currentWeek,
-      summary: {
-        criticalCount,
-        warningCount,
-        okCount,
-      },
+      summary: { criticalCount, warningCount, okCount },
       skuDetails: skuSummaries,
       replenishmentSuggestions: suggestionSummaries,
-    }
+    }, null, 2)
 
-    // Call Claude messages API with the system prompt
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 800,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: `请分析以下库存数据并给出补货建议：\n\n${JSON.stringify(inventorySnapshot, null, 2)}`,
-        },
-      ],
+    // Step 1: Create a new session with the agent
+    const session = await (client.beta as any).sessions.create({
+      agent: AGENT_ID,
+      environment_id: ENVIRONMENT_ID,
+      title: `库存预警分析-${new Date().toISOString().slice(0, 10)}`,
     })
 
-    // Extract the text response
+    // Step 2: Send inventory data and collect response
     let suggestionText = ''
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        suggestionText += block.text
+    
+    const stream = await (client.beta as any).sessions.events.stream(session.id, {
+      event: {
+        type: 'user',
+        content: inventorySnapshot,
+      },
+    })
+
+    for await (const event of stream) {
+      if (event.type === 'agent.message' && event.content) {
+        suggestionText += event.content
       }
     }
 
@@ -89,6 +75,7 @@ export async function POST(req: Request) {
         warningCount,
         okCount,
         analyzedSkus: skuSummaries.length,
+        sessionId: session.id,
       }
     })
   } catch (error) {
