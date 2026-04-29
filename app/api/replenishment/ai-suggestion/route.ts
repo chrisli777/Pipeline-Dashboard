@@ -53,7 +53,7 @@ Please provide:
 Keep your response concise and actionable. Focus on specific SKUs and weeks when making recommendations.`
 
     const result = await generateText({
-      model: 'anthropic/claude-sonnet-4-20250514',
+      model: 'openai/agent_-gbmaw2',
       prompt,
       maxOutputTokens: 800,
     })
