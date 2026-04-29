@@ -53,7 +53,7 @@ Please provide:
 Keep your response concise and actionable. Focus on specific SKUs and weeks when making recommendations.`
 
     const result = await generateText({
-      model: 'openai/agent_-gbmaw2',
+      model: 'anthropic/agent_-gbmaw2',
       prompt,
       maxOutputTokens: 800,
     })
