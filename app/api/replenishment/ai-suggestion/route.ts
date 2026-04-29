@@ -4,6 +4,9 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 const AGENT_ID = 'agent_011CaYomWFdBAQjuMAgbmaw2'
 const ENVIRONMENT_ID = 'env_016qaDFym3wS7GkuBof5xNZZ'
 
+// Helper to wait
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
 export async function POST(req: Request) {
   try {
     const { projections, suggestions, currentWeek } = await req.json()
@@ -41,7 +44,8 @@ export async function POST(req: Request) {
       replenishmentSuggestions: suggestionSummaries,
     }, null, 2)
 
-    // Step 1: Create a new session with the agent via HTTP
+    // Step 1: Create a new session with the agent
+    console.log('[v0] Creating session...')
     const sessionResponse = await fetch('https://api.anthropic.com/v1/sessions', {
       method: 'POST',
       headers: {
@@ -59,7 +63,7 @@ export async function POST(req: Request) {
 
     if (!sessionResponse.ok) {
       const errorText = await sessionResponse.text()
-      console.error('Session creation failed:', errorText)
+      console.error('[v0] Session creation failed:', errorText)
       throw new Error(`Session creation failed: ${errorText}`)
     }
 
@@ -67,6 +71,7 @@ export async function POST(req: Request) {
     console.log('[v0] Session created:', session.id)
 
     // Step 2: Send inventory data via events
+    console.log('[v0] Sending inventory data...')
     const eventsResponse = await fetch(`https://api.anthropic.com/v1/sessions/${session.id}/events`, {
       method: 'POST',
       headers: {
@@ -87,36 +92,62 @@ export async function POST(req: Request) {
 
     if (!eventsResponse.ok) {
       const errorText = await eventsResponse.text()
-      console.error('Events send failed:', errorText)
+      console.error('[v0] Events send failed:', errorText)
       throw new Error(`Events send failed: ${errorText}`)
     }
 
-    // Read streamed response
-    let suggestionText = ''
-    const reader = eventsResponse.body?.getReader()
-    const decoder = new TextDecoder()
+    console.log('[v0] Inventory data sent, polling for agent response...')
 
-    if (reader) {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        
-        const chunk = decoder.decode(value, { stream: true })
-        // Parse SSE events
-        const lines = chunk.split('\n')
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const event = JSON.parse(line.slice(6))
-              if (event.type === 'agent.message' && event.content) {
-                suggestionText += event.content
+    // Step 3: Poll for agent response (agent takes ~1-2 minutes)
+    let suggestionText = ''
+    const maxAttempts = 30 // Poll for up to 2.5 minutes (30 * 5 seconds)
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await sleep(5000) // Wait 5 seconds between polls
+      
+      // Fetch session events
+      const getEventsResponse = await fetch(`https://api.anthropic.com/v1/sessions/${session.id}/events`, {
+        method: 'GET',
+        headers: {
+          'x-api-key': ANTHROPIC_API_KEY!,
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'managed-agents-2026-04-01',
+        },
+      })
+
+      if (!getEventsResponse.ok) {
+        console.log('[v0] Poll attempt', attempt + 1, 'failed, retrying...')
+        continue
+      }
+
+      const eventsData = await getEventsResponse.json()
+      console.log('[v0] Poll attempt', attempt + 1, 'events count:', eventsData.events?.length || 0)
+
+      // Look for agent message in events
+      if (eventsData.events && Array.isArray(eventsData.events)) {
+        for (const event of eventsData.events) {
+          if (event.type === 'agent.message' || event.type === 'assistant') {
+            // Extract text content from agent message
+            if (event.content) {
+              if (typeof event.content === 'string') {
+                suggestionText = event.content
+              } else if (Array.isArray(event.content)) {
+                suggestionText = event.content
+                  .filter((c: any) => c.type === 'text')
+                  .map((c: any) => c.text)
+                  .join('\n')
               }
-            } catch (e) {
-              // Ignore parse errors for incomplete JSON
+            }
+            if (suggestionText) {
+              console.log('[v0] Found agent response!')
+              break
             }
           }
         }
       }
+
+      // If we got a response, stop polling
+      if (suggestionText) break
     }
 
     return Response.json({ 
@@ -130,7 +161,7 @@ export async function POST(req: Request) {
       }
     })
   } catch (error) {
-    console.error('AI suggestion error:', error)
+    console.error('[v0] AI suggestion error:', error)
     return Response.json(
       { error: 'Failed to generate AI suggestion' },
       { status: 500 }
