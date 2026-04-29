@@ -6,7 +6,7 @@ const client = new Anthropic({
 
 // Agent configuration
 const AGENT_ID = 'agent_011CaYomWFdBAQjuMAgbmaw2'
-const ENVIRONMENT_ID = process.env.ANTHROPIC_ENVIRONMENT_ID || ''
+const ENVIRONMENT_ID = 'env_016qaDFym3wS7GkuBof5xNZZ'
 
 export async function POST(req: Request) {
   try {
