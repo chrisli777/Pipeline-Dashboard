@@ -1,8 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
-
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 
 // Agent configuration
 const AGENT_ID = 'agent_011CaYomWFdBAQjuMAgbmaw2'
@@ -45,26 +41,79 @@ export async function POST(req: Request) {
       replenishmentSuggestions: suggestionSummaries,
     }, null, 2)
 
-    // Step 1: Create a new session with the agent
-    const session = await (client.beta as any).sessions.create({
-      agent: AGENT_ID,
-      environment_id: ENVIRONMENT_ID,
-      title: `库存预警分析-${new Date().toISOString().slice(0, 10)}`,
-    })
-
-    // Step 2: Send inventory data and collect response
-    let suggestionText = ''
-    
-    const stream = await (client.beta as any).sessions.events.stream(session.id, {
-      event: {
-        type: 'user',
-        content: inventorySnapshot,
+    // Step 1: Create a new session with the agent via HTTP
+    const sessionResponse = await fetch('https://api.anthropic.com/v1/beta/sessions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY!,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'managed-agents-2026-04-01',
       },
+      body: JSON.stringify({
+        agent: AGENT_ID,
+        environment_id: ENVIRONMENT_ID,
+        title: `库存预警分析-${new Date().toISOString().slice(0, 10)}`,
+      }),
     })
 
-    for await (const event of stream) {
-      if (event.type === 'agent.message' && event.content) {
-        suggestionText += event.content
+    if (!sessionResponse.ok) {
+      const errorText = await sessionResponse.text()
+      console.error('Session creation failed:', errorText)
+      throw new Error(`Session creation failed: ${errorText}`)
+    }
+
+    const session = await sessionResponse.json()
+    console.log('[v0] Session created:', session.id)
+
+    // Step 2: Send inventory data via events
+    const eventsResponse = await fetch(`https://api.anthropic.com/v1/beta/sessions/${session.id}/events`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY!,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'managed-agents-2026-04-01',
+      },
+      body: JSON.stringify({
+        event: {
+          type: 'user',
+          content: inventorySnapshot,
+        },
+      }),
+    })
+
+    if (!eventsResponse.ok) {
+      const errorText = await eventsResponse.text()
+      console.error('Events send failed:', errorText)
+      throw new Error(`Events send failed: ${errorText}`)
+    }
+
+    // Read streamed response
+    let suggestionText = ''
+    const reader = eventsResponse.body?.getReader()
+    const decoder = new TextDecoder()
+
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        
+        const chunk = decoder.decode(value, { stream: true })
+        // Parse SSE events
+        const lines = chunk.split('\n')
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6))
+              if (event.type === 'agent.message' && event.content) {
+                suggestionText += event.content
+              }
+            } catch (e) {
+              // Ignore parse errors for incomplete JSON
+            }
+          }
+        }
       }
     }
 
