@@ -117,6 +117,13 @@ export async function POST(req: Request) {
 
       if (sessionStatusResponse.ok) {
         const sessionStatus = await sessionStatusResponse.json()
+        
+        // Log full response structure on first poll to understand the API
+        if (attempt === 0) {
+          console.log('[v0] Session response keys:', Object.keys(sessionStatus))
+          console.log('[v0] Full session response:', JSON.stringify(sessionStatus).slice(0, 2000))
+        }
+        
         console.log('[v0] Poll attempt', attempt + 1, 'session status:', sessionStatus.status, 'messages:', sessionStatus.messages?.length || 0)
         
         // Check if session has completed messages
