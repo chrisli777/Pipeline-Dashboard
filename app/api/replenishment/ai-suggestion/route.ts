@@ -98,14 +98,14 @@ export async function POST(req: Request) {
 
     console.log('[v0] Inventory data sent, polling for agent response...')
 
-    // Step 3: Poll for agent response by checking session status
+    // Step 3: Poll for agent response - wait for idle, then get events
     let suggestionText = ''
     const maxAttempts = 30 // Poll for up to 2.5 minutes (30 * 5 seconds)
     
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await sleep(5000) // Wait 5 seconds between polls
       
-      // First check session status
+      // Check session status
       const sessionStatusResponse = await fetch(`https://api.anthropic.com/v1/sessions/${session.id}`, {
         method: 'GET',
         headers: {
@@ -117,66 +117,59 @@ export async function POST(req: Request) {
 
       if (sessionStatusResponse.ok) {
         const sessionStatus = await sessionStatusResponse.json()
+        console.log('[v0] Poll attempt', attempt + 1, 'session status:', sessionStatus.status)
         
-        // Log full response structure on first poll to understand the API
-        if (attempt === 0) {
-          console.log('[v0] Session response keys:', Object.keys(sessionStatus))
-          console.log('[v0] Full session response:', JSON.stringify(sessionStatus).slice(0, 2000))
-        }
-        
-        console.log('[v0] Poll attempt', attempt + 1, 'session status:', sessionStatus.status, 'messages:', sessionStatus.messages?.length || 0)
-        
-        // Check if session has completed messages
-        if (sessionStatus.messages && Array.isArray(sessionStatus.messages)) {
-          for (const msg of sessionStatus.messages) {
-            if (msg.role === 'assistant' || msg.type === 'agent.message') {
-              if (msg.content) {
-                if (typeof msg.content === 'string') {
-                  suggestionText = msg.content
-                } else if (Array.isArray(msg.content)) {
-                  suggestionText = msg.content
-                    .filter((c: any) => c.type === 'text')
-                    .map((c: any) => c.text)
-                    .join('\n')
+        // When session is idle (agent finished), fetch events to get the response
+        if (sessionStatus.status === 'idle') {
+          console.log('[v0] Session idle, fetching events...')
+          
+          const eventsGetResponse = await fetch(`https://api.anthropic.com/v1/sessions/${session.id}/events`, {
+            method: 'GET',
+            headers: {
+              'x-api-key': ANTHROPIC_API_KEY!,
+              'anthropic-version': '2023-06-01',
+              'anthropic-beta': 'managed-agents-2026-04-01',
+            },
+          })
+          
+          if (eventsGetResponse.ok) {
+            const eventsData = await eventsGetResponse.json()
+            console.log('[v0] Events response keys:', Object.keys(eventsData))
+            console.log('[v0] Events data:', JSON.stringify(eventsData).slice(0, 3000))
+            
+            // Look for agent message in events
+            const events = eventsData.events || eventsData.data || eventsData
+            if (Array.isArray(events)) {
+              console.log('[v0] Found', events.length, 'events')
+              for (const event of events) {
+                console.log('[v0] Event type:', event.type)
+                if (event.type === 'agent.message' || event.type === 'assistant' || event.role === 'assistant') {
+                  if (event.content) {
+                    if (typeof event.content === 'string') {
+                      suggestionText = event.content
+                    } else if (Array.isArray(event.content)) {
+                      suggestionText = event.content
+                        .filter((c: any) => c.type === 'text')
+                        .map((c: any) => c.text)
+                        .join('\n')
+                    }
+                  }
+                  if (suggestionText) {
+                    console.log('[v0] Found agent response! Length:', suggestionText.length)
+                    break
+                  }
                 }
               }
-              if (suggestionText) {
-                console.log('[v0] Found agent response in session messages!')
-                break
-              }
             }
+          } else {
+            const errorText = await eventsGetResponse.text()
+            console.log('[v0] Events fetch failed:', errorText)
           }
-        }
-        
-        // Also check transcript field
-        if (!suggestionText && sessionStatus.transcript) {
-          console.log('[v0] Checking transcript, length:', sessionStatus.transcript.length)
-          for (const entry of sessionStatus.transcript) {
-            if (entry.role === 'assistant' && entry.content) {
-              if (typeof entry.content === 'string') {
-                suggestionText = entry.content
-              } else if (Array.isArray(entry.content)) {
-                suggestionText = entry.content
-                  .filter((c: any) => c.type === 'text')
-                  .map((c: any) => c.text)
-                  .join('\n')
-              }
-              if (suggestionText) {
-                console.log('[v0] Found agent response in transcript!')
-                break
-              }
-            }
-          }
-        }
-        
-        // If session is idle and we found a response, we're done
-        if (sessionStatus.status === 'idle' && suggestionText) {
+          
+          // Session is idle, stop polling regardless of whether we found a response
           break
         }
       }
-
-      // If we got a response, stop polling
-      if (suggestionText) break
     }
 
     return Response.json({ 
