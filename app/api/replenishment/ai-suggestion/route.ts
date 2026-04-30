@@ -115,62 +115,60 @@ export async function POST(req: Request) {
         },
       })
 
-      if (sessionStatusResponse.ok) {
-        const sessionStatus = await sessionStatusResponse.json()
-        console.log('[v0] Poll attempt', attempt + 1, 'session status:', sessionStatus.status)
+      if (!sessionStatusResponse.ok) {
+        console.log('[v0] Poll attempt', attempt + 1, 'session status check failed')
+        continue
+      }
+
+      const sessionStatus = await sessionStatusResponse.json()
+      console.log('[v0] Poll attempt', attempt + 1, 'session status:', sessionStatus.status)
+      
+      // When session is idle (agent finished), fetch events to get the response
+      if (sessionStatus.status === 'idle') {
+        console.log('[v0] Session is idle! Fetching events...')
         
-        // When session is idle (agent finished), fetch events to get the response
-        if (sessionStatus.status === 'idle') {
-          console.log('[v0] Session idle, fetching events...')
+        const eventsGetResponse = await fetch(`https://api.anthropic.com/v1/sessions/${session.id}/events`, {
+          method: 'GET',
+          headers: {
+            'x-api-key': ANTHROPIC_API_KEY!,
+            'anthropic-version': '2023-06-01',
+            'anthropic-beta': 'managed-agents-2026-04-01',
+          },
+        })
+        
+        if (eventsGetResponse.ok) {
+          const eventsData = await eventsGetResponse.json()
+          console.log('[v0] Events response keys:', Object.keys(eventsData))
+          console.log('[v0] Events data (first 2000 chars):', JSON.stringify(eventsData).slice(0, 2000))
           
-          const eventsGetResponse = await fetch(`https://api.anthropic.com/v1/sessions/${session.id}/events`, {
-            method: 'GET',
-            headers: {
-              'x-api-key': ANTHROPIC_API_KEY!,
-              'anthropic-version': '2023-06-01',
-              'anthropic-beta': 'managed-agents-2026-04-01',
-            },
-          })
-          
-          if (eventsGetResponse.ok) {
-            const eventsData = await eventsGetResponse.json()
-            console.log('[v0] Events response keys:', Object.keys(eventsData))
-            console.log('[v0] Events data:', JSON.stringify(eventsData).slice(0, 3000))
-            
-            // Look for agent message in events
-            const events = eventsData.events || eventsData.data || eventsData
-            if (Array.isArray(events)) {
-              console.log('[v0] Found', events.length, 'events')
-              for (const event of events) {
-                console.log('[v0] Event type:', event.type)
-                if (event.type === 'agent.message' || event.type === 'assistant' || event.role === 'assistant') {
-                  if (event.content) {
-                    if (typeof event.content === 'string') {
-                      suggestionText = event.content
-                    } else if (Array.isArray(event.content)) {
-                      suggestionText = event.content
-                        .filter((c: any) => c.type === 'text')
-                        .map((c: any) => c.text)
-                        .join('\n')
-                    }
-                  }
-                  if (suggestionText) {
-                    console.log('[v0] Found agent response! Length:', suggestionText.length)
-                    break
-                  }
+          // Based on the screenshot: event.type == "agent.message", content: event.content[0].text
+          const events = eventsData.data || eventsData.events || eventsData
+          if (Array.isArray(events)) {
+            console.log('[v0] Found', events.length, 'events')
+            for (const event of events) {
+              console.log('[v0] Event type:', event.type)
+              if (event.type === 'agent.message') {
+                console.log('[v0] Found agent.message event!')
+                // Get text from content[0].text
+                if (event.content && Array.isArray(event.content) && event.content[0]) {
+                  suggestionText = event.content[0].text || ''
+                  console.log('[v0] Agent response length:', suggestionText.length)
+                  break
                 }
               }
             }
-          } else {
-            const errorText = await eventsGetResponse.text()
-            console.log('[v0] Events fetch failed:', errorText)
           }
-          
-          // Session is idle, stop polling regardless of whether we found a response
-          break
+        } else {
+          const errorText = await eventsGetResponse.text()
+          console.log('[v0] Events fetch failed:', eventsGetResponse.status, errorText)
         }
+        
+        // Session is idle, exit polling regardless of result
+        break
       }
     }
+
+    console.log('[v0] Final suggestion length:', suggestionText.length)
 
     return Response.json({ 
       suggestion: suggestionText || 'No suggestion generated',
