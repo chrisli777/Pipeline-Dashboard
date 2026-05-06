@@ -379,6 +379,13 @@ For each model found, extract:
 - Week numbers from the "Week #" row
 - Weekly rate values from the "Weekly Rate" row
 
+CRITICAL RULES:
+1. ONLY include weeks that are EXPLICITLY shown in the PDF document
+2. Do NOT include weeks that are not visible in the PDF
+3. Do NOT fill in or assume values for weeks not shown
+4. If a week column exists in the PDF but the value is empty or 0, include it with value 0
+5. If a week column does NOT exist in the PDF, do NOT include it at all
+
 Scan the ENTIRE document thoroughly. Models may appear in different sections or pages.
 
 Return ONLY valid JSON in this exact format, no other text:
@@ -699,12 +706,6 @@ export async function POST(request: Request) {
       let modelHasUpdates = false
       for (const weekData of model.weeklyData) {
         let weekFoundForAnySku = false
-        
-        // Skip weeks with 0 value - don't overwrite existing historical data with zeros
-        if (weekData.weeklyRate === 0) {
-          continue
-        }
-        
         for (const { skuCode, multiplier } of matchingSkusWithMultipliers) {
           const key = `${skuCode}_${weekData.weekNumber}`
           if (existingCombinations.has(key)) {
