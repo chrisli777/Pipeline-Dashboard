@@ -699,6 +699,12 @@ export async function POST(request: Request) {
       let modelHasUpdates = false
       for (const weekData of model.weeklyData) {
         let weekFoundForAnySku = false
+        
+        // Skip weeks with 0 value - don't overwrite existing historical data with zeros
+        if (weekData.weeklyRate === 0) {
+          continue
+        }
+        
         for (const { skuCode, multiplier } of matchingSkusWithMultipliers) {
           const key = `${skuCode}_${weekData.weekNumber}`
           if (existingCombinations.has(key)) {
