@@ -273,8 +273,26 @@ export function PoBolDashboard() {
     return Array.from(skuSet).sort()
   }, [orders])
 
-  // Filter orders by search query and selected SKUs
+  // Filter orders by customer (supplier), search query and selected SKUs
   const filteredOrders = orders.filter(order => {
+    // Filter by supplier based on customer name
+    // HX orders have customer name containing "HX"
+    // TJJSH orders have customer name containing "TJJSH" or "TJJ"
+    // AMC orders have customer name containing "AMC"
+    const customerNameLower = order.customerName.toLowerCase()
+    const supplierLower = supplier.toLowerCase()
+    
+    // Check if customer name matches the selected supplier
+    if (supplierLower === 'hx' && !customerNameLower.includes('hx')) {
+      return false
+    }
+    if (supplierLower === 'tjjsh' && !customerNameLower.includes('tjj')) {
+      return false
+    }
+    if (supplierLower === 'amc' && !customerNameLower.includes('amc')) {
+      return false
+    }
+    
     // Filter by search query
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
