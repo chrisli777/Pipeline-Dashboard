@@ -41,11 +41,17 @@ export async function GET(
 
     const data = await response.json()
     
-    // Extract files from response
+    console.log('[v0] Files API response keys:', Object.keys(data))
+    console.log('[v0] Files API raw response:', JSON.stringify(data).slice(0, 1500))
+    
+    // Extract files from response - try multiple possible paths
     const files = data._embedded?.['http://api.3plCentral.com/rels/orders/orderfile'] || 
+                  data._embedded?.item ||
                   data._embedded?.files || 
+                  data.ResourceList ||
                   data.files ||
-                  []
+                  data.Items ||
+                  (Array.isArray(data) ? data : [])
 
     // Transform files for frontend
     const transformedFiles = Array.isArray(files) ? files.map((file: any) => ({
