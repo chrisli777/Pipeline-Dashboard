@@ -66,12 +66,6 @@ export async function GET(request: NextRequest) {
     const totalResults = data.TotalResults || orders.length
 
     console.log('[v0] Found', orders.length, 'orders, total:', totalResults)
-    
-    // Debug: log first order structure
-    if (orders.length > 0) {
-      console.log('[v0] First order keys:', Object.keys(orders[0]))
-      console.log('[v0] First order sample:', JSON.stringify(orders[0]).slice(0, 1500))
-    }
 
     // Transform orders for frontend
     const transformedOrders = orders.map((order: any) => {
@@ -86,25 +80,38 @@ export async function GET(request: NextRequest) {
 
       // Aggregate SKUs and quantities
       const skuSummary = orderItems.map((item: any) => ({
-        sku: item.Sku || item.ItemIdentifier?.Sku || 'Unknown',
+        sku: item.ItemIdentifier?.Sku || item.Sku || 'Unknown',
         quantity: item.Qty || 0,
-        description: item.ItemDescription || item.ItemIdentifier?.Description || '',
+        description: item.ItemIdentifier?.Description || item.ItemDescription || '',
       }))
 
       const totalQuantity = skuSummary.reduce((sum: number, item: any) => sum + item.quantity, 0)
 
+      // Map WMS Status codes: 0=Open, 1=Closed, etc.
+      const statusMap: Record<number, string> = {
+        0: 'Open',
+        1: 'Closed',
+        2: 'Cancelled',
+        3: 'Hold',
+      }
+      const statusCode = order.ReadOnly?.Status
+      const statusText = typeof statusCode === 'number' ? (statusMap[statusCode] || `Status ${statusCode}`) : 'Unknown'
+
       return {
         orderId: order.ReadOnly?.OrderId || order.OrderId || '',
         referenceNumber: order.ReferenceNum || '',
-        poNumber: order.PoNum || '',
-        customerName: order.CustomerIdentifier?.Name || order.CustomerName || '',
-        status: order.ReadOnly?.Status || 'Unknown',
+        poNumber: order.PoNum || order.ReferenceNum?.split('-')[0] || '', // Try extracting PO from ReferenceNum
+        customerName: order.ReadOnly?.CustomerIdentifier?.Name || order.CustomerIdentifier?.Name || '',
+        status: statusText,
+        statusCode: statusCode,
         processDate: order.ReadOnly?.ProcessDate || null,
         creationDate: order.ReadOnly?.CreationDate || null,
         isClosed: order.ReadOnly?.IsClosed || false,
         skuSummary,
         totalQuantity,
         totalSkus: skuSummary.length,
+        notes: order.Notes || '',
+        shippingNotes: order.ShippingNotes || '',
       }
     })
 
