@@ -16,12 +16,10 @@ export async function GET(
     const token = await getWmsToken(warehouse, supplier)
 
     // Fetch files for this order from WMS
-    // 3PL Central uses /orders/{transactionId}/files endpoint
-    // First try getting the order detail to see if files are linked
-    const wmsUrl = `https://secure-wms.com/orders/${orderId}/files`
+    // 3PL Central uses /orders/{transactionId}/filesummaries endpoint
+    const wmsUrl = `https://secure-wms.com/orders/${orderId}/filesummaries`
 
-    console.log('[v0] Fetching order files:', wmsUrl)
-    console.log('[v0] Order ID:', orderId, 'Type:', typeof orderId)
+
 
     const response = await fetch(wmsUrl, {
       method: 'GET',

@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     // Fetch orders from WMS with OrderItems detail (same pattern as consumption API)
     const wmsUrl = `https://secure-wms.com/orders?pgsiz=${pageSize}&pgnum=${page}&rql=${rqlEncoded}&detail=OrderItems`
 
-    console.log('[v0] Fetching WMS orders:', wmsUrl)
+
 
     const response = await fetch(wmsUrl, {
       method: 'GET',
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     const orders = data.ResourceList || []
     const totalResults = data.TotalResults || orders.length
 
-    console.log('[v0] Found', orders.length, 'orders, total:', totalResults)
+
 
     // Transform orders for frontend
     const transformedOrders = orders.map((order: any) => {
