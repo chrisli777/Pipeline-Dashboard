@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   FileText, Download, Search, RefreshCw, ChevronDown, ChevronRight,
   Loader2, Calendar, Package, AlertCircle, CheckCircle2, Filter
@@ -110,6 +110,7 @@ export function PoBolDashboard() {
   })
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0])
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedSkus, setSelectedSkus] = useState<string[]>([])
   
   // Pagination
   const [pagination, setPagination] = useState<Pagination>({
@@ -261,16 +262,39 @@ export function PoBolDashboard() {
     }
   }
 
-  // Filter orders by search query
+  // Get all unique SKUs from orders for the filter dropdown
+  const availableSkus = useMemo(() => {
+    const skuSet = new Set<string>()
+    orders.forEach(order => {
+      order.skuSummary.forEach(item => {
+        skuSet.add(item.sku)
+      })
+    })
+    return Array.from(skuSet).sort()
+  }, [orders])
+
+  // Filter orders by search query and selected SKUs
   const filteredOrders = orders.filter(order => {
-    if (!searchQuery) return true
-    const q = searchQuery.toLowerCase()
-    return (
-      order.referenceNumber.toLowerCase().includes(q) ||
-      order.poNumber.toLowerCase().includes(q) ||
-      order.customerName.toLowerCase().includes(q) ||
-      order.skuSummary.some(s => s.sku.toLowerCase().includes(q))
-    )
+    // Filter by search query
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      const matchesSearch = (
+        order.referenceNumber.toLowerCase().includes(q) ||
+        order.poNumber.toLowerCase().includes(q) ||
+        order.customerName.toLowerCase().includes(q) ||
+        order.skuSummary.some(s => s.sku.toLowerCase().includes(q))
+      )
+      if (!matchesSearch) return false
+    }
+    
+    // Filter by selected SKUs (if any selected)
+    if (selectedSkus.length > 0) {
+      const orderSkus = order.skuSummary.map(s => s.sku)
+      const hasMatchingSku = selectedSkus.some(sku => orderSkus.includes(sku))
+      if (!hasMatchingSku) return false
+    }
+    
+    return true
   })
 
   // Export to Excel
@@ -279,17 +303,6 @@ export function PoBolDashboard() {
       alert('No orders to export')
       return
     }
-
-    // Get all unique SKUs across all orders
-    const allSkus = new Set<string>()
-    filteredOrders.forEach(order => {
-      order.skuSummary.forEach(item => {
-        // Extract base SKU code (remove GT suffix if present)
-        const baseSku = item.sku.replace(/GT$/, '')
-        allSkus.add(baseSku)
-      })
-    })
-    const skuColumns = Array.from(allSkus).sort()
 
     // Build rows matching the template format
     const rows = filteredOrders.map(order => {
@@ -303,8 +316,7 @@ export function PoBolDashboard() {
         ? new Date(order.processDate).toLocaleString('sv-SE').replace('T', ' ')
         : ''
 
-      // Base row data
-      const row: Record<string, string | number> = {
+      return {
         'Customer': order.customerName,
         'Warehouse': warehouse === 'Moses Lake' ? 'Moses Lake New' : warehouse,
         'Transaction ID': order.orderId,
@@ -313,14 +325,6 @@ export function PoBolDashboard() {
         'Close Date': closeDate,
         'SKU/Quantity': skuQuantityStr,
       }
-
-      // Add individual SKU columns
-      skuColumns.forEach(sku => {
-        const found = order.skuSummary.find(item => item.sku.replace(/GT$/, '') === sku)
-        row[sku] = found ? found.quantity : ''
-      })
-
-      return row
     })
 
     // Create worksheet
@@ -332,10 +336,9 @@ export function PoBolDashboard() {
       { wch: 16 }, // Warehouse
       { wch: 12 }, // Transaction ID
       { wch: 18 }, // Reference Number
-      { wch: 8 },  // Status
+      { wch: 10 }, // Status
       { wch: 20 }, // Close Date
-      { wch: 30 }, // SKU/Quantity
-      ...skuColumns.map(() => ({ wch: 8 })), // SKU columns
+      { wch: 40 }, // SKU/Quantity
     ]
     ws['!cols'] = colWidths
 
@@ -408,6 +411,45 @@ export function PoBolDashboard() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          
+          <div className="flex-1 min-w-[200px]">
+            <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+              SKU Filter {selectedSkus.length > 0 && `(${selectedSkus.length})`}
+            </label>
+            <div className="relative">
+              <Select
+                value={selectedSkus.length === 1 ? selectedSkus[0] : ''}
+                onValueChange={(value) => {
+                  if (value === '__clear__') {
+                    setSelectedSkus([])
+                  } else {
+                    setSelectedSkus(prev => 
+                      prev.includes(value) 
+                        ? prev.filter(s => s !== value)
+                        : [...prev, value]
+                    )
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={selectedSkus.length > 0 ? `${selectedSkus.length} selected` : "All SKUs"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {selectedSkus.length > 0 && (
+                    <SelectItem value="__clear__" className="text-destructive">Clear Selection</SelectItem>
+                  )}
+                  {availableSkus.map(sku => (
+                    <SelectItem key={sku} value={sku}>
+                      <span className="flex items-center gap-2">
+                        {selectedSkus.includes(sku) && <CheckCircle2 className="h-3 w-3" />}
+                        {sku}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           
           <div className="flex-1 min-w-[150px]">
