@@ -484,6 +484,11 @@ export function PoBolDashboard() {
 
   // Filter orders by customer (supplier), search query and selected SKUs
   const filteredOrders = orders.filter(order => {
+    // Skip canceled orders (reference number contains "canceled")
+    if (order.referenceNumber.toLowerCase().includes('cancel')) {
+      return false
+    }
+    
     // Filter by supplier based on customer name
     // HX orders have customer name containing "HX"
     // TJJSH orders have customer name containing "TJJSH" or "TJJ"
