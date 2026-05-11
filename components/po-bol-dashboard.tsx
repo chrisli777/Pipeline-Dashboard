@@ -429,7 +429,6 @@ export function PoBolDashboard() {
               <tr>
                 <th className="text-left p-3 text-sm font-medium text-muted-foreground w-10"></th>
                 <th className="text-left p-3 text-sm font-medium text-muted-foreground">Ref #</th>
-                <th className="text-left p-3 text-sm font-medium text-muted-foreground">PO #</th>
                 <th className="text-left p-3 text-sm font-medium text-muted-foreground">Customer</th>
                 <th className="text-left p-3 text-sm font-medium text-muted-foreground">Status</th>
                 <th className="text-left p-3 text-sm font-medium text-muted-foreground">Process Date</th>
@@ -441,14 +440,14 @@ export function PoBolDashboard() {
             <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center">
+                  <td colSpan={8} className="p-8 text-center">
                     <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                     <p className="mt-2 text-muted-foreground">Loading orders...</p>
                   </td>
                 </tr>
               ) : filteredOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={8} className="p-8 text-center text-muted-foreground">
                     No orders found for the selected criteria
                   </td>
                 </tr>
@@ -477,7 +476,6 @@ export function PoBolDashboard() {
                         )}
                       </td>
                       <td className="p-3 font-mono text-sm">{order.referenceNumber || '-'}</td>
-                      <td className="p-3 font-mono text-sm">{order.poNumber || '-'}</td>
                       <td className="p-3">{order.customerName || '-'}</td>
                       <td className="p-3">
                         <span className={cn(
@@ -508,7 +506,7 @@ export function PoBolDashboard() {
                     {/* Expanded Details Row */}
                     {expandedRows.has(order.orderId) && (
                       <tr key={`${order.orderId}-details`} className="bg-muted/10">
-                        <td colSpan={9} className="p-4">
+                        <td colSpan={8} className="p-4">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {/* SKU Details */}
                             <div>
