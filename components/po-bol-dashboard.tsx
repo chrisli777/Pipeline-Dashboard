@@ -49,6 +49,20 @@ interface Order {
   hasFiles: boolean
 }
 
+interface ParseResult {
+  status: 'match' | 'mismatch' | 'no_files' | 'bol_missing' | 'po_missing' | 'no_data' | 'error'
+  bolData: { items: { sku: string; quantity: number; description?: string }[] } | null
+  poData: { items: { sku: string; quantity: number; description?: string }[] } | null
+  comparison: {
+    status: string
+    matches: { sku: string; bolQty: number; poQty: number }[]
+    mismatches: { sku: string; bolQty: number | null; poQty: number | null; status: string; message: string }[]
+  } | null
+  bolFileName?: string
+  poFileName?: string
+  message?: string
+}
+
 interface Pagination {
   page: number
   pageSize: number
@@ -126,6 +140,10 @@ export function PoBolDashboard() {
   // File loading states
   const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set())
   const [orderFiles, setOrderFiles] = useState<Record<string, OrderFile[]>>({})
+  
+  // Parse comparison states
+  const [parsingOrders, setParsingOrders] = useState<Set<string>>(new Set())
+  const [parseResults, setParseResults] = useState<Record<string, ParseResult>>({})
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -259,6 +277,48 @@ export function PoBolDashboard() {
     } catch (err: any) {
       console.error('[v0] Merge download error:', err)
       alert(err.message || 'Failed to download merged file')
+    }
+  }
+
+  // Parse and compare BOL vs PO
+  const parseAndCompare = async (orderId: string) => {
+    // Skip if already parsing or already have result
+    if (parsingOrders.has(orderId) || parseResults[orderId]) return
+
+    setParsingOrders(prev => new Set(prev).add(orderId))
+    
+    try {
+      const response = await fetch(`/api/wms/orders/${orderId}/parse-compare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ warehouse, supplierCode: supplier }),
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to parse files')
+      }
+      
+      const data = await response.json()
+      setParseResults(prev => ({ ...prev, [orderId]: data.result }))
+    } catch (err: any) {
+      console.error('[v0] Parse compare error:', err)
+      setParseResults(prev => ({ 
+        ...prev, 
+        [orderId]: { 
+          status: 'error', 
+          message: err.message,
+          bolData: null,
+          poData: null,
+          comparison: null,
+        } 
+      }))
+    } finally {
+      setParsingOrders(prev => {
+        const next = new Set(prev)
+        next.delete(orderId)
+        return next
+      })
     }
   }
 
@@ -577,19 +637,20 @@ export function PoBolDashboard() {
                 <th className="text-right p-3 text-sm font-medium text-muted-foreground">SKUs</th>
                 <th className="text-right p-3 text-sm font-medium text-muted-foreground">Quantity</th>
                 <th className="text-center p-3 text-sm font-medium text-muted-foreground">Files</th>
+                <th className="text-center p-3 text-sm font-medium text-muted-foreground">Parse</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center">
+                  <td colSpan={9} className="p-8 text-center">
                     <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                     <p className="mt-2 text-muted-foreground">Loading orders...</p>
                   </td>
                 </tr>
               ) : filteredOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={9} className="p-8 text-center text-muted-foreground">
                     No orders found for the selected criteria
                   </td>
                 </tr>
@@ -643,12 +704,55 @@ export function PoBolDashboard() {
                           <Download className="h-4 w-4" />
                         </Button>
                       </td>
+                      <td className="p-3 text-center">
+                        {parsingOrders.has(order.orderId) ? (
+                          <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
+                        ) : parseResults[order.orderId] ? (
+                          <div className="flex items-center justify-center">
+                            {parseResults[order.orderId].status === 'match' ? (
+                              <span className="flex items-center gap-1 text-green-600 text-xs font-medium">
+                                <CheckCircle2 className="h-4 w-4" />
+                                Match
+                              </span>
+                            ) : parseResults[order.orderId].status === 'mismatch' ? (
+                              <span className="flex items-center gap-1 text-red-600 text-xs font-medium cursor-help" 
+                                    title={parseResults[order.orderId].comparison?.mismatches.map(m => m.message).join('\n')}>
+                                <AlertCircle className="h-4 w-4" />
+                                Mismatch
+                              </span>
+                            ) : parseResults[order.orderId].status === 'no_files' ? (
+                              <span className="text-xs text-muted-foreground">No files</span>
+                            ) : parseResults[order.orderId].status === 'error' ? (
+                              <span className="flex items-center gap-1 text-orange-600 text-xs" title={parseResults[order.orderId].message}>
+                                <AlertCircle className="h-4 w-4" />
+                                Error
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                {parseResults[order.orderId].status}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Parse and compare BOL vs PO"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              parseAndCompare(order.orderId)
+                            }}
+                          >
+                            <Search className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </td>
                     </tr>
                     
                     {/* Expanded Details Row */}
                     {expandedRows.has(order.orderId) && (
                       <tr key={`${order.orderId}-details`} className="bg-muted/10">
-                        <td colSpan={8} className="p-4">
+                        <td colSpan={9} className="p-4">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {/* SKU Details */}
                             <div>
