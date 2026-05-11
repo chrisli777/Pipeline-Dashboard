@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import * as XLSX from 'xlsx'
 
 // Types
 interface SkuItem {
@@ -272,6 +273,81 @@ export function PoBolDashboard() {
     )
   })
 
+  // Export to Excel
+  const exportToExcel = () => {
+    if (filteredOrders.length === 0) {
+      alert('No orders to export')
+      return
+    }
+
+    // Get all unique SKUs across all orders
+    const allSkus = new Set<string>()
+    filteredOrders.forEach(order => {
+      order.skuSummary.forEach(item => {
+        // Extract base SKU code (remove GT suffix if present)
+        const baseSku = item.sku.replace(/GT$/, '')
+        allSkus.add(baseSku)
+      })
+    })
+    const skuColumns = Array.from(allSkus).sort()
+
+    // Build rows matching the template format
+    const rows = filteredOrders.map(order => {
+      // Format SKU/Quantity column like "61415GT(1),824433GT(1)"
+      const skuQuantityStr = order.skuSummary
+        .map(item => `${item.sku}(${item.quantity})`)
+        .join(',')
+
+      // Format close date as "YYYY-MM-DD HH:MM:SS"
+      const closeDate = order.processDate 
+        ? new Date(order.processDate).toLocaleString('sv-SE').replace('T', ' ')
+        : ''
+
+      // Base row data
+      const row: Record<string, string | number> = {
+        'Customer': order.customerName,
+        'Warehouse': warehouse === 'Moses Lake' ? 'Moses Lake New' : warehouse,
+        'Transaction ID': order.orderId,
+        'Reference Number': order.referenceNumber,
+        'Status': order.status,
+        'Close Date': closeDate,
+        'SKU/Quantity': skuQuantityStr,
+      }
+
+      // Add individual SKU columns
+      skuColumns.forEach(sku => {
+        const found = order.skuSummary.find(item => item.sku.replace(/GT$/, '') === sku)
+        row[sku] = found ? found.quantity : ''
+      })
+
+      return row
+    })
+
+    // Create worksheet
+    const ws = XLSX.utils.json_to_sheet(rows)
+
+    // Set column widths
+    const colWidths = [
+      { wch: 18 }, // Customer
+      { wch: 16 }, // Warehouse
+      { wch: 12 }, // Transaction ID
+      { wch: 18 }, // Reference Number
+      { wch: 8 },  // Status
+      { wch: 20 }, // Close Date
+      { wch: 30 }, // SKU/Quantity
+      ...skuColumns.map(() => ({ wch: 8 })), // SKU columns
+    ]
+    ws['!cols'] = colWidths
+
+    // Create workbook and export
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Orders')
+    
+    // Generate filename with date range
+    const fileName = `Orders_${warehouse}_${supplier}_${startDate}_${endDate}.xlsx`
+    XLSX.writeFile(wb, fileName)
+  }
+
   // Summary stats
   const totalOrders = filteredOrders.length
   const closedOrders = filteredOrders.filter(o => o.isClosed).length
@@ -287,10 +363,16 @@ export function PoBolDashboard() {
             Compare outbound orders and download BOL documents
           </p>
         </div>
-        <Button onClick={fetchOrders} disabled={loading} variant="outline">
-          <RefreshCw className={cn('h-4 w-4 mr-2', loading && 'animate-spin')} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={exportToExcel} disabled={loading || filteredOrders.length === 0} variant="outline">
+            <Download className="h-4 w-4 mr-2" />
+            Export Excel
+          </Button>
+          <Button onClick={fetchOrders} disabled={loading} variant="outline">
+            <RefreshCw className={cn('h-4 w-4 mr-2', loading && 'animate-spin')} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
