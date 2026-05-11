@@ -110,10 +110,19 @@ export async function POST(
                 type: 'text',
                 text: `Extract ALL cargo/item information from this ${docType} document.
 
+DOCUMENT FORMATS:
+- BOL (Bill of Lading): Look in "CARRIER INFORMATION" or "COMMODITY DESCRIPTION" section. Items appear like "824433GT Z62, Counterweight" with QTY in HANDLING UNIT or PACKAGE columns.
+- PO (Purchase Order): Look in item lines with columns like "Part Number / Description", "Quantity", "UOM". Items appear like "824433GT" with description "CAST COUNTER WEIGHT,Z62".
+
 For each item, extract:
-- SKU or Item Code (may include suffixes like GT, look for patterns like "824433GT", "61415GT", etc.)
-- Quantity
-- Description (if available)
+- SKU: The part number/item code (e.g., "824433GT", "61415GT", "1272762GT"). Always include the GT suffix if present.
+- Quantity: The number of units (usually 1, 2, etc.)
+- Description: Model info like "Z62", "T80", "S60J" if available
+
+IMPORTANT:
+- SKU codes typically end with "GT" suffix
+- Look for quantity in QTY, Quantity, or numeric columns
+- Descriptions may include model codes like Z62, T60, T80, Z80, S60J, etc.
 
 Return ONLY valid JSON in this format, no other text:
 {"items":[{"sku":"824433GT","quantity":1,"description":"Z62 Counterweight"}]}
