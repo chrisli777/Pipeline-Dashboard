@@ -18,7 +18,7 @@ export async function GET(
     // Download file from WMS
     const wmsUrl = `https://secure-wms.com/orders/${orderId}/files/${fileId}`
 
-    console.log('[v0] Downloading file:', wmsUrl)
+
 
     const response = await fetch(wmsUrl, {
       method: 'GET',

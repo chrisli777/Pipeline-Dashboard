@@ -41,27 +41,35 @@ export async function GET(
 
     const data = await response.json()
     
-    console.log('[v0] Files API response keys:', Object.keys(data))
-    console.log('[v0] Files API raw response:', JSON.stringify(data).slice(0, 1500))
-    
-    // Extract files from response - try multiple possible paths
-    const files = data._embedded?.['http://api.3plCentral.com/rels/orders/orderfile'] || 
-                  data._embedded?.item ||
+    // Extract files from response - 3PL Central returns in _embedded.item
+    const files = data._embedded?.item || 
+                  data._embedded?.['http://api.3plcentral.com/rels/orders/orderfile'] ||
+                  data._embedded?.['http://api.3plCentral.com/rels/orders/orderfile'] ||
                   data._embedded?.files || 
                   data.ResourceList ||
-                  data.files ||
-                  data.Items ||
                   (Array.isArray(data) ? data : [])
 
     // Transform files for frontend
-    const transformedFiles = Array.isArray(files) ? files.map((file: any) => ({
-      fileId: file.FileId || file.Id || file.id,
-      fileName: file.FileName || file.Name || file.name || 'Unknown',
-      fileType: file.FileType || file.Type || file.type || 'Unknown',
-      fileSize: file.FileSize || file.Size || file.size || 0,
-      uploadDate: file.UploadDate || file.CreatedDate || file.createdAt || null,
-      downloadUrl: file._links?.self?.href || file.DownloadUrl || null,
-    })) : []
+    // Based on actual API response: docName, contentType, docLength, attachedDate
+    // Download URL is in _links["http://api.3plcentral.com/rels/orders/orderfile"].href
+    const transformedFiles = Array.isArray(files) ? files.map((file: any) => {
+      // Get download path from _links - format: /orders/{orderId}/files/PO_125337~d~pdf
+      // Note: key uses lowercase '3plcentral' (not '3plCentral')
+      const downloadPath = file._links?.['http://api.3plcentral.com/rels/orders/orderfile']?.href || 
+                           file._links?.['http://api.3plCentral.com/rels/orders/orderfile']?.href || ''
+      // Extract file ID from path (the part after /files/)
+      const fileId = downloadPath.split('/files/')[1] || ''
+      
+      return {
+        fileId,
+        fileName: file.docName || file.FileName || file.Name || 'Unknown',
+        fileType: file.contentType || file.FileType || 'Unknown',
+        fileSize: file.docLength || file.FileSize || 0,
+        uploadDate: file.attachedDate || file.UploadDate || null,
+        uploadedBy: file.attachedByIdentifier?.name || null,
+        downloadPath,
+      }
+    }) : []
 
     return NextResponse.json({
       orderId,
