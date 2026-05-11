@@ -157,6 +157,11 @@ export function PoBolDashboard() {
   const [batchParsing, setBatchParsing] = useState(false)
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 })
   const [showResultsModal, setShowResultsModal] = useState(false)
+  const [resultsModalType, setResultsModalType] = useState<'parse' | 'download'>('parse')
+  const [batchDownloadResults, setBatchDownloadResults] = useState<{
+    success: { orderId: string; refNumber: string }[]
+    failed: { orderId: string; refNumber: string; error: string }[]
+  }>({ success: [], failed: [] })
   const [batchParseResults, setBatchParseResults] = useState<{
     matches: { orderId: string; refNumber: string }[]
     mismatches: { orderId: string; refNumber: string; issues: string[] }[]
@@ -352,8 +357,10 @@ export function PoBolDashboard() {
     setBatchProgress({ current: 0, total: filteredOrders.length })
 
     const zip = new JSZip()
-    let successCount = 0
-    let errorCount = 0
+    const results = {
+      success: [] as { orderId: string; refNumber: string }[],
+      failed: [] as { orderId: string; refNumber: string; error: string }[],
+    }
 
     for (let i = 0; i < filteredOrders.length; i++) {
       const order = filteredOrders[i]
@@ -371,16 +378,25 @@ export function PoBolDashboard() {
           const blob = await response.blob()
           const fileName = `${order.referenceNumber.replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`
           zip.file(fileName, blob)
-          successCount++
+          results.success.push({ orderId: order.orderId, refNumber: order.referenceNumber })
         } else {
-          errorCount++
+          const errorData = await response.json().catch(() => ({}))
+          results.failed.push({ 
+            orderId: order.orderId, 
+            refNumber: order.referenceNumber,
+            error: errorData.error || `HTTP ${response.status}`,
+          })
         }
-      } catch {
-        errorCount++
+      } catch (err: any) {
+        results.failed.push({ 
+          orderId: order.orderId, 
+          refNumber: order.referenceNumber,
+          error: err.message || 'Network error',
+        })
       }
     }
 
-    if (successCount > 0) {
+    if (results.success.length > 0) {
       const zipBlob = await zip.generateAsync({ type: 'blob' })
       const url = window.URL.createObjectURL(zipBlob)
       const a = document.createElement('a')
@@ -393,8 +409,10 @@ export function PoBolDashboard() {
     }
 
     setBatchDownloading(false)
-    if (errorCount > 0) {
-      alert(`Downloaded ${successCount} orders. ${errorCount} orders failed.`)
+    setBatchDownloadResults(results)
+    if (results.failed.length > 0) {
+      setResultsModalType('download')
+      setShowResultsModal(true)
     }
   }
 
@@ -468,6 +486,7 @@ export function PoBolDashboard() {
 
     setBatchParseResults(results)
     setBatchParsing(false)
+    setResultsModalType('parse')
     setShowResultsModal(true)
   }
 
@@ -1058,102 +1077,140 @@ export function PoBolDashboard() {
         )}
       </Card>
 
-      {/* Batch Parse Results Modal */}
+      {/* Batch Results Modal */}
       <Dialog open={showResultsModal} onOpenChange={setShowResultsModal}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Parse Results Summary</DialogTitle>
+            <DialogTitle>
+              {resultsModalType === 'download' ? 'Download Results' : 'Parse Results Summary'}
+            </DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-6 py-4">
-            {/* Summary Stats */}
-            <div className="grid grid-cols-4 gap-4">
-              <div className="text-center p-3 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">{batchParseResults.matches.length}</div>
-                <div className="text-xs text-green-700">Matched</div>
+          {resultsModalType === 'download' ? (
+            /* Download Results */
+            <div className="space-y-6 py-4">
+              {/* Summary Stats */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <div className="text-2xl font-bold text-green-600">{batchDownloadResults.success.length}</div>
+                  <div className="text-xs text-green-700">Downloaded</div>
+                </div>
+                <div className="text-center p-3 bg-red-50 rounded-lg">
+                  <div className="text-2xl font-bold text-red-600">{batchDownloadResults.failed.length}</div>
+                  <div className="text-xs text-red-700">Failed</div>
+                </div>
               </div>
-              <div className="text-center p-3 bg-red-50 rounded-lg">
-                <div className="text-2xl font-bold text-red-600">{batchParseResults.mismatches.length}</div>
-                <div className="text-xs text-red-700">Mismatched</div>
-              </div>
-              <div className="text-center p-3 bg-yellow-50 rounded-lg">
-                <div className="text-2xl font-bold text-yellow-600">{batchParseResults.noFiles.length}</div>
-                <div className="text-xs text-yellow-700">Missing Files</div>
-              </div>
-              <div className="text-center p-3 bg-orange-50 rounded-lg">
-                <div className="text-2xl font-bold text-orange-600">{batchParseResults.errors.length}</div>
-                <div className="text-xs text-orange-700">Errors</div>
-              </div>
+
+              {/* Failed Downloads */}
+              {batchDownloadResults.failed.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-red-600 mb-2 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    Failed Downloads ({batchDownloadResults.failed.length})
+                  </h4>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {batchDownloadResults.failed.map((item) => (
+                      <div key={item.orderId} className="p-2 bg-red-50 rounded text-sm">
+                        <span className="font-mono font-medium">{item.refNumber}</span>
+                        <span className="text-red-700 text-xs ml-2">- {item.error}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-
-            {/* Mismatches */}
-            {batchParseResults.mismatches.length > 0 && (
-              <div>
-                <h4 className="font-medium text-red-600 mb-2 flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4" />
-                  Mismatched Orders ({batchParseResults.mismatches.length})
-                </h4>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {batchParseResults.mismatches.map((item) => (
-                    <div key={item.orderId} className="p-2 bg-red-50 rounded text-sm">
-                      <span className="font-mono font-medium">{item.refNumber}</span>
-                      <ul className="mt-1 text-red-700 text-xs">
-                        {item.issues.map((issue, idx) => (
-                          <li key={idx}>• {issue}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
+          ) : (
+            /* Parse Results */
+            <div className="space-y-6 py-4">
+              {/* Summary Stats */}
+              <div className="grid grid-cols-4 gap-4">
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <div className="text-2xl font-bold text-green-600">{batchParseResults.matches.length}</div>
+                  <div className="text-xs text-green-700">Matched</div>
+                </div>
+                <div className="text-center p-3 bg-red-50 rounded-lg">
+                  <div className="text-2xl font-bold text-red-600">{batchParseResults.mismatches.length}</div>
+                  <div className="text-xs text-red-700">Mismatched</div>
+                </div>
+                <div className="text-center p-3 bg-yellow-50 rounded-lg">
+                  <div className="text-2xl font-bold text-yellow-600">{batchParseResults.noFiles.length}</div>
+                  <div className="text-xs text-yellow-700">Missing Files</div>
+                </div>
+                <div className="text-center p-3 bg-orange-50 rounded-lg">
+                  <div className="text-2xl font-bold text-orange-600">{batchParseResults.errors.length}</div>
+                  <div className="text-xs text-orange-700">Errors</div>
                 </div>
               </div>
-            )}
 
-            {/* Missing Files */}
-            {batchParseResults.noFiles.length > 0 && (
-              <div>
-                <h4 className="font-medium text-yellow-600 mb-2 flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Missing BOL/PO Files ({batchParseResults.noFiles.length})
-                </h4>
-                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                  {batchParseResults.noFiles.map((item) => (
-                    <span key={item.orderId} className="px-2 py-1 bg-yellow-50 rounded text-xs font-mono">
-                      {item.refNumber}
-                    </span>
-                  ))}
+              {/* Mismatches */}
+              {batchParseResults.mismatches.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-red-600 mb-2 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    Mismatched Orders ({batchParseResults.mismatches.length})
+                  </h4>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {batchParseResults.mismatches.map((item) => (
+                      <div key={item.orderId} className="p-2 bg-red-50 rounded text-sm">
+                        <span className="font-mono font-medium">{item.refNumber}</span>
+                        <ul className="mt-1 text-red-700 text-xs">
+                          {item.issues.map((issue, idx) => (
+                            <li key={idx}>- {issue}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Errors */}
-            {batchParseResults.errors.length > 0 && (
-              <div>
-                <h4 className="font-medium text-orange-600 mb-2 flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4" />
-                  Parse Errors ({batchParseResults.errors.length})
-                </h4>
-                <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {batchParseResults.errors.map((item) => (
-                    <div key={item.orderId} className="p-2 bg-orange-50 rounded text-sm">
-                      <span className="font-mono">{item.refNumber}</span>
-                      <span className="text-orange-700 text-xs ml-2">- {item.message}</span>
-                    </div>
-                  ))}
+              {/* Missing Files */}
+              {batchParseResults.noFiles.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-yellow-600 mb-2 flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Missing BOL/PO Files ({batchParseResults.noFiles.length})
+                  </h4>
+                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                    {batchParseResults.noFiles.map((item) => (
+                      <span key={item.orderId} className="px-2 py-1 bg-yellow-50 rounded text-xs font-mono">
+                        {item.refNumber}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* All Match */}
-            {batchParseResults.matches.length > 0 && 
-             batchParseResults.mismatches.length === 0 && 
-             batchParseResults.noFiles.length === 0 && 
-             batchParseResults.errors.length === 0 && (
-              <div className="text-center p-6 bg-green-50 rounded-lg">
-                <CheckCircle2 className="h-12 w-12 text-green-600 mx-auto mb-2" />
-                <p className="text-green-700 font-medium">All {batchParseResults.matches.length} orders matched!</p>
-              </div>
-            )}
-          </div>
+              {/* Errors */}
+              {batchParseResults.errors.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-orange-600 mb-2 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    Parse Errors ({batchParseResults.errors.length})
+                  </h4>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {batchParseResults.errors.map((item) => (
+                      <div key={item.orderId} className="p-2 bg-orange-50 rounded text-sm">
+                        <span className="font-mono">{item.refNumber}</span>
+                        <span className="text-orange-700 text-xs ml-2">- {item.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* All Match */}
+              {batchParseResults.matches.length > 0 && 
+               batchParseResults.mismatches.length === 0 && 
+               batchParseResults.noFiles.length === 0 && 
+               batchParseResults.errors.length === 0 && (
+                <div className="text-center p-6 bg-green-50 rounded-lg">
+                  <CheckCircle2 className="h-12 w-12 text-green-600 mx-auto mb-2" />
+                  <p className="text-green-700 font-medium">All {batchParseResults.matches.length} orders matched!</p>
+                </div>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
