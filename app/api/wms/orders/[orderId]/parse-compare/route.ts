@@ -41,9 +41,26 @@ export async function POST(
     const filesData = await filesResponse.json()
     const files = filesData._embedded?.item || []
 
-    // Find BOL and PO files
-    const bolFile = files.find((f: any) => f.docName?.toUpperCase().startsWith('BOL'))
-    const poFile = files.find((f: any) => f.docName?.toUpperCase().startsWith('PO'))
+    // Helper function to extract version number from filename
+    // Format: PO-10903-14080875-0-US.pdf or BOL-10903-14080875-1-US.pdf
+    const getVersionNumber = (fileName: string): number => {
+      const match = fileName.match(/-(\d+)(?:-[A-Z]{2})?\.pdf$/i)
+      if (match) return parseInt(match[1], 10)
+      const altMatch = fileName.match(/-(\d+)\.pdf$/i)
+      if (altMatch) return parseInt(altMatch[1], 10)
+      return 0
+    }
+
+    // Find all BOL and PO files
+    const bolFiles = files.filter((f: any) => f.docName?.toUpperCase().startsWith('BOL'))
+    const poFiles = files.filter((f: any) => f.docName?.toUpperCase().startsWith('PO'))
+
+    // Sort by version number (descending) and pick the highest version
+    bolFiles.sort((a: any, b: any) => getVersionNumber(b.docName || '') - getVersionNumber(a.docName || ''))
+    poFiles.sort((a: any, b: any) => getVersionNumber(b.docName || '') - getVersionNumber(a.docName || ''))
+
+    const bolFile = bolFiles[0] || null
+    const poFile = poFiles[0] || null
 
     if (!bolFile && !poFile) {
       return NextResponse.json({
