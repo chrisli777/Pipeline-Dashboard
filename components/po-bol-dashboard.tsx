@@ -230,6 +230,36 @@ export function PoBolDashboard() {
     }
   }
 
+  // Download merged BOL + PO PDF
+  const downloadMergedPdf = async (orderId: string, referenceNumber: string) => {
+    try {
+      const params = new URLSearchParams({ 
+        warehouse, 
+        supplierCode: supplier,
+        referenceNumber 
+      })
+      const response = await fetch(`/api/wms/orders/${orderId}/merge-files?${params}`)
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to download merged file')
+      }
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${referenceNumber.replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err: any) {
+      console.error('[v0] Merge download error:', err)
+      alert(err.message || 'Failed to download merged file')
+    }
+  }
+
   // Filter orders by search query
   const filteredOrders = orders.filter(order => {
     if (!searchQuery) return true
@@ -431,7 +461,13 @@ export function PoBolDashboard() {
                         'hover:bg-muted/30 cursor-pointer transition-colors',
                         expandedRows.has(order.orderId) && 'bg-muted/20'
                       )}
-                      onClick={() => toggleRow(order.orderId)}
+                      onClick={() => {
+                        toggleRow(order.orderId)
+                        // Fetch files when expanding
+                        if (!expandedRows.has(order.orderId) && !orderFiles[order.orderId]) {
+                          fetchOrderFiles(order.orderId)
+                        }
+                      }}
                     >
                       <td className="p-3">
                         {expandedRows.has(order.orderId) ? (
@@ -458,18 +494,13 @@ export function PoBolDashboard() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          title="Download merged BOL + PO PDF"
                           onClick={(e) => {
                             e.stopPropagation()
-                            fetchOrderFiles(order.orderId)
-                            toggleRow(order.orderId)
+                            downloadMergedPdf(order.orderId, order.referenceNumber)
                           }}
-                          disabled={loadingFiles.has(order.orderId)}
                         >
-                          {loadingFiles.has(order.orderId) ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Download className="h-4 w-4" />
-                          )}
+                          <Download className="h-4 w-4" />
                         </Button>
                       </td>
                     </tr>
