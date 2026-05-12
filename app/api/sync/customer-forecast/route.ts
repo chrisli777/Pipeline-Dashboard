@@ -346,7 +346,7 @@ async function extractForecastFromPDF(base64Data: string, mimeType: string): Pro
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 16384,
       messages: [
         {
@@ -378,6 +378,13 @@ For each model found, extract:
 - The model name exactly as shown
 - Week numbers from the "Week #" row
 - Weekly rate values from the "Weekly Rate" row
+
+CRITICAL RULES:
+1. ONLY include weeks that are EXPLICITLY shown in the PDF document
+2. Do NOT include weeks that are not visible in the PDF
+3. Do NOT fill in or assume values for weeks not shown
+4. If a week column exists in the PDF but the value is empty or 0, include it with value 0
+5. If a week column does NOT exist in the PDF, do NOT include it at all
 
 Scan the ENTIRE document thoroughly. Models may appear in different sections or pages.
 

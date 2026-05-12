@@ -1,0 +1,86 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getWmsToken } from '@/lib/wms-auth'
+
+// GET /api/wms/orders/[orderId]/files - Get files for a specific order
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ orderId: string }> }
+) {
+  try {
+    const { orderId } = await params
+    const { searchParams } = new URL(request.url)
+    const warehouse = searchParams.get('warehouse') || 'Moses Lake'
+    const supplier = searchParams.get('supplier') || 'HX'
+
+    // Get WMS token
+    const token = await getWmsToken(warehouse, supplier)
+
+    // Fetch files for this order from WMS
+    // 3PL Central uses /orders/{transactionId}/filesummaries endpoint
+    const wmsUrl = `https://secure-wms.com/orders/${orderId}/filesummaries`
+
+
+
+    const response = await fetch(wmsUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/hal+json',
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[v0] WMS order files fetch failed:', response.status, errorText)
+      return NextResponse.json(
+        { error: `WMS API error: ${response.status}` },
+        { status: response.status }
+      )
+    }
+
+    const data = await response.json()
+    
+    // Extract files from response - 3PL Central returns in _embedded.item
+    const files = data._embedded?.item || 
+                  data._embedded?.['http://api.3plcentral.com/rels/orders/orderfile'] ||
+                  data._embedded?.['http://api.3plCentral.com/rels/orders/orderfile'] ||
+                  data._embedded?.files || 
+                  data.ResourceList ||
+                  (Array.isArray(data) ? data : [])
+
+    // Transform files for frontend
+    // Based on actual API response: docName, contentType, docLength, attachedDate
+    // Download URL is in _links["http://api.3plcentral.com/rels/orders/orderfile"].href
+    const transformedFiles = Array.isArray(files) ? files.map((file: any) => {
+      // Get download path from _links - format: /orders/{orderId}/files/PO_125337~d~pdf
+      // Note: key uses lowercase '3plcentral' (not '3plCentral')
+      const downloadPath = file._links?.['http://api.3plcentral.com/rels/orders/orderfile']?.href || 
+                           file._links?.['http://api.3plCentral.com/rels/orders/orderfile']?.href || ''
+      // Extract file ID from path (the part after /files/)
+      const fileId = downloadPath.split('/files/')[1] || ''
+      
+      return {
+        fileId,
+        fileName: file.docName || file.FileName || file.Name || 'Unknown',
+        fileType: file.contentType || file.FileType || 'Unknown',
+        fileSize: file.docLength || file.FileSize || 0,
+        uploadDate: file.attachedDate || file.UploadDate || null,
+        uploadedBy: file.attachedByIdentifier?.name || null,
+        downloadPath,
+      }
+    }) : []
+
+    return NextResponse.json({
+      orderId,
+      files: transformedFiles,
+      totalFiles: transformedFiles.length,
+    })
+  } catch (error) {
+    console.error('[v0] Order files API error:', error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to fetch order files' },
+      { status: 500 }
+    )
+  }
+}
