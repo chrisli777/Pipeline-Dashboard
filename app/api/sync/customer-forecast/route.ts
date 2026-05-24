@@ -31,6 +31,12 @@ const COMPOUND_MODELS: Record<string, string[]> = {
   's60j & s80j': ['s60j', 's80j'],
 }
 
+// Aggregation: SKU code -> list of model names whose forecasts should be SUMMED
+// For SKUs where multiple customer models should aggregate into one SKU
+const SKU_AGGREGATION: Record<string, string[]> = {
+  '56174GT': ['z30n', 'z34n', 'z34ic', 'z34e'],  // WINSCHEM - sum of 4 models
+}
+
 // Aliases: forecast model name -> DB part_model search terms
 // Used when customer model names differ from supplier part model names
 const MODEL_ALIASES: Record<string, string[]> = {
@@ -38,7 +44,7 @@ const MODEL_ALIASES: Record<string, string[]> = {
   's80j': ['t80'],     // Genie S80J = HX T80 (Control Side)
   'gs-4655': ['gs4655', 'gs-4655', '1288133'],  // PMP GS-4655 Counterweight
   'gs4655': ['gs4655', 'gs-4655', '1288133'],
-  // WINSCHEM 56174 - Mini Slab / Z30N / Z34N / Z34IC / Z34E
+  // WINSCHEM 56174 - Mini Slab / Z30N / Z34N / Z34IC / Z34E (individual mappings)
   'mini slab': ['56174'],
   'z30n': ['56174'],
   'z34n': ['56174'],
@@ -736,6 +742,54 @@ export async function POST(request: Request) {
 
       if (modelHasUpdates && !matchedModels.includes(model.modelName)) {
         matchedModels.push(model.modelName)
+      }
+    }
+
+    // Handle SKU aggregation: sum forecasts from multiple models into one SKU
+    // e.g., 56174GT = Z30N + Z34N + Z34IC + Z34E
+    for (const [skuCode, modelNames] of Object.entries(SKU_AGGREGATION)) {
+      // Collect weekly totals from all models in this aggregation
+      const weeklyTotals = new Map<number, number>()
+      let foundAnyModel = false
+      
+      for (const modelNameLower of modelNames) {
+        // Find matching model in output
+        const matchingModel = output.models.find(m => 
+          m.modelName.toLowerCase().replace(/[-\s]/g, '') === modelNameLower.replace(/[-\s]/g, '')
+        )
+        
+        if (matchingModel) {
+          foundAnyModel = true
+          for (const weekData of matchingModel.weeklyData) {
+            const current = weeklyTotals.get(weekData.weekNumber) || 0
+            weeklyTotals.set(weekData.weekNumber, current + weekData.weeklyRate)
+          }
+        }
+      }
+      
+      if (foundAnyModel && weeklyTotals.size > 0) {
+        console.log(`[v0] Aggregating ${modelNames.join(' + ')} -> ${skuCode}, weeks: ${weeklyTotals.size}`)
+        
+        // Apply aggregated values to the SKU
+        for (const [weekNumber, totalValue] of weeklyTotals) {
+          const key = `${skuCode}_${weekNumber}`
+          if (existingCombinations.has(key)) {
+            const skuId = skuCodeToId.get(key)
+            if (skuId) {
+              // Remove any individual updates for this SKU/week (replace with aggregate)
+              const existingIdx = updates.findIndex(u => u.skuId === skuId && u.weekNumber === weekNumber)
+              if (existingIdx >= 0) {
+                updates[existingIdx].value = totalValue
+              } else {
+                updates.push({ skuId, weekNumber, value: totalValue })
+              }
+            }
+          }
+        }
+        
+        if (!matchedModels.includes(`${skuCode} (aggregated)`)) {
+          matchedModels.push(`${skuCode} (aggregated)`)
+        }
       }
     }
 
