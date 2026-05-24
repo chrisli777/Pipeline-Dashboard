@@ -38,6 +38,14 @@ const SKU_AGGREGATION: Record<string, string[]> = {
   '1288133GT': ['gs4655', 'gs-4655'],  // PMP GS-4655 Counterweight
 }
 
+// Models that are part of aggregation - skip individual processing for these
+const AGGREGATION_SOURCE_MODELS = new Set<string>()
+for (const modelNames of Object.values(SKU_AGGREGATION)) {
+  for (const name of modelNames) {
+    AGGREGATION_SOURCE_MODELS.add(name.toLowerCase().replace(/[-\s]/g, ''))
+  }
+}
+
 // Aliases: forecast model name -> DB part_model search terms
 // Used when customer model names differ from supplier part model names
 const MODEL_ALIASES: Record<string, string[]> = {
@@ -674,6 +682,12 @@ export async function POST(request: Request) {
       // Normalize the model name for lookup
       const normalizedModelName = model.modelName.toLowerCase().replace(/[-\s]/g, '')
       
+      // Skip models that are part of an aggregation - they will be handled separately
+      if (AGGREGATION_SOURCE_MODELS.has(normalizedModelName)) {
+        console.log(`[v0] Skipping individual processing for "${model.modelName}" - will be aggregated`)
+        continue
+      }
+      
       // First, try to find SKUs from the machine model config
       let skusFromConfig = modelToSkusMap.get(normalizedModelName)
       
@@ -750,6 +764,8 @@ export async function POST(request: Request) {
 
     // Handle SKU aggregation: sum forecasts from multiple models into one SKU
     // e.g., 56174GT = Z30N + Z34N + Z34IC + Z34E
+    console.log(`[v0] Processing SKU aggregations. Available models: ${output.models.map(m => m.modelName).join(', ')}`)
+    
     for (const [skuCode, modelNames] of Object.entries(SKU_AGGREGATION)) {
       // Get the sku_id for this aggregation target
       const targetSkuId = skuCodeToSkuId.get(skuCode)
@@ -760,25 +776,32 @@ export async function POST(request: Request) {
       
       // Collect weekly totals from all models in this aggregation
       const weeklyTotals = new Map<number, number>()
-      let foundAnyModel = false
+      const foundModels: string[] = []
       
       for (const modelNameLower of modelNames) {
-        // Find matching model in output
-        const matchingModel = output.models.find(m => 
-          m.modelName.toLowerCase().replace(/[-\s]/g, '') === modelNameLower.replace(/[-\s]/g, '')
-        )
+        // Find matching model in output - try multiple matching strategies
+        const normalizedTarget = modelNameLower.toLowerCase().replace(/[-\s]/g, '')
+        
+        const matchingModel = output.models.find(m => {
+          const normalizedSource = m.modelName.toLowerCase().replace(/[-\s]/g, '')
+          return normalizedSource === normalizedTarget || 
+                 normalizedSource.includes(normalizedTarget) ||
+                 normalizedTarget.includes(normalizedSource)
+        })
         
         if (matchingModel) {
-          foundAnyModel = true
+          foundModels.push(matchingModel.modelName)
           for (const weekData of matchingModel.weeklyData) {
             const current = weeklyTotals.get(weekData.weekNumber) || 0
             weeklyTotals.set(weekData.weekNumber, current + weekData.weeklyRate)
           }
+        } else {
+          console.log(`[v0] Aggregation: model "${modelNameLower}" not found in parsed data`)
         }
       }
       
-      if (foundAnyModel && weeklyTotals.size > 0) {
-        console.log(`[v0] Aggregating ${modelNames.join(' + ')} -> ${skuCode}, weeks: ${weeklyTotals.size}`)
+      if (foundModels.length > 0 && weeklyTotals.size > 0) {
+        console.log(`[v0] Aggregating ${foundModels.join(' + ')} -> ${skuCode}, weeks: ${weeklyTotals.size}, sample values: ${Array.from(weeklyTotals.entries()).slice(0, 5).map(([w, v]) => `W${w}=${v}`).join(', ')}`)
         
         // Apply aggregated values to the SKU
         for (const [weekNumber, totalValue] of weeklyTotals) {
@@ -794,9 +817,11 @@ export async function POST(request: Request) {
           }
         }
         
-        if (!matchedModels.includes(`${skuCode} (aggregated)`)) {
-          matchedModels.push(`${skuCode} (aggregated)`)
+        if (!matchedModels.includes(`${skuCode} (aggregated: ${foundModels.join('+')})`)) {
+          matchedModels.push(`${skuCode} (aggregated: ${foundModels.join('+')})`)
         }
+      } else {
+        console.log(`[v0] Aggregation for ${skuCode}: no matching models found from ${modelNames.join(', ')}`)
       }
     }
 
