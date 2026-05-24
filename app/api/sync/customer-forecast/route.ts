@@ -35,6 +35,7 @@ const COMPOUND_MODELS: Record<string, string[]> = {
 // For SKUs where multiple customer models should aggregate into one SKU
 const SKU_AGGREGATION: Record<string, string[]> = {
   '56174GT': ['z30n', 'z34n', 'z34ic', 'z34e'],  // WINSCHEM - sum of 4 models
+  '1288133GT': ['gs4655', 'gs-4655'],  // PMP GS-4655 Counterweight
 }
 
 // Aliases: forecast model name -> DB part_model search terms
@@ -589,11 +590,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to fetch SKUs' }, { status: 500 })
     }
     
-    const skuIdToCode = new Map<string, string>()
-    for (const sku of skusData || []) {
-      skuIdToCode.set(sku.id, sku.sku_code)
-    }
-    console.log(`[v0] Loaded ${skuIdToCode.size} SKU id->code mappings`)
+  const skuIdToCode = new Map<string, string>()
+  const skuCodeToSkuId = new Map<string, string>()  // Reverse mapping for aggregation
+  for (const sku of skusData || []) {
+    skuIdToCode.set(sku.id, sku.sku_code)
+    skuCodeToSkuId.set(sku.sku_code, sku.id)
+  }
+  console.log(`[v0] Loaded ${skuIdToCode.size} SKU id->code mappings`)
     
     let allExistingData: { sku_id: string; week_number: number }[] = []
     let offset = 0
@@ -748,6 +751,13 @@ export async function POST(request: Request) {
     // Handle SKU aggregation: sum forecasts from multiple models into one SKU
     // e.g., 56174GT = Z30N + Z34N + Z34IC + Z34E
     for (const [skuCode, modelNames] of Object.entries(SKU_AGGREGATION)) {
+      // Get the sku_id for this aggregation target
+      const targetSkuId = skuCodeToSkuId.get(skuCode)
+      if (!targetSkuId) {
+        console.log(`[v0] SKU aggregation target ${skuCode} not found in database`)
+        continue
+      }
+      
       // Collect weekly totals from all models in this aggregation
       const weeklyTotals = new Map<number, number>()
       let foundAnyModel = false
@@ -774,15 +784,12 @@ export async function POST(request: Request) {
         for (const [weekNumber, totalValue] of weeklyTotals) {
           const key = `${skuCode}_${weekNumber}`
           if (existingCombinations.has(key)) {
-            const skuId = skuCodeToId.get(key)
-            if (skuId) {
-              // Remove any individual updates for this SKU/week (replace with aggregate)
-              const existingIdx = updates.findIndex(u => u.skuId === skuId && u.weekNumber === weekNumber)
-              if (existingIdx >= 0) {
-                updates[existingIdx].value = totalValue
-              } else {
-                updates.push({ skuId, weekNumber, value: totalValue })
-              }
+            // Remove any individual updates for this SKU/week (replace with aggregate)
+            const existingIdx = updates.findIndex(u => u.skuId === targetSkuId && u.weekNumber === weekNumber)
+            if (existingIdx >= 0) {
+              updates[existingIdx].value = totalValue
+            } else {
+              updates.push({ skuId: targetSkuId, weekNumber, value: totalValue })
             }
           }
         }
