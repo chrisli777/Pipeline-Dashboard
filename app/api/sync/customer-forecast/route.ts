@@ -36,8 +36,14 @@ const COMPOUND_MODELS: Record<string, string[]> = {
 const MODEL_ALIASES: Record<string, string[]> = {
   's60j': ['t60'],     // Genie S60J = HX T60 (Engine Side)
   's80j': ['t80'],     // Genie S80J = HX T80 (Control Side)
-  'gs-4655': ['gs4655', 'gs-4655'],  // Tianjin GS-4655
-  'gs4655': ['gs4655', 'gs-4655'],
+  'gs-4655': ['gs4655', 'gs-4655', '1288133'],  // PMP GS-4655 Counterweight
+  'gs4655': ['gs4655', 'gs-4655', '1288133'],
+  // WINSCHEM 56174 - Mini Slab / Z30N / Z34N / Z34IC / Z34E
+  'mini slab': ['56174'],
+  'z30n': ['56174'],
+  'z34n': ['56174'],
+  'z34ic': ['56174'],
+  'z34e': ['56174'],
 }
 
 // Find matching SKU codes from the database for a given model name
