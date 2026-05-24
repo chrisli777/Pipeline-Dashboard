@@ -8,7 +8,7 @@
 
 INSERT INTO skus (id, sku_code, part_model, description, supplier_code, warehouse, customer_code, unit_weight, moq, category)
 VALUES
-  ('56174GT', '56174GT', '56174 / Z30N+Z34N+Z34IC+Z34E', 'Mini Slab - BELLCRANK MACHINING (22.09LBS)', 'WINSCHEM', 'Kent', 'GENIE', 22.09, 1, 'Genie Parts')
+  ('56174GT', '56174GT', '56174 / Z30N+Z34N+Z34IC+Z34E', 'Mini Slab - BELLCRANK MACHINING (22.09LBS)', 'WINSCHEM', 'Kent', 'Genie', 22.09, 1, 'Genie Parts')
 ON CONFLICT (id) DO UPDATE SET
   sku_code = EXCLUDED.sku_code,
   part_model = EXCLUDED.part_model,

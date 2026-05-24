@@ -154,24 +154,25 @@ export function InventoryFilters({
 }: InventoryFiltersProps) {
   const weekOptions = Array.from({ length: totalWeeks }, (_, i) => i + 1)
 
-  // Build unique customer list from actual SKU data (excluding null/empty customer codes)
+  // Build unique customer list from actual SKU data (including null as "Unassigned")
   const allCustomers = useMemo(() => {
     const set = new Set<string>()
     skus.forEach((sku) => {
-      if (sku.customerCode) {
-        // Normalize customer name to uppercase for consistent grouping
-        set.add(sku.customerCode.toUpperCase())
-      }
+      set.add(sku.customerCode || '__unassigned__')
     })
-    return Array.from(set).sort()
+    return Array.from(set).sort((a, b) => {
+      if (a === '__unassigned__') return 1
+      if (b === '__unassigned__') return -1
+      return a.localeCompare(b)
+    })
   }, [skus])
 
-  // Build vendor -> customer mapping (use uppercase customer names)
+  // Build vendor -> customer mapping (include null as unassigned)
   const vendorToCustomer = useMemo(() => {
     const map = new Map<string, string>()
     skus.forEach((sku) => {
-      if (sku.supplierCode && sku.customerCode) {
-        map.set(sku.supplierCode, sku.customerCode.toUpperCase())
+      if (sku.supplierCode) {
+        map.set(sku.supplierCode, sku.customerCode || '__unassigned__')
       }
     })
     return map
