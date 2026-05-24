@@ -830,14 +830,12 @@ export async function POST(request: Request) {
     let errorCount = 0
 
     for (const update of updates) {
-      // Update both customer_forecast AND actual_consumption
-      // Per business rules: Actual Consumption = Customer Forecast (default, can be manually edited)
+      // Only update customer_forecast - actual_consumption will use COALESCE in the view
+      // Per business rules: Actual Consumption defaults to Customer Forecast via DB view
+      // Users can manually edit actual_consumption to override
       const { error: updateError } = await supabase
         .from('inventory_data')
-        .update({ 
-          customer_forecast: update.value,
-          actual_consumption: update.value  // Default to forecast value
-        })
+        .update({ customer_forecast: update.value })
         .eq('sku_id', update.skuId)
         .eq('week_number', update.weekNumber)
 
