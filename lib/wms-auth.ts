@@ -35,14 +35,14 @@ const CREDENTIAL_MAP: Record<string, { base64EnvKey: string; loginEnvKey: string
     base64EnvKey: 'WMS_BASE64_KEY_KENT_TJJSH',
     loginEnvKey: 'WMS_USER_LOGIN_KENT_TJJSH',
   },
-  // WINSCHEM and PMP share same credentials
+  // WINSCHEM and PMP use same credentials as TJJSH
   'Kent|WINSCHEM': {
-    base64EnvKey: 'WMS_BASE64_KEY_KENT_WINSCHEM_PMP',
-    loginEnvKey: 'WMS_USER_LOGIN_KENT_WINSCHEM_PMP',
+    base64EnvKey: 'WMS_BASE64_KEY_KENT_TJJSH',
+    loginEnvKey: 'WMS_USER_LOGIN_KENT_TJJSH',
   },
   'Kent|PMP': {
-    base64EnvKey: 'WMS_BASE64_KEY_KENT_WINSCHEM_PMP',
-    loginEnvKey: 'WMS_USER_LOGIN_KENT_WINSCHEM_PMP',
+    base64EnvKey: 'WMS_BASE64_KEY_KENT_TJJSH',
+    loginEnvKey: 'WMS_USER_LOGIN_KENT_TJJSH',
   },
 }
 
