@@ -35,7 +35,7 @@ const COMPOUND_MODELS: Record<string, string[]> = {
 // For SKUs where multiple customer models should aggregate into one SKU
 const SKU_AGGREGATION: Record<string, string[]> = {
   '56174GT': ['z30n', 'z34n', 'z34ic', 'z34e'],  // WINSCHEM - sum of 4 models
-  '1288133GT': ['gs4655', 'gs-4655'],  // PMP GS-4655 Counterweight
+  // Note: 1288133GT (PMP GS-4655) has only ONE model, so it uses MODEL_ALIASES instead
 }
 
 // Models that are part of aggregation - skip individual processing for these
