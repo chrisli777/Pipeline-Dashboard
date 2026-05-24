@@ -830,9 +830,14 @@ export async function POST(request: Request) {
     let errorCount = 0
 
     for (const update of updates) {
+      // Update both customer_forecast AND actual_consumption
+      // Per business rules: Actual Consumption = Customer Forecast (default, can be manually edited)
       const { error: updateError } = await supabase
         .from('inventory_data')
-        .update({ customer_forecast: update.value })
+        .update({ 
+          customer_forecast: update.value,
+          actual_consumption: update.value  // Default to forecast value
+        })
         .eq('sku_id', update.skuId)
         .eq('week_number', update.weekNumber)
 
