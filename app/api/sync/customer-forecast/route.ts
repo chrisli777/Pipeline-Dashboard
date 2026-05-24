@@ -38,6 +38,12 @@ const SKU_AGGREGATION: Record<string, string[]> = {
   // Note: 1288133GT (PMP GS-4655) has only ONE model, so it uses MODEL_ALIASES instead
 }
 
+// SKU usage multiplier: SKU code -> multiplier
+// For parts where each machine uses multiple units of the same part
+const SKU_USAGE_MULTIPLIER: Record<string, number> = {
+  '1288133GT': 2,  // PMP GS-4655 Counterweight - each machine uses 2 units
+}
+
 // Models that are part of aggregation - skip individual processing for these
 const AGGREGATION_SOURCE_MODELS = new Set<string>()
 for (const modelNames of Object.values(SKU_AGGREGATION)) {
