@@ -175,23 +175,17 @@ export function InventoryFilters({
     return map
   }, [skus])
 
-  // All vendors
-  const allVendors = useMemo(() => {
-    const set = new Set<string>()
-    skus.forEach((sku) => {
-      if (sku.supplierCode) set.add(sku.supplierCode)
-    })
-    return Array.from(set).sort()
-  }, [skus])
+  // Fixed list of all Genie suppliers
+  const allVendors = ['HX', 'AMC', 'WINSCHEM', 'TJJSH', 'DONGYU', 'PMP']
 
-  // Vendors filtered by selected customers
+  // Vendors filtered by selected customers (all belong to Genie)
   const vendors = useMemo(() => {
-    if (selectedCustomers.length === 0) return allVendors
-    return allVendors.filter((v) => {
-      const cust = vendorToCustomer.get(v)
-      return cust && selectedCustomers.includes(cust)
-    })
-  }, [allVendors, selectedCustomers, vendorToCustomer])
+    // If no customer selected or Genie is selected, show all vendors
+    if (selectedCustomers.length === 0 || selectedCustomers.includes('Genie')) {
+      return allVendors
+    }
+    return []
+  }, [selectedCustomers])
 
   // Helper function to check if SKU belongs to Genie customer
   // Matches 'Genie', 'GENIE', or any variation
