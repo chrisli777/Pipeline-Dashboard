@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Upload, FileText, FileSpreadsheet, Download, Trash2, Loader2, RefreshCw, TrendingUp, TrendingDown, BarChart3, Bot, AlertCircle } from 'lucide-react'
+import { Upload, FileText, FileSpreadsheet, Download, Trash2, Loader2, RefreshCw, TrendingUp, TrendingDown, BarChart3, Bot, AlertCircle, FolderOpen, X } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -22,6 +22,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 
 interface ForecastFile {
   id: string
@@ -48,7 +56,7 @@ interface AccuracySummary {
   totalActual: number
   overallVariance: number
   overallVariancePercent: number
-  mape: number  // Mean Absolute Percentage Error
+  mape: number
   accuracy: number
 }
 
@@ -58,14 +66,14 @@ export default function CustomerForecastPage() {
   const [uploading, setUploading] = useState(false)
   const [syncingFileId, setSyncingFileId] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [fileDialogOpen, setFileDialogOpen] = useState(false)
   
   // Accuracy analysis state
   const [accuracyData, setAccuracyData] = useState<AccuracyData[]>([])
   const [accuracyLoading, setAccuracyLoading] = useState(false)
-  const [selectedWeekRange, setSelectedWeekRange] = useState<string>('4')  // Last 4 weeks
+  const [selectedWeekRange, setSelectedWeekRange] = useState<string>('4')
   const [selectedSupplier, setSelectedSupplier] = useState<string>('all')
 
-  // Fetch accuracy data
   const fetchAccuracyData = useCallback(async () => {
     setAccuracyLoading(true)
     try {
@@ -81,7 +89,6 @@ export default function CustomerForecastPage() {
     }
   }, [selectedWeekRange, selectedSupplier])
 
-  // Calculate accuracy summary
   const accuracySummary = useMemo((): AccuracySummary | null => {
     if (accuracyData.length === 0) return null
     
@@ -90,7 +97,6 @@ export default function CustomerForecastPage() {
     const overallVariance = totalActual - totalForecast
     const overallVariancePercent = totalForecast > 0 ? (overallVariance / totalForecast) * 100 : 0
     
-    // Calculate MAPE (Mean Absolute Percentage Error)
     const validData = accuracyData.filter(d => d.customerForecast > 0)
     const mape = validData.length > 0 
       ? validData.reduce((sum, d) => sum + Math.abs(d.variancePercent), 0) / validData.length
@@ -106,7 +112,6 @@ export default function CustomerForecastPage() {
     }
   }, [accuracyData])
 
-  // Get unique suppliers from accuracy data
   const suppliers = useMemo(() => {
     const set = new Set(accuracyData.map(d => d.supplierCode))
     return Array.from(set).sort()
@@ -154,7 +159,6 @@ export default function CustomerForecastPage() {
       const data = await res.json()
       if (data.success) {
         setSelectedFile(null)
-        // Reset file input
         const fileInput = document.getElementById('file') as HTMLInputElement
         if (fileInput) fileInput.value = ''
         fetchFiles()
@@ -170,6 +174,7 @@ export default function CustomerForecastPage() {
 
   const handleSync = async (fileId: string) => {
     setSyncingFileId(fileId)
+    setFileDialogOpen(false)
     try {
       const res = await fetch('/api/sync/customer-forecast', {
         method: 'POST',
@@ -188,7 +193,6 @@ export default function CustomerForecastPage() {
           ? `\nUnmatched models (no SKUs found): ${data.stats.unmatchedModels.join(', ')}`
           : ''
         alert(`Sync completed!${extractedMsg}\n\nModels updated: ${data.stats.modelsUpdated.join(', ') || 'None'}\nUpdates: ${data.stats.successCount} successful, ${data.stats.errorCount} errors${unmatchedMsg}${skippedMsg}`)
-        // Hard redirect to dashboard - ensures full page reload with fresh data
         window.location.href = '/'
       } else {
         alert(data.error || 'Sync failed')
@@ -223,7 +227,6 @@ export default function CustomerForecastPage() {
       const res = await fetch(`/api/forecast-files/${id}`)
       const data = await res.json()
       if (data.signedUrl) {
-        // Open signed URL directly - browser will download the file
         window.open(data.signedUrl, '_blank')
       } else {
         alert(data.error || 'Failed to get download link')
@@ -265,137 +268,143 @@ export default function CustomerForecastPage() {
       )}
 
       <div className="max-w-6xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Customer Forecast</h1>
-          <p className="text-gray-500">Upload and manage customer forecast files</p>
-        </div>
-
-        {/* Upload Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Upload Forecast File</CardTitle>
-            <CardDescription>
-              Upload customer-provided forecast documents (PDF, Excel, or CSV)
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="file">Forecast File</Label>
-                <Input
-                  id="file"
-                  type="file"
-                  accept=".pdf,.xlsx,.xls,.xlsm,.csv"
-                  onChange={handleFileChange}
-                  className="cursor-pointer max-w-md"
-                />
-                {selectedFile && (
-                  <p className="text-sm text-gray-500">
-                    Selected: {selectedFile.name} ({formatFileSize(selectedFile.size)})
-                  </p>
+        {/* Header with File Management Button */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Customer Forecast</h1>
+            <p className="text-gray-500">Analyze forecast accuracy and trends</p>
+          </div>
+          <Dialog open={fileDialogOpen} onOpenChange={setFileDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <FolderOpen className="h-4 w-4" />
+                Manage Files
+                {files.length > 0 && (
+                  <span className="ml-1 px-2 py-0.5 text-xs bg-gray-100 rounded-full">{files.length}</span>
                 )}
-              </div>
-              <Button
-                onClick={handleUpload}
-                disabled={!selectedFile || uploading}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {uploading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload className="mr-2 h-4 w-4" />
-                )}
-                Upload
               </Button>
-            </div>
-          </CardContent>
-        </Card>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+              <DialogHeader>
+                <DialogTitle>Forecast File Management</DialogTitle>
+                <DialogDescription>
+                  Upload, sync, and manage customer forecast files
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="flex-1 overflow-y-auto space-y-6 py-4">
+                {/* Upload Section */}
+                <div className="p-4 border rounded-lg bg-gray-50/50">
+                  <h4 className="text-sm font-medium mb-3">Upload New File</h4>
+                  <div className="flex items-center gap-3">
+                    <Input
+                      id="file"
+                      type="file"
+                      accept=".pdf,.xlsx,.xls,.xlsm,.csv"
+                      onChange={handleFileChange}
+                      className="cursor-pointer flex-1"
+                    />
+                    <Button
+                      onClick={handleUpload}
+                      disabled={!selectedFile || uploading}
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      {uploading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                  {selectedFile && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      Selected: {selectedFile.name} ({formatFileSize(selectedFile.size)})
+                    </p>
+                  )}
+                </div>
 
-        {/* Files List */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Uploaded Files</CardTitle>
-            <CardDescription>
-              {files.length} file{files.length !== 1 ? 's' : ''} uploaded
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                {/* Files List */}
+                <div>
+                  <h4 className="text-sm font-medium mb-3">Uploaded Files ({files.length})</h4>
+                  {loading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                    </div>
+                  ) : files.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <FileText className="h-10 w-10 mx-auto mb-2 text-gray-300" />
+                      <p className="text-sm">No forecast files uploaded yet</p>
+                    </div>
+                  ) : (
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-gray-50">
+                            <TableHead className="text-xs">File</TableHead>
+                            <TableHead className="text-xs">Size</TableHead>
+                            <TableHead className="text-xs">Uploaded</TableHead>
+                            <TableHead className="text-xs text-right">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {files.map((file) => (
+                            <TableRow key={file.id}>
+                              <TableCell className="py-2">
+                                <div className="flex items-center gap-2">
+                                  {file.file_name.match(/\.(xlsx?|xlsm|csv)$/i) ? (
+                                    <FileSpreadsheet className="h-4 w-4 text-green-600 shrink-0" />
+                                  ) : (
+                                    <FileText className="h-4 w-4 text-red-500 shrink-0" />
+                                  )}
+                                  <span className="text-sm truncate max-w-[200px]">{file.file_name}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="py-2 text-xs text-gray-500">{formatFileSize(file.file_size)}</TableCell>
+                              <TableCell className="py-2 text-xs text-gray-500">{formatDate(file.uploaded_at)}</TableCell>
+                              <TableCell className="py-2 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleSync(file.id)}
+                                    disabled={syncingFileId === file.id}
+                                    className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                    title="Sync to Pipeline"
+                                  >
+                                    <RefreshCw className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDownload(file.id)}
+                                    className="h-7 w-7 p-0"
+                                    title="Download"
+                                  >
+                                    <Download className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDelete(file.id)}
+                                    className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
               </div>
-            ) : files.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <p>No forecast files uploaded yet</p>
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>File Name</TableHead>
-                    <TableHead>Size</TableHead>
-                    <TableHead>Uploaded</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {files.map((file) => (
-                    <TableRow key={file.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          {file.file_name.match(/\.(xlsx?|xlsm|csv)$/i) ? (
-                            <FileSpreadsheet className="h-4 w-4 text-green-600" />
-                          ) : (
-                            <FileText className="h-4 w-4 text-red-500" />
-                          )}
-                          {file.file_name}
-                        </div>
-                      </TableCell>
-                      <TableCell>{formatFileSize(file.file_size)}</TableCell>
-                      <TableCell>{formatDate(file.uploaded_at)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleSync(file.id)}
-                            disabled={syncingFileId === file.id}
-                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                            title="Sync to Pipeline"
-                          >
-                            {syncingFileId === file.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <RefreshCw className="h-4 w-4" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDownload(file.id)}
-                            title="Download"
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDelete(file.id)}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+            </DialogContent>
+          </Dialog>
+        </div>
 
         {/* Forecast Analysis Report - Agent Integration Ready */}
         <Card className="border-dashed border-2 border-blue-200 bg-blue-50/30">
@@ -464,7 +473,7 @@ export default function CustomerForecastPage() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <Select value={selectedWeekRange} onValueChange={(v) => { setSelectedWeekRange(v); fetchAccuracyData(); }}>
+                <Select value={selectedWeekRange} onValueChange={(v) => { setSelectedWeekRange(v); }}>
                   <SelectTrigger className="w-[140px]">
                     <SelectValue placeholder="Week Range" />
                   </SelectTrigger>
@@ -475,7 +484,7 @@ export default function CustomerForecastPage() {
                     <SelectItem value="26">Last 26 weeks</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={selectedSupplier} onValueChange={(v) => { setSelectedSupplier(v); fetchAccuracyData(); }}>
+                <Select value={selectedSupplier} onValueChange={(v) => { setSelectedSupplier(v); }}>
                   <SelectTrigger className="w-[140px]">
                     <SelectValue placeholder="Supplier" />
                   </SelectTrigger>
