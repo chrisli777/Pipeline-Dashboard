@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
+import { SKU_FORMULAS } from '@/lib/sku-formulas'
 
 const BUCKET_NAME = 'forecast-files'
 
@@ -656,26 +657,51 @@ export async function POST(request: Request) {
       }
     }
 
-    // Build machine model to SKUs lookup from forecast_multiplier_config
-    // This allows forecast to identify by machine model and distribute to bound SKUs
+    // Build machine model to SKUs lookup - combines config and dynamic lookup
+    // First, get all SKUs for each unique part_model to enable automatic distribution
     const modelToSkusMap = new Map<string, { skuCode: string; multiplier: number }[]>()
+    
+    // Load explicit multiplier configs first
     const { data: modelConfig } = await supabase
       .from('forecast_multiplier_config')
       .select('sku_code, part_model, multiplier')
     
+    const explicitMultipliers = new Map<string, number>()
     if (modelConfig) {
       for (const row of modelConfig) {
-        const normalizedModel = row.part_model.toLowerCase().replace(/[-\s]/g, '')
+        explicitMultipliers.set(row.sku_code, Number(row.multiplier) || 1)
+      }
+    }
+    console.log(`[v0] Loaded ${explicitMultipliers.size} explicit multipliers from config`)
+    
+    // Now build model-to-SKU mapping from ALL SKUs based on part_model field
+    // This ensures all SKUs with same part_model get forecast distributed to them
+    const { data: allSkusWithModel } = await supabase
+      .from('skus')
+      .select('sku_code, part_model, supplier_code')
+      .not('part_model', 'is', null)
+    
+    if (allSkusWithModel) {
+      for (const sku of allSkusWithModel) {
+        if (!sku.part_model) continue
+        const normalizedModel = sku.part_model.toLowerCase().replace(/[-\s]/g, '')
         if (!modelToSkusMap.has(normalizedModel)) {
           modelToSkusMap.set(normalizedModel, [])
         }
+        // Use explicit multiplier if configured, otherwise default to 1
+        const multiplier = explicitMultipliers.get(sku.sku_code) || 1
         modelToSkusMap.get(normalizedModel)!.push({
-          skuCode: row.sku_code,
-          multiplier: Number(row.multiplier) || 1
+          skuCode: sku.sku_code,
+          multiplier
         })
       }
     }
-    console.log(`[v0] Loaded ${modelToSkusMap.size} machine model mappings from config`)
+    console.log(`[v0] Built model-to-SKU map with ${modelToSkusMap.size} unique models`)
+    for (const [model, skus] of modelToSkusMap.entries()) {
+      if (skus.length > 1) {
+        console.log(`[v0] Model "${model}" has ${skus.length} SKUs: ${skus.map(s => `${s.skuCode}(${s.multiplier}x)`).join(', ')}`)
+      }
+    }
 
     // Update database with extracted forecast data
     const updates: { skuId: string; weekNumber: number; value: number }[] = []
@@ -823,8 +849,12 @@ export async function POST(request: Request) {
           }
         }
         
-        if (!matchedModels.includes(`${skuCode} (aggregated: ${foundModels.join('+')})`)) {
-          matchedModels.push(`${skuCode} (aggregated: ${foundModels.join('+')})`)
+        // Use displayName from SKU_FORMULAS if available, otherwise fall back to skuCode
+        const formula = SKU_FORMULAS.find(f => f.targetSku === skuCode)
+        const displayLabel = formula?.displayName || skuCode
+        const displayText = `${displayLabel} (aggregated: ${foundModels.join('+')})`
+        if (!matchedModels.includes(displayText)) {
+          matchedModels.push(displayText)
         }
       } else {
         console.log(`[v0] Aggregation for ${skuCode}: no matching models found from ${modelNames.join(', ')}`)
