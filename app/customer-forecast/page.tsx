@@ -514,7 +514,7 @@ export default function CustomerForecastPage() {
         {/* Side-by-side Analysis Layout - Full Height */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
           {/* Left: Forecast Analysis Report - Agent Integration */}
-          <Card className="border border-blue-200 bg-gradient-to-br from-blue-50/50 to-white flex flex-col">
+          <Card className="border border-blue-200 bg-gradient-to-br from-blue-50/50 to-white flex flex-col min-h-[500px]">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -574,9 +574,9 @@ export default function CustomerForecastPage() {
                   {/* File Selection for Analysis */}
                   <div className="p-3 bg-white rounded-lg border border-blue-200">
                     <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Select Files to Analyze</p>
-                    {files.filter(f => f.sync_status === 'synced').length > 0 ? (
-                      <div className="space-y-2 max-h-[150px] overflow-auto">
-                        {files.filter(f => f.sync_status === 'synced').map(file => (
+                    {files.length > 0 ? (
+                      <div className="space-y-2 max-h-[200px] overflow-auto">
+                        {files.map(file => (
                           <label key={file.id} className="flex items-center gap-2 p-2 rounded hover:bg-blue-50 cursor-pointer">
                             <input
                               type="checkbox"
@@ -591,12 +591,15 @@ export default function CustomerForecastPage() {
                               className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                             />
                             <FileSpreadsheet className="h-4 w-4 text-green-600" />
-                            <span className="text-sm text-gray-700">{file.file_name}</span>
+                            <span className="text-sm text-gray-700 flex-1 truncate">{file.file_name}</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded ${file.sync_status === 'synced' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                              {file.sync_status === 'synced' ? 'Synced' : 'Not synced'}
+                            </span>
                           </label>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-500">No synced forecast files available. Please upload and sync files first.</p>
+                      <p className="text-sm text-gray-500">No forecast files uploaded. Click &quot;Manage Files&quot; to upload.</p>
                     )}
                     {selectedFilesForAnalysis.length > 0 && (
                       <p className="text-xs text-blue-600 mt-2">{selectedFilesForAnalysis.length} file(s) selected</p>
