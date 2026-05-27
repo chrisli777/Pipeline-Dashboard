@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Upload, FileText, FileSpreadsheet, Download, Trash2, Loader2, RefreshCw, TrendingUp, TrendingDown, BarChart3, Bot, AlertCircle, FolderOpen, X } from 'lucide-react'
+import { Upload, FileText, FileSpreadsheet, Download, Trash2, Loader2, RefreshCw, TrendingUp, TrendingDown, BarChart3, Bot, AlertCircle, FolderOpen, X, LineChart as LineChartIcon } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -28,8 +28,17 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts'
 
 interface ForecastFile {
   id: string
@@ -444,246 +453,266 @@ export default function CustomerForecastPage() {
           </Dialog>
         </div>
 
-        {/* Forecast Analysis Report - Agent Integration */}
-        <Card className="border border-blue-200 bg-gradient-to-br from-blue-50/50 to-white">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Bot className="h-5 w-5 text-blue-600" />
-                </div>
-                <div>
-                  <CardTitle className="text-lg">Forecast Analysis Report</CardTitle>
-                  <CardDescription>
-                    AI-powered analysis of forecast changes and trends
-                  </CardDescription>
-                </div>
-              </div>
-              <Button
-                onClick={generateAnalysis}
-                disabled={analysisLoading}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {analysisLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <Bot className="h-4 w-4 mr-2" />
-                    Generate Analysis
-                  </>
-                )}
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {analysisLoading ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
-                <p className="text-lg font-medium text-gray-700">Analyzing Forecast Data</p>
-                <p className="text-sm text-gray-500 mt-1">This may take 1-2 minutes...</p>
-              </div>
-            ) : analysisError ? (
-              <div className="flex items-center gap-3 p-4 bg-red-50 rounded-lg text-red-700">
-                <AlertCircle className="h-5 w-5 shrink-0" />
-                <div>
-                  <p className="font-medium">Analysis Failed</p>
-                  <p className="text-sm">{analysisError}</p>
-                </div>
-              </div>
-            ) : analysisReport ? (
-              <div className="prose prose-sm max-w-none">
-                <div className="bg-white border rounded-lg p-4 whitespace-pre-wrap text-sm leading-relaxed">
-                  {analysisReport}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-100/50 p-3 rounded-lg">
-                  <AlertCircle className="h-4 w-4" />
-                  <span>Click &quot;Generate Analysis&quot; to analyze forecast changes by machine model</span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="p-4 bg-white rounded-lg border border-blue-100">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Analysis Features</p>
-                    <ul className="mt-2 text-sm text-gray-700 space-y-1">
-                      <li>- Month-over-month comparison</li>
-                      <li>- Model-level trend detection</li>
-                      <li>- Anomaly highlighting</li>
-                    </ul>
+        {/* Side-by-side Analysis Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Left: Forecast Analysis Report - Agent Integration */}
+          <Card className="border border-blue-200 bg-gradient-to-br from-blue-50/50 to-white">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <Bot className="h-5 w-5 text-blue-600" />
                   </div>
-                  <div className="p-4 bg-white rounded-lg border border-blue-100">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Insights</p>
-                    <ul className="mt-2 text-sm text-gray-700 space-y-1">
-                      <li>- Demand shift patterns</li>
-                      <li>- Seasonal adjustments</li>
-                      <li>- Supply risk alerts</li>
-                    </ul>
-                  </div>
-                  <div className="p-4 bg-white rounded-lg border border-blue-100">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Output</p>
-                    <ul className="mt-2 text-sm text-gray-700 space-y-1">
-                      <li>- Summary report</li>
-                      <li>- Action recommendations</li>
-                      <li>- Historical tracking</li>
-                    </ul>
+                  <div>
+                    <CardTitle className="text-lg">Forecast Analysis Report</CardTitle>
+                    <CardDescription>
+                      AI-powered analysis of forecast changes
+                    </CardDescription>
                   </div>
                 </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Forecast Accuracy Analysis */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <BarChart3 className="h-5 w-5 text-green-600" />
-                </div>
-                <div>
-                  <CardTitle className="text-lg">Forecast Accuracy Analysis</CardTitle>
-                  <CardDescription>
-                    Compare Customer Forecast vs Actual Consumption
-                  </CardDescription>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <Select value={selectedWeekRange} onValueChange={(v) => { setSelectedWeekRange(v); }}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Week Range" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="4">Last 4 weeks</SelectItem>
-                    <SelectItem value="8">Last 8 weeks</SelectItem>
-                    <SelectItem value="12">Last 12 weeks</SelectItem>
-                    <SelectItem value="26">Last 26 weeks</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={selectedSupplier} onValueChange={(v) => { setSelectedSupplier(v); }}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Supplier" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Suppliers</SelectItem>
-                    {suppliers.map(s => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
                 <Button
-                  variant="outline"
+                  onClick={generateAnalysis}
+                  disabled={analysisLoading}
                   size="sm"
-                  onClick={fetchAccuracyData}
-                  disabled={accuracyLoading}
+                  className="bg-blue-600 hover:bg-blue-700"
                 >
-                  {accuracyLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                  {analysisLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Analyzing...
+                    </>
                   ) : (
-                    <RefreshCw className="h-4 w-4" />
+                    <>
+                      <Bot className="h-4 w-4 mr-2" />
+                      Generate
+                    </>
                   )}
                 </Button>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {accuracyLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-              </div>
-            ) : accuracySummary ? (
-              <div className="space-y-6">
-                {/* Summary Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Total Forecast</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">{accuracySummary.totalForecast.toLocaleString()}</p>
-                  </div>
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Total Actual</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">{accuracySummary.totalActual.toLocaleString()}</p>
-                  </div>
-                  <div className={`p-4 rounded-lg ${accuracySummary.overallVariance >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Variance</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      {accuracySummary.overallVariance >= 0 ? (
-                        <TrendingUp className="h-5 w-5 text-green-600" />
-                      ) : (
-                        <TrendingDown className="h-5 w-5 text-red-600" />
-                      )}
-                      <p className={`text-2xl font-bold ${accuracySummary.overallVariance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                        {accuracySummary.overallVariance >= 0 ? '+' : ''}{accuracySummary.overallVariance.toLocaleString()}
-                      </p>
-                      <span className={`text-sm ${accuracySummary.overallVariance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        ({accuracySummary.overallVariancePercent >= 0 ? '+' : ''}{accuracySummary.overallVariancePercent.toFixed(1)}%)
-                      </span>
-                    </div>
-                  </div>
-                  <div className={`p-4 rounded-lg ${accuracySummary.accuracy >= 90 ? 'bg-green-50' : accuracySummary.accuracy >= 70 ? 'bg-yellow-50' : 'bg-red-50'}`}>
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Forecast Accuracy</p>
-                    <p className={`text-2xl font-bold mt-1 ${accuracySummary.accuracy >= 90 ? 'text-green-700' : accuracySummary.accuracy >= 70 ? 'text-yellow-700' : 'text-red-700'}`}>
-                      {accuracySummary.accuracy.toFixed(1)}%
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">MAPE: {accuracySummary.mape.toFixed(1)}%</p>
+            </CardHeader>
+            <CardContent>
+              {analysisLoading ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
+                  <p className="text-lg font-medium text-gray-700">Analyzing Forecast Data</p>
+                  <p className="text-sm text-gray-500 mt-1">This may take 1-2 minutes...</p>
+                </div>
+              ) : analysisError ? (
+                <div className="flex items-center gap-3 p-4 bg-red-50 rounded-lg text-red-700">
+                  <AlertCircle className="h-5 w-5 shrink-0" />
+                  <div>
+                    <p className="font-medium">Analysis Failed</p>
+                    <p className="text-sm">{analysisError}</p>
                   </div>
                 </div>
+              ) : analysisReport ? (
+                <div className="max-h-[500px] overflow-auto">
+                  <div className="bg-white border rounded-lg p-4 whitespace-pre-wrap text-sm leading-relaxed">
+                    {analysisReport}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4 py-4">
+                  <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-100/50 p-3 rounded-lg">
+                    <AlertCircle className="h-4 w-4" />
+                    <span>Click &quot;Generate&quot; to analyze forecast changes by machine model</span>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="p-3 bg-white rounded-lg border border-blue-100">
+                      <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Analysis Features</p>
+                      <ul className="text-sm text-gray-700 space-y-1">
+                        <li>- Month-over-month comparison</li>
+                        <li>- Model-level trend detection</li>
+                        <li>- Demand shift patterns</li>
+                        <li>- Supply risk alerts</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-                {/* Detail Table */}
-                <div className="border rounded-lg overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-gray-50">
-                        <TableHead>SKU / Part Model</TableHead>
-                        <TableHead>Supplier</TableHead>
-                        <TableHead>Week</TableHead>
-                        <TableHead className="text-right">Forecast</TableHead>
-                        <TableHead className="text-right">Actual</TableHead>
-                        <TableHead className="text-right">Variance</TableHead>
-                        <TableHead className="text-right">Variance %</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {accuracyData.slice(0, 20).map((row, idx) => (
-                        <TableRow key={idx}>
-                          <TableCell className="font-medium">
-                            <div>
-                              <span>{row.skuCode}</span>
-                              <span className="text-xs text-gray-500 ml-2">/ {row.partModel}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>{row.supplierCode}</TableCell>
-                          <TableCell>W{row.weekNumber}</TableCell>
-                          <TableCell className="text-right">{row.customerForecast}</TableCell>
-                          <TableCell className="text-right">{row.actualConsumption}</TableCell>
-                          <TableCell className={`text-right ${row.variance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {row.variance >= 0 ? '+' : ''}{row.variance}
-                          </TableCell>
-                          <TableCell className={`text-right ${Math.abs(row.variancePercent) <= 10 ? 'text-green-600' : Math.abs(row.variancePercent) <= 25 ? 'text-yellow-600' : 'text-red-600'}`}>
-                            {row.variancePercent >= 0 ? '+' : ''}{row.variancePercent.toFixed(1)}%
-                          </TableCell>
-                        </TableRow>
+          {/* Right: Forecast Accuracy Analysis with Line Chart */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <LineChartIcon className="h-5 w-5 text-green-600" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">Forecast Accuracy</CardTitle>
+                    <CardDescription>
+                      Forecast vs Actual over time
+                    </CardDescription>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select value={selectedWeekRange} onValueChange={(v) => { setSelectedWeekRange(v); }}>
+                    <SelectTrigger className="w-[120px] h-8 text-xs">
+                      <SelectValue placeholder="Weeks" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="4">Last 4 weeks</SelectItem>
+                      <SelectItem value="8">Last 8 weeks</SelectItem>
+                      <SelectItem value="12">Last 12 weeks</SelectItem>
+                      <SelectItem value="26">Last 26 weeks</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={selectedSupplier} onValueChange={(v) => { setSelectedSupplier(v); }}>
+                    <SelectTrigger className="w-[110px] h-8 text-xs">
+                      <SelectValue placeholder="Supplier" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      {suppliers.map(s => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
                       ))}
-                    </TableBody>
-                  </Table>
-                  {accuracyData.length > 20 && (
-                    <div className="p-3 bg-gray-50 text-center text-sm text-gray-500">
-                      Showing 20 of {accuracyData.length} records
-                    </div>
-                  )}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={fetchAccuracyData}
+                    disabled={accuracyLoading}
+                  >
+                    {accuracyLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                  </Button>
                 </div>
               </div>
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <BarChart3 className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <p>No accuracy data available</p>
-                <p className="text-sm mt-1">Upload and sync forecast files to see accuracy analysis</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent>
+              {accuracyLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : accuracySummary ? (
+                <div className="space-y-4">
+                  {/* Summary Stats Row */}
+                  <div className="grid grid-cols-4 gap-3">
+                    <div className="p-3 bg-gray-50 rounded-lg text-center">
+                      <p className="text-xs text-gray-500 uppercase">Forecast</p>
+                      <p className="text-lg font-bold text-gray-900">{accuracySummary.totalForecast.toLocaleString()}</p>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-lg text-center">
+                      <p className="text-xs text-gray-500 uppercase">Actual</p>
+                      <p className="text-lg font-bold text-gray-900">{accuracySummary.totalActual.toLocaleString()}</p>
+                    </div>
+                    <div className={`p-3 rounded-lg text-center ${accuracySummary.overallVariance >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                      <p className="text-xs text-gray-500 uppercase">Variance</p>
+                      <p className={`text-lg font-bold ${accuracySummary.overallVariance >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                        {accuracySummary.overallVariance >= 0 ? '+' : ''}{accuracySummary.overallVariancePercent.toFixed(1)}%
+                      </p>
+                    </div>
+                    <div className={`p-3 rounded-lg text-center ${accuracySummary.accuracy >= 90 ? 'bg-green-50' : accuracySummary.accuracy >= 70 ? 'bg-yellow-50' : 'bg-red-50'}`}>
+                      <p className="text-xs text-gray-500 uppercase">Accuracy</p>
+                      <p className={`text-lg font-bold ${accuracySummary.accuracy >= 90 ? 'text-green-700' : accuracySummary.accuracy >= 70 ? 'text-yellow-700' : 'text-red-700'}`}>
+                        {accuracySummary.accuracy.toFixed(1)}%
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Line Chart */}
+                  <div className="h-[280px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={(() => {
+                          // Aggregate data by week
+                          const weeklyData: Record<number, { week: number; forecast: number; actual: number }> = {}
+                          accuracyData.forEach(d => {
+                            if (!weeklyData[d.weekNumber]) {
+                              weeklyData[d.weekNumber] = { week: d.weekNumber, forecast: 0, actual: 0 }
+                            }
+                            weeklyData[d.weekNumber].forecast += d.customerForecast
+                            weeklyData[d.weekNumber].actual += d.actualConsumption
+                          })
+                          return Object.values(weeklyData).sort((a, b) => a.week - b.week)
+                        })()}
+                        margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                        <XAxis 
+                          dataKey="week" 
+                          tick={{ fontSize: 12 }}
+                          tickFormatter={(w) => `W${w}`}
+                        />
+                        <YAxis tick={{ fontSize: 12 }} />
+                        <Tooltip 
+                          formatter={(value: number) => value.toLocaleString()}
+                          labelFormatter={(w) => `Week ${w}`}
+                        />
+                        <Legend />
+                        <Line 
+                          type="monotone" 
+                          dataKey="forecast" 
+                          name="Forecast"
+                          stroke="#3b82f6" 
+                          strokeWidth={2}
+                          dot={{ r: 4 }}
+                          activeDot={{ r: 6 }}
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="actual" 
+                          name="Actual"
+                          stroke="#22c55e" 
+                          strokeWidth={2}
+                          dot={{ r: 4 }}
+                          activeDot={{ r: 6 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Compact Table */}
+                  <div className="border rounded-lg overflow-hidden max-h-[200px] overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-gray-50">
+                          <TableHead className="text-xs">SKU</TableHead>
+                          <TableHead className="text-xs">Week</TableHead>
+                          <TableHead className="text-xs text-right">Forecast</TableHead>
+                          <TableHead className="text-xs text-right">Actual</TableHead>
+                          <TableHead className="text-xs text-right">Var %</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {accuracyData.slice(0, 10).map((row, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell className="text-xs font-medium py-2">{row.skuCode}</TableCell>
+                            <TableCell className="text-xs py-2">W{row.weekNumber}</TableCell>
+                            <TableCell className="text-xs text-right py-2">{row.customerForecast}</TableCell>
+                            <TableCell className="text-xs text-right py-2">{row.actualConsumption}</TableCell>
+                            <TableCell className={`text-xs text-right py-2 ${Math.abs(row.variancePercent) <= 10 ? 'text-green-600' : Math.abs(row.variancePercent) <= 25 ? 'text-yellow-600' : 'text-red-600'}`}>
+                              {row.variancePercent >= 0 ? '+' : ''}{row.variancePercent.toFixed(1)}%
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {accuracyData.length > 10 && (
+                      <div className="p-2 bg-gray-50 text-center text-xs text-gray-500">
+                        Showing 10 of {accuracyData.length} records
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-16 text-gray-500">
+                  <BarChart3 className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>No accuracy data available</p>
+                  <p className="text-sm mt-1">Upload and sync forecast files to see accuracy analysis</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   )
