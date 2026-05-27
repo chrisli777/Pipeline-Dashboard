@@ -446,10 +446,10 @@ export default function CustomerForecastPage() {
                       <Table className="table-fixed w-full">
                         <TableHeader>
                           <TableRow className="bg-gray-50">
-                            <TableHead className="text-xs w-[40%]">File</TableHead>
-                            <TableHead className="text-xs w-[15%]">Size</TableHead>
-                            <TableHead className="text-xs w-[25%]">Uploaded</TableHead>
-                            <TableHead className="text-xs text-right w-[20%]">Actions</TableHead>
+                            <TableHead className="text-xs w-[35%]">File</TableHead>
+                            <TableHead className="text-xs w-[12%]">Size</TableHead>
+                            <TableHead className="text-xs w-[23%]">Uploaded</TableHead>
+                            <TableHead className="text-xs text-right w-[30%]">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -466,8 +466,8 @@ export default function CustomerForecastPage() {
                                 </div>
                               </TableCell>
                               <TableCell className="py-2 text-xs text-gray-500">{formatFileSize(file.file_size)}</TableCell>
-                              <TableCell className="py-2 text-xs text-gray-500">{formatDate(file.uploaded_at)}</TableCell>
-                              <TableCell className="py-2 text-right">
+                              <TableCell className="py-2 text-xs text-gray-500 truncate">{formatDate(file.uploaded_at)}</TableCell>
+                              <TableCell className="py-2">
                                 <div className="flex items-center justify-end gap-1">
                                   <Button
                                     variant="ghost"
