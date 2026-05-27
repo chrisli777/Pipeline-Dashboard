@@ -67,6 +67,36 @@ interface AccuracySummary {
   accuracy: number
 }
 
+// Helper function to get month from week number
+const getMonthFromWeek = (weekNumber: number, year: number = 2026): { month: string; monthNum: number } => {
+  // Week 1 starts from 2025-12-29 for year 2026
+  const week1Start = new Date('2025-12-29')
+  const targetDate = new Date(week1Start)
+  targetDate.setDate(targetDate.getDate() + (weekNumber - 1) * 7)
+  
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  return {
+    month: monthNames[targetDate.getMonth()],
+    monthNum: targetDate.getMonth()
+  }
+}
+
+// Month background colors for visual distinction
+const monthColors: Record<number, string> = {
+  0: 'bg-blue-50',    // Jan
+  1: 'bg-indigo-50',  // Feb
+  2: 'bg-purple-50',  // Mar
+  3: 'bg-pink-50',    // Apr
+  4: 'bg-rose-50',    // May
+  5: 'bg-orange-50',  // Jun
+  6: 'bg-amber-50',   // Jul
+  7: 'bg-yellow-50',  // Aug
+  8: 'bg-lime-50',    // Sep
+  9: 'bg-green-50',   // Oct
+  10: 'bg-teal-50',   // Nov
+  11: 'bg-cyan-50',   // Dec
+}
+
 export default function CustomerForecastPage() {
   const [files, setFiles] = useState<ForecastFile[]>([])
   const [loading, setLoading] = useState(true)
@@ -665,37 +695,40 @@ export default function CustomerForecastPage() {
                     />
                   </div>
 
-                  {/* Compact Table */}
-                  <div className="border rounded-lg overflow-hidden flex-1 min-h-[150px] overflow-auto">
+                  {/* Compact Table - Shows all data with scroll */}
+                  <div className="border rounded-lg overflow-hidden flex-1 min-h-[200px] max-h-[400px] overflow-auto">
                     <Table>
-                      <TableHeader>
-                        <TableRow className="bg-gray-50">
-                          <TableHead className="text-xs">SKU</TableHead>
-                          <TableHead className="text-xs">Week</TableHead>
-                          <TableHead className="text-xs text-right">Forecast</TableHead>
-                          <TableHead className="text-xs text-right">Actual</TableHead>
-                          <TableHead className="text-xs text-right">Var %</TableHead>
+                      <TableHeader className="sticky top-0 z-10">
+                        <TableRow className="bg-gray-100">
+                          <TableHead className="text-xs font-semibold">SKU</TableHead>
+                          <TableHead className="text-xs font-semibold">Month</TableHead>
+                          <TableHead className="text-xs font-semibold">Week</TableHead>
+                          <TableHead className="text-xs text-right font-semibold">Forecast</TableHead>
+                          <TableHead className="text-xs text-right font-semibold">Actual</TableHead>
+                          <TableHead className="text-xs text-right font-semibold">Var %</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredAccuracyData.slice(0, 15).map((row, idx) => (
-                          <TableRow key={idx}>
-                            <TableCell className="text-xs font-medium py-2">{row.skuCode}</TableCell>
-                            <TableCell className="text-xs py-2">W{row.weekNumber}</TableCell>
-                            <TableCell className="text-xs text-right py-2">{row.customerForecast}</TableCell>
-                            <TableCell className="text-xs text-right py-2">{row.actualConsumption}</TableCell>
-                            <TableCell className={`text-xs text-right py-2 ${Math.abs(row.variancePercent) <= 10 ? 'text-green-600' : Math.abs(row.variancePercent) <= 25 ? 'text-yellow-600' : 'text-red-600'}`}>
-                              {row.variancePercent >= 0 ? '+' : ''}{row.variancePercent.toFixed(1)}%
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {filteredAccuracyData.map((row, idx) => {
+                          const { month, monthNum } = getMonthFromWeek(row.weekNumber)
+                          return (
+                            <TableRow key={idx} className={monthColors[monthNum] || 'bg-white'}>
+                              <TableCell className="text-xs font-medium py-2">{row.skuCode || '-'}</TableCell>
+                              <TableCell className="text-xs py-2">{month}</TableCell>
+                              <TableCell className="text-xs py-2">W{row.weekNumber}</TableCell>
+                              <TableCell className="text-xs text-right py-2">{row.customerForecast}</TableCell>
+                              <TableCell className="text-xs text-right py-2">{row.actualConsumption}</TableCell>
+                              <TableCell className={`text-xs text-right py-2 font-medium ${Math.abs(row.variancePercent) <= 10 ? 'text-green-600' : Math.abs(row.variancePercent) <= 25 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                {row.variancePercent >= 0 ? '+' : ''}{row.variancePercent.toFixed(1)}%
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
                       </TableBody>
                     </Table>
-                    {filteredAccuracyData.length > 15 && (
-                      <div className="p-2 bg-gray-50 text-center text-xs text-gray-500">
-                        Showing 15 of {filteredAccuracyData.length} records
-                      </div>
-                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 text-center pt-1">
+                    {filteredAccuracyData.length} records total
                   </div>
                 </div>
               ) : (
