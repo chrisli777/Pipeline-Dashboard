@@ -389,7 +389,7 @@ export default function CustomerForecastPage() {
                 )}
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
               <DialogHeader>
                 <DialogTitle>Forecast File Management</DialogTitle>
                 <DialogDescription>
@@ -592,9 +592,6 @@ export default function CustomerForecastPage() {
                             />
                             <FileSpreadsheet className="h-4 w-4 text-green-600" />
                             <span className="text-sm text-gray-700 flex-1 truncate">{file.file_name}</span>
-                            <span className={`text-xs px-1.5 py-0.5 rounded ${file.sync_status === 'synced' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                              {file.sync_status === 'synced' ? 'Synced' : 'Not synced'}
-                            </span>
                           </label>
                         ))}
                       </div>
