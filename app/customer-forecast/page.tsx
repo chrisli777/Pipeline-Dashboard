@@ -74,6 +74,11 @@ export default function CustomerForecastPage() {
   const [selectedWeekRange, setSelectedWeekRange] = useState<string>('4')
   const [selectedSupplier, setSelectedSupplier] = useState<string>('all')
 
+  // Forecast analysis agent state
+  const [analysisReport, setAnalysisReport] = useState<string>('')
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
+
   const fetchAccuracyData = useCallback(async () => {
     setAccuracyLoading(true)
     try {
@@ -115,6 +120,39 @@ export default function CustomerForecastPage() {
   const suppliers = useMemo(() => {
     const set = new Set(accuracyData.map(d => d.supplierCode))
     return Array.from(set).sort()
+  }, [accuracyData])
+
+  // Generate forecast analysis using AI agent
+  const generateAnalysis = useCallback(async () => {
+    setAnalysisLoading(true)
+    setAnalysisError(null)
+    try {
+      // Fetch forecast data for analysis
+      const forecastRes = await fetch('/api/inventory-data?includeForecasts=true')
+      const forecastJson = await forecastRes.json()
+      
+      const res = await fetch('/api/forecast-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          forecastData: forecastJson.data || [],
+          accuracyData: accuracyData,
+          currentMonth: new Date().toISOString().slice(0, 7),
+        }),
+      })
+      
+      const data = await res.json()
+      if (data.error) {
+        setAnalysisError(data.error)
+      } else {
+        setAnalysisReport(data.analysis || 'No analysis generated')
+      }
+    } catch (err) {
+      console.error('Failed to generate analysis:', err)
+      setAnalysisError('Failed to generate analysis')
+    } finally {
+      setAnalysisLoading(false)
+    }
   }, [accuracyData])
 
   const fetchFiles = useCallback(async () => {
@@ -406,54 +444,95 @@ export default function CustomerForecastPage() {
           </Dialog>
         </div>
 
-        {/* Forecast Analysis Report - Agent Integration Ready */}
-        <Card className="border-dashed border-2 border-blue-200 bg-blue-50/30">
+        {/* Forecast Analysis Report - Agent Integration */}
+        <Card className="border border-blue-200 bg-gradient-to-br from-blue-50/50 to-white">
           <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Bot className="h-5 w-5 text-blue-600" />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Bot className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg">Forecast Analysis Report</CardTitle>
+                  <CardDescription>
+                    AI-powered analysis of forecast changes and trends
+                  </CardDescription>
+                </div>
               </div>
-              <div>
-                <CardTitle className="text-lg">Forecast Analysis Report</CardTitle>
-                <CardDescription>
-                  AI-powered analysis of forecast changes and trends (Coming Soon)
-                </CardDescription>
-              </div>
+              <Button
+                onClick={generateAnalysis}
+                disabled={analysisLoading}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {analysisLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Bot className="h-4 w-4 mr-2" />
+                    Generate Analysis
+                  </>
+                )}
+              </Button>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-100/50 p-3 rounded-lg">
-                <AlertCircle className="h-4 w-4" />
-                <span>Agent integration pending - will analyze monthly forecast changes by machine model</span>
+            {analysisLoading ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
+                <p className="text-lg font-medium text-gray-700">Analyzing Forecast Data</p>
+                <p className="text-sm text-gray-500 mt-1">This may take 1-2 minutes...</p>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-4 bg-white rounded-lg border border-blue-100">
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">Analysis Features</p>
-                  <ul className="mt-2 text-sm text-gray-700 space-y-1">
-                    <li>- Month-over-month comparison</li>
-                    <li>- Model-level trend detection</li>
-                    <li>- Anomaly highlighting</li>
-                  </ul>
-                </div>
-                <div className="p-4 bg-white rounded-lg border border-blue-100">
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">Insights</p>
-                  <ul className="mt-2 text-sm text-gray-700 space-y-1">
-                    <li>- Demand shift patterns</li>
-                    <li>- Seasonal adjustments</li>
-                    <li>- Supply risk alerts</li>
-                  </ul>
-                </div>
-                <div className="p-4 bg-white rounded-lg border border-blue-100">
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">Output</p>
-                  <ul className="mt-2 text-sm text-gray-700 space-y-1">
-                    <li>- Summary report</li>
-                    <li>- Action recommendations</li>
-                    <li>- Historical tracking</li>
-                  </ul>
+            ) : analysisError ? (
+              <div className="flex items-center gap-3 p-4 bg-red-50 rounded-lg text-red-700">
+                <AlertCircle className="h-5 w-5 shrink-0" />
+                <div>
+                  <p className="font-medium">Analysis Failed</p>
+                  <p className="text-sm">{analysisError}</p>
                 </div>
               </div>
-            </div>
+            ) : analysisReport ? (
+              <div className="prose prose-sm max-w-none">
+                <div className="bg-white border rounded-lg p-4 whitespace-pre-wrap text-sm leading-relaxed">
+                  {analysisReport}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-100/50 p-3 rounded-lg">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>Click &quot;Generate Analysis&quot; to analyze forecast changes by machine model</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 bg-white rounded-lg border border-blue-100">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Analysis Features</p>
+                    <ul className="mt-2 text-sm text-gray-700 space-y-1">
+                      <li>- Month-over-month comparison</li>
+                      <li>- Model-level trend detection</li>
+                      <li>- Anomaly highlighting</li>
+                    </ul>
+                  </div>
+                  <div className="p-4 bg-white rounded-lg border border-blue-100">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Insights</p>
+                    <ul className="mt-2 text-sm text-gray-700 space-y-1">
+                      <li>- Demand shift patterns</li>
+                      <li>- Seasonal adjustments</li>
+                      <li>- Supply risk alerts</li>
+                    </ul>
+                  </div>
+                  <div className="p-4 bg-white rounded-lg border border-blue-100">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Output</p>
+                    <ul className="mt-2 text-sm text-gray-700 space-y-1">
+                      <li>- Summary report</li>
+                      <li>- Action recommendations</li>
+                      <li>- Historical tracking</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
