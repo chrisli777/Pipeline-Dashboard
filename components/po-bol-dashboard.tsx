@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   FileText, Download, Search, RefreshCw, ChevronDown, ChevronRight,
   Loader2, Calendar, Package, AlertCircle, CheckCircle2, Filter,
-  Archive, RotateCcw, Trash2, Eye
+  Archive, RotateCcw
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -78,25 +78,6 @@ interface Pagination {
   totalPages: number
 }
 
-interface Discrepancy {
-  id: string
-  order_id: string
-  reference_number: string
-  warehouse: string
-  supplier_code: string
-  customer_name: string | null
-  process_date: string | null
-  status: string
-  bol_data: any
-  po_data: any
-  comparison_data: any
-  error_message: string | null
-  created_at: string
-  updated_at: string
-  resolved_at: string | null
-  reparse_count: number
-}
-
 // Warehouse and supplier options
 const WAREHOUSES = ['Moses Lake', 'Kent']
 const SUPPLIERS = ['HX', 'AMC', 'TJJSH']
@@ -152,6 +133,7 @@ export function PoBolDashboard() {
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
+  const [parseStatusFilter, setParseStatusFilter] = useState<string>('all') // 'all', 'match', 'mismatch', 'bol_missing', 'po_missing', 'unparsed'
   
   // Pagination
   const [pagination, setPagination] = useState<Pagination>({
@@ -189,122 +171,8 @@ export function PoBolDashboard() {
     errors: { orderId: string; refNumber: string; message: string }[]
   }>({ matches: [], mismatches: [], noFiles: [], errors: [] })
 
-  // Discrepancy archive states
-  const [discrepancies, setDiscrepancies] = useState<Discrepancy[]>([])
+  // Parse issues panel state
   const [showDiscrepanciesPanel, setShowDiscrepanciesPanel] = useState(false)
-  const [loadingDiscrepancies, setLoadingDiscrepancies] = useState(false)
-  const [reparsingDiscrepancy, setReparsingDiscrepancy] = useState<string | null>(null)
-  const [selectedDiscrepancy, setSelectedDiscrepancy] = useState<Discrepancy | null>(null)
-
-  // Fetch discrepancies
-  const fetchDiscrepancies = useCallback(async () => {
-    setLoadingDiscrepancies(true)
-    try {
-      const params = new URLSearchParams({
-        warehouse,
-        supplier,
-        resolved: 'false'
-      })
-      const response = await fetch(`/api/po-bol-discrepancies?${params}`)
-      const data = await response.json()
-      if (data.discrepancies) {
-        setDiscrepancies(data.discrepancies)
-      }
-    } catch (err) {
-      console.error('Failed to fetch discrepancies:', err)
-    } finally {
-      setLoadingDiscrepancies(false)
-    }
-  }, [warehouse, supplier])
-
-  // Archive a discrepancy
-  const archiveDiscrepancy = useCallback(async (
-    order: Order,
-    parseResult: ParseResult
-  ) => {
-    try {
-      await fetch('/api/po-bol-discrepancies', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: order.orderId,
-          referenceNumber: order.referenceNumber,
-          warehouse,
-          supplierCode: supplier,
-          customerName: order.customerName,
-          processDate: order.processDate,
-          status: parseResult.status,
-          bolData: parseResult.bolData,
-          poData: parseResult.poData,
-          comparisonData: parseResult.comparison,
-          errorMessage: parseResult.message
-        })
-      })
-      fetchDiscrepancies()
-    } catch (err) {
-      console.error('Failed to archive discrepancy:', err)
-    }
-  }, [warehouse, supplier, fetchDiscrepancies])
-
-  // Re-parse a discrepancy and check if resolved
-  const reparseDiscrepancy = useCallback(async (discrepancy: Discrepancy) => {
-    setReparsingDiscrepancy(discrepancy.id)
-    try {
-      const response = await fetch(`/api/wms/orders/${discrepancy.order_id}/parse-compare`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          warehouse: discrepancy.warehouse,
-          supplier: discrepancy.supplier_code
-        })
-      })
-      
-      if (!response.ok) throw new Error('Parse failed')
-      
-      const data = await response.json()
-      const result = data.result as ParseResult
-      
-      if (result.status === 'match') {
-        // Resolved! Delete from archive
-        await fetch(`/api/po-bol-discrepancies?id=${discrepancy.id}`, {
-          method: 'DELETE'
-        })
-        fetchDiscrepancies()
-      } else {
-        // Still mismatch - update the record
-        await fetch('/api/po-bol-discrepancies', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: discrepancy.id,
-            incrementReparse: true,
-            status: result.status,
-            bol_data: result.bolData,
-            po_data: result.poData,
-            comparison_data: result.comparison,
-            error_message: result.message
-          })
-        })
-        fetchDiscrepancies()
-      }
-    } catch (err) {
-      console.error('Failed to re-parse discrepancy:', err)
-    } finally {
-      setReparsingDiscrepancy(null)
-    }
-  }, [fetchDiscrepancies])
-
-  // Delete a discrepancy manually
-  const deleteDiscrepancy = useCallback(async (id: string) => {
-    try {
-      await fetch(`/api/po-bol-discrepancies?id=${id}`, {
-        method: 'DELETE'
-      })
-      fetchDiscrepancies()
-    } catch (err) {
-      console.error('Failed to delete discrepancy:', err)
-    }
-  }, [fetchDiscrepancies])
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -340,8 +208,7 @@ export function PoBolDashboard() {
 
   useEffect(() => {
     fetchOrders()
-    fetchDiscrepancies()
-  }, [fetchOrders, fetchDiscrepancies])
+  }, [fetchOrders])
 
   const toggleRow = (orderId: string) => {
     setExpandedRows(prev => {
@@ -604,8 +471,6 @@ export function PoBolDashboard() {
         } else if (result.status === 'mismatch') {
           const issues = result.comparison?.mismatches.map(m => m.message) || ['Unknown mismatch']
           results.mismatches.push({ orderId: order.orderId, refNumber: order.referenceNumber, issues })
-          // Auto-archive mismatch
-          archiveDiscrepancy(order, result)
         } else if (result.status === 'no_files' || result.status === 'bol_missing' || result.status === 'po_missing') {
           results.noFiles.push({ orderId: order.orderId, refNumber: order.referenceNumber })
         } else {
@@ -685,6 +550,16 @@ export function PoBolDashboard() {
       if (!hasMatchingSku) return false
     }
     
+    // Filter by parse status
+    if (parseStatusFilter !== 'all') {
+      const result = parseResults[order.orderId]
+      if (parseStatusFilter === 'unparsed') {
+        if (result) return false
+      } else {
+        if (!result || result.status !== parseStatusFilter) return false
+      }
+    }
+    
     return true
   })
 
@@ -746,6 +621,15 @@ export function PoBolDashboard() {
   const totalOrders = filteredOrders.length
   const closedOrders = filteredOrders.filter(o => o.isClosed).length
   const totalQuantity = filteredOrders.reduce((sum, o) => sum + o.totalQuantity, 0)
+  
+  // Parse result stats
+  const parseStats = {
+    match: filteredOrders.filter(o => parseResults[o.orderId]?.status === 'match').length,
+    mismatch: filteredOrders.filter(o => parseResults[o.orderId]?.status === 'mismatch').length,
+    bolMissing: filteredOrders.filter(o => parseResults[o.orderId]?.status === 'bol_missing').length,
+    poMissing: filteredOrders.filter(o => parseResults[o.orderId]?.status === 'po_missing').length,
+    unparsed: filteredOrders.filter(o => !parseResults[o.orderId]).length,
+  }
 
   return (
     <div className="p-6 space-y-6 bg-background min-h-screen">
@@ -876,6 +760,25 @@ export function PoBolDashboard() {
               </Select>
             </div>
           </div>
+
+          <div className="flex-1 min-w-[150px]">
+            <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+              Parse Status
+            </label>
+            <Select value={parseStatusFilter} onValueChange={setParseStatusFilter}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="match">Match</SelectItem>
+                <SelectItem value="mismatch">Mismatch</SelectItem>
+                <SelectItem value="bol_missing">BOL Missing</SelectItem>
+                <SelectItem value="po_missing">PO Missing</SelectItem>
+                <SelectItem value="unparsed">Unparsed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           
           <div className="flex-1 min-w-[150px]">
             <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
@@ -963,28 +866,37 @@ export function PoBolDashboard() {
         <Card 
           className={cn(
             "p-4 cursor-pointer transition-colors",
-            discrepancies.length > 0 ? "border-red-200 bg-red-50 hover:bg-red-100" : "hover:bg-muted/50"
+            (parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing) > 0 
+              ? "border-red-200 bg-red-50 hover:bg-red-100" 
+              : "hover:bg-muted/50"
           )}
           onClick={() => setShowDiscrepanciesPanel(true)}
         >
           <div className="flex items-center gap-3">
             <div className={cn(
               "p-2 rounded-lg",
-              discrepancies.length > 0 ? "bg-red-100" : "bg-orange-100"
+              (parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing) > 0 ? "bg-red-100" : "bg-orange-100"
             )}>
               <Archive className={cn(
                 "h-5 w-5",
-                discrepancies.length > 0 ? "text-red-600" : "text-orange-600"
+                (parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing) > 0 ? "text-red-600" : "text-orange-600"
               )} />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Discrepancies</p>
+              <p className="text-sm text-muted-foreground">Parse Issues</p>
               <p className={cn(
                 "text-2xl font-semibold",
-                discrepancies.length > 0 ? "text-red-600" : ""
+                (parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing) > 0 ? "text-red-600" : ""
               )}>
-                {discrepancies.length}
+                {parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing}
               </p>
+              {(parseStats.mismatch > 0 || parseStats.bolMissing > 0 || parseStats.poMissing > 0) && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {parseStats.mismatch > 0 && `${parseStats.mismatch} mismatch`}
+                  {parseStats.mismatch > 0 && parseStats.bolMissing > 0 && ', '}
+                  {parseStats.bolMissing > 0 && `${parseStats.bolMissing} BOL missing`}
+                </p>
+              )}
             </div>
           </div>
         </Card>
@@ -1390,227 +1302,136 @@ export function PoBolDashboard() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Archive className="h-5 w-5 text-red-600" />
-              PO/BOL Discrepancy Archive
-              {discrepancies.length > 0 && (
+              Parse Issues & Discrepancies
+              {(parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing) > 0 && (
                 <span className="ml-2 px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded-full">
-                  {discrepancies.length} unresolved
+                  {parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing} issues
                 </span>
               )}
             </DialogTitle>
           </DialogHeader>
           
           <div className="flex-1 overflow-auto">
-            {loadingDiscrepancies ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : discrepancies.length === 0 ? (
-              <div className="text-center py-12">
-                <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-3" />
-                <p className="text-lg font-medium text-green-700">No Discrepancies</p>
-                <p className="text-sm text-muted-foreground mt-1">All parsed orders have matching PO and BOL data</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {discrepancies.map((d) => (
-                  <Card key={d.id} className="p-4 border-red-200">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-2">
-                          <span className="font-mono font-semibold">{d.reference_number}</span>
-                          <span className={cn(
-                            "px-2 py-0.5 text-xs rounded",
-                            d.status === 'mismatch' ? 'bg-red-100 text-red-700' :
-                            d.status === 'bol_missing' ? 'bg-yellow-100 text-yellow-700' :
-                            d.status === 'po_missing' ? 'bg-orange-100 text-orange-700' :
-                            'bg-gray-100 text-gray-700'
-                          )}>
-                            {d.status.replace('_', ' ')}
-                          </span>
-                          {d.reparse_count > 0 && (
-                            <span className="text-xs text-muted-foreground">
-                              Re-parsed {d.reparse_count}x
-                            </span>
-                          )}
-                        </div>
-                        
-                        <div className="text-sm text-muted-foreground space-y-1">
-                          <p>{d.customer_name} | {d.warehouse} | {d.supplier_code}</p>
-                          <p className="text-xs">
-                            Created: {formatDateTime(d.created_at)}
-                            {d.process_date && ` | Process Date: ${formatDate(d.process_date)}`}
-                          </p>
-                        </div>
-                        
-                        {/* Show mismatches if available */}
-                        {d.comparison_data?.mismatches && d.comparison_data.mismatches.length > 0 && (
-                          <div className="mt-3 p-2 bg-red-50 rounded text-sm">
-                            <p className="font-medium text-red-700 mb-1">Mismatches:</p>
-                            <ul className="text-xs text-red-600 space-y-0.5">
-                              {d.comparison_data.mismatches.slice(0, 3).map((m: any, idx: number) => (
-                                <li key={idx}>- {m.message}</li>
-                              ))}
-                              {d.comparison_data.mismatches.length > 3 && (
-                                <li className="text-red-500">... and {d.comparison_data.mismatches.length - 3} more</li>
-                              )}
-                            </ul>
-                          </div>
+            {/* Current Session Parse Results */}
+            {(() => {
+              const issueOrders = filteredOrders.filter(o => {
+                const result = parseResults[o.orderId]
+                return result && ['mismatch', 'bol_missing', 'po_missing'].includes(result.status)
+              })
+              
+              if (issueOrders.length === 0) {
+                return (
+                  <div className="text-center py-12">
+                    <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-3" />
+                    <p className="text-lg font-medium text-green-700">No Issues Found</p>
+                    <p className="text-sm text-muted-foreground mt-1">All parsed orders match or have not been parsed yet</p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {parseStats.match} matched | {parseStats.unparsed} unparsed
+                    </p>
+                  </div>
+                )
+              }
+              
+              return (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Found {issueOrders.length} orders with issues. Click to filter in the main table.
+                  </p>
+                  {issueOrders.map((order) => {
+                    const result = parseResults[order.orderId]
+                    return (
+                      <Card 
+                        key={order.orderId} 
+                        className={cn(
+                          "p-4 cursor-pointer hover:bg-muted/50 transition-colors",
+                          result.status === 'mismatch' ? "border-red-200" : "border-yellow-200"
                         )}
-                      </div>
-                      
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setSelectedDiscrepancy(d)}
-                          title="View Details"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => reparseDiscrepancy(d)}
-                          disabled={reparsingDiscrepancy === d.id}
-                          title="Re-parse (after WMS update)"
-                        >
-                          {reparsingDiscrepancy === d.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <RotateCcw className="h-4 w-4" />
-                          )}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            if (confirm('Delete this discrepancy from archive?')) {
-                              deleteDiscrepancy(d.id)
-                            }
-                          }}
-                          title="Delete from archive"
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            )}
+                        onClick={() => {
+                          setParseStatusFilter(result.status)
+                          setShowDiscrepanciesPanel(false)
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 mb-2">
+                              <span className="font-mono font-semibold">{order.referenceNumber}</span>
+                              <span className={cn(
+                                "px-2 py-0.5 text-xs rounded",
+                                result.status === 'mismatch' ? 'bg-red-100 text-red-700' :
+                                result.status === 'bol_missing' ? 'bg-yellow-100 text-yellow-700' :
+                                result.status === 'po_missing' ? 'bg-orange-100 text-orange-700' :
+                                'bg-gray-100 text-gray-700'
+                              )}>
+                                {result.status.replace('_', ' ')}
+                              </span>
+                            </div>
+                            
+                            <div className="text-sm text-muted-foreground">
+                              <p>{order.customerName} | {formatDateTime(order.processDate)}</p>
+                            </div>
+                            
+                            {/* Show mismatches if available */}
+                            {result.comparison?.mismatches && result.comparison.mismatches.length > 0 && (
+                              <div className="mt-3 p-2 bg-red-50 rounded text-sm">
+                                <p className="font-medium text-red-700 mb-1">Mismatches:</p>
+                                <ul className="text-xs text-red-600 space-y-0.5">
+                                  {result.comparison.mismatches.slice(0, 3).map((m: any, idx: number) => (
+                                    <li key={idx}>- {m.message}</li>
+                                  ))}
+                                  {result.comparison.mismatches.length > 3 && (
+                                    <li className="text-red-500">... and {result.comparison.mismatches.length - 3} more</li>
+                                  )}
+                                </ul>
+                              </div>
+                            )}
+                            
+                            {result.message && !result.comparison?.mismatches?.length && (
+                              <p className="mt-2 text-xs text-yellow-600">{result.message}</p>
+                            )}
+                          </div>
+                          
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                // Re-parse this order
+                                parseOrder(order.orderId)
+                              }}
+                              disabled={parsingOrders.has(order.orderId)}
+                              title="Re-parse"
+                            >
+                              {parsingOrders.has(order.orderId) ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <RotateCcw className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      </Card>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
           
           <div className="flex justify-between items-center pt-4 border-t mt-4">
-            <Button variant="outline" size="sm" onClick={fetchDiscrepancies} disabled={loadingDiscrepancies}>
-              <RefreshCw className={cn("h-4 w-4 mr-2", loadingDiscrepancies && "animate-spin")} />
-              Refresh
-            </Button>
+            <div className="text-xs text-muted-foreground">
+              Quick filter: 
+              <Button variant="link" size="sm" className="px-2 h-auto" onClick={() => { setParseStatusFilter('mismatch'); setShowDiscrepanciesPanel(false) }}>
+                Mismatch ({parseStats.mismatch})
+              </Button>
+              <Button variant="link" size="sm" className="px-2 h-auto" onClick={() => { setParseStatusFilter('bol_missing'); setShowDiscrepanciesPanel(false) }}>
+                BOL Missing ({parseStats.bolMissing})
+              </Button>
+            </div>
             <Button variant="outline" onClick={() => setShowDiscrepanciesPanel(false)}>
               Close
             </Button>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Discrepancy Detail Dialog */}
-      <Dialog open={!!selectedDiscrepancy} onOpenChange={() => setSelectedDiscrepancy(null)}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-auto">
-          <DialogHeader>
-            <DialogTitle>
-              Discrepancy Details: {selectedDiscrepancy?.reference_number}
-            </DialogTitle>
-          </DialogHeader>
-          
-          {selectedDiscrepancy && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Order ID</p>
-                  <p className="font-mono">{selectedDiscrepancy.order_id}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Status</p>
-                  <p className="font-medium capitalize">{selectedDiscrepancy.status.replace('_', ' ')}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Customer</p>
-                  <p>{selectedDiscrepancy.customer_name || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Process Date</p>
-                  <p>{formatDateTime(selectedDiscrepancy.process_date)}</p>
-                </div>
-              </div>
-              
-              {/* Comparison Data */}
-              {selectedDiscrepancy.comparison_data && (
-                <div className="space-y-4">
-                  {/* Mismatches */}
-                  {selectedDiscrepancy.comparison_data.mismatches?.length > 0 && (
-                    <div>
-                      <h4 className="font-medium text-red-700 mb-2">Mismatches</h4>
-                      <div className="border rounded overflow-hidden">
-                        <table className="w-full text-sm">
-                          <thead className="bg-red-50">
-                            <tr>
-                              <th className="text-left p-2">SKU</th>
-                              <th className="text-right p-2">BOL Qty</th>
-                              <th className="text-right p-2">PO Qty</th>
-                              <th className="text-left p-2">Issue</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {selectedDiscrepancy.comparison_data.mismatches.map((m: any, idx: number) => (
-                              <tr key={idx}>
-                                <td className="p-2 font-mono">{m.sku}</td>
-                                <td className="p-2 text-right">{m.bolQty ?? '-'}</td>
-                                <td className="p-2 text-right">{m.poQty ?? '-'}</td>
-                                <td className="p-2 text-red-600 text-xs">{m.message}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Matches */}
-                  {selectedDiscrepancy.comparison_data.matches?.length > 0 && (
-                    <div>
-                      <h4 className="font-medium text-green-700 mb-2">Matches</h4>
-                      <div className="border rounded overflow-hidden">
-                        <table className="w-full text-sm">
-                          <thead className="bg-green-50">
-                            <tr>
-                              <th className="text-left p-2">SKU</th>
-                              <th className="text-right p-2">BOL Qty</th>
-                              <th className="text-right p-2">PO Qty</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {selectedDiscrepancy.comparison_data.matches.map((m: any, idx: number) => (
-                              <tr key={idx}>
-                                <td className="p-2 font-mono">{m.sku}</td>
-                                <td className="p-2 text-right">{m.bolQty}</td>
-                                <td className="p-2 text-right">{m.poQty}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {selectedDiscrepancy.error_message && (
-                <div className="p-3 bg-orange-50 rounded text-sm text-orange-700">
-                  <strong>Error:</strong> {selectedDiscrepancy.error_message}
-                </div>
-              )}
-            </div>
-          )}
         </DialogContent>
       </Dialog>
     </div>
