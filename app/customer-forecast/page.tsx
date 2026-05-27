@@ -153,15 +153,16 @@ export default function CustomerForecastPage() {
     setAnalysisLoading(true)
     setAnalysisError(null)
     try {
-      // Fetch forecast data for analysis
-      const forecastRes = await fetch('/api/inventory-data?includeForecasts=true')
-      const forecastJson = await forecastRes.json()
+      // Use accuracy data directly - it contains forecast vs actual comparison
+      if (accuracyData.length === 0) {
+        setAnalysisError('No forecast data available. Please upload and sync forecast files first.')
+        return
+      }
       
       const res = await fetch('/api/forecast-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          forecastData: forecastJson.data || [],
           accuracyData: accuracyData,
           currentMonth: new Date().toISOString().slice(0, 7),
         }),
