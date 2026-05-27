@@ -80,6 +80,7 @@ export default function CustomerForecastPage() {
   const [accuracyLoading, setAccuracyLoading] = useState(false)
   const [selectedWeekRange, setSelectedWeekRange] = useState<string>('4')
   const [selectedSupplier, setSelectedSupplier] = useState<string>('all')
+  const [selectedSku, setSelectedSku] = useState<string>('all')
 
   // Forecast analysis agent state
   const [analysisReport, setAnalysisReport] = useState<string>('')
@@ -102,14 +103,14 @@ export default function CustomerForecastPage() {
   }, [selectedWeekRange, selectedSupplier])
 
   const accuracySummary = useMemo((): AccuracySummary | null => {
-    if (accuracyData.length === 0) return null
+    if (filteredAccuracyData.length === 0) return null
     
-    const totalForecast = accuracyData.reduce((sum, d) => sum + d.customerForecast, 0)
-    const totalActual = accuracyData.reduce((sum, d) => sum + d.actualConsumption, 0)
+    const totalForecast = filteredAccuracyData.reduce((sum, d) => sum + d.customerForecast, 0)
+    const totalActual = filteredAccuracyData.reduce((sum, d) => sum + d.actualConsumption, 0)
     const overallVariance = totalActual - totalForecast
     const overallVariancePercent = totalForecast > 0 ? (overallVariance / totalForecast) * 100 : 0
     
-    const validData = accuracyData.filter(d => d.customerForecast > 0)
+    const validData = filteredAccuracyData.filter(d => d.customerForecast > 0)
     const mape = validData.length > 0 
       ? validData.reduce((sum, d) => sum + Math.abs(d.variancePercent), 0) / validData.length
       : 0
@@ -122,12 +123,30 @@ export default function CustomerForecastPage() {
       mape,
       accuracy: Math.max(0, 100 - mape)
     }
-  }, [accuracyData])
+  }, [filteredAccuracyData])
 
   const suppliers = useMemo(() => {
     const set = new Set(accuracyData.map(d => d.supplierCode))
     return Array.from(set).sort()
   }, [accuracyData])
+
+  // Get SKUs for selected supplier
+  const skusForSupplier = useMemo(() => {
+    const filtered = selectedSupplier === 'all' 
+      ? accuracyData 
+      : accuracyData.filter(d => d.supplierCode === selectedSupplier)
+    const set = new Set(filtered.map(d => d.skuCode))
+    return Array.from(set).sort()
+  }, [accuracyData, selectedSupplier])
+
+  // Filtered accuracy data for display
+  const filteredAccuracyData = useMemo(() => {
+    return accuracyData.filter(d => {
+      if (selectedSupplier !== 'all' && d.supplierCode !== selectedSupplier) return false
+      if (selectedSku !== 'all' && d.skuCode !== selectedSku) return false
+      return true
+    })
+  }, [accuracyData, selectedSupplier, selectedSku])
 
   // Generate forecast analysis using AI agent
   const generateAnalysis = useCallback(async () => {
@@ -298,7 +317,7 @@ export default function CustomerForecastPage() {
   }
 
   return (
-    <div className="flex-1 p-6 bg-gray-50 min-h-screen relative">
+    <div className="flex flex-col h-screen p-6 bg-gray-50 overflow-hidden">
       {/* Full screen sync overlay */}
       {syncingFileId && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -312,7 +331,7 @@ export default function CustomerForecastPage() {
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="flex flex-col flex-1 min-h-0 space-y-4">
         {/* Header with File Management Button */}
         <div className="flex items-center justify-between">
           <div>
@@ -451,10 +470,10 @@ export default function CustomerForecastPage() {
           </Dialog>
         </div>
 
-        {/* Side-by-side Analysis Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Side-by-side Analysis Layout - Full Height */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
           {/* Left: Forecast Analysis Report - Agent Integration */}
-          <Card className="border border-blue-200 bg-gradient-to-br from-blue-50/50 to-white">
+          <Card className="border border-blue-200 bg-gradient-to-br from-blue-50/50 to-white flex flex-col">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -488,7 +507,7 @@ export default function CustomerForecastPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1 overflow-auto">
               {analysisLoading ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
                   <Loader2 className="h-10 w-10 animate-spin text-blue-600 mb-4" />
@@ -532,9 +551,9 @@ export default function CustomerForecastPage() {
           </Card>
 
           {/* Right: Forecast Accuracy Analysis with Line Chart */}
-          <Card>
+          <Card className="flex flex-col">
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-green-100 rounded-lg">
                     <LineChartIcon className="h-5 w-5 text-green-600" />
@@ -546,25 +565,36 @@ export default function CustomerForecastPage() {
                     </CardDescription>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Select value={selectedWeekRange} onValueChange={(v) => { setSelectedWeekRange(v); }}>
-                    <SelectTrigger className="w-[120px] h-8 text-xs">
+                    <SelectTrigger className="w-[100px] h-8 text-xs">
                       <SelectValue placeholder="Weeks" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="4">Last 4 weeks</SelectItem>
-                      <SelectItem value="8">Last 8 weeks</SelectItem>
-                      <SelectItem value="12">Last 12 weeks</SelectItem>
-                      <SelectItem value="26">Last 26 weeks</SelectItem>
+                      <SelectItem value="4">4 weeks</SelectItem>
+                      <SelectItem value="8">8 weeks</SelectItem>
+                      <SelectItem value="12">12 weeks</SelectItem>
+                      <SelectItem value="26">26 weeks</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Select value={selectedSupplier} onValueChange={(v) => { setSelectedSupplier(v); }}>
-                    <SelectTrigger className="w-[110px] h-8 text-xs">
+                  <Select value={selectedSupplier} onValueChange={(v) => { setSelectedSupplier(v); setSelectedSku('all'); }}>
+                    <SelectTrigger className="w-[90px] h-8 text-xs">
                       <SelectValue placeholder="Supplier" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All</SelectItem>
                       {suppliers.map(s => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={selectedSku} onValueChange={(v) => { setSelectedSku(v); }}>
+                    <SelectTrigger className="w-[120px] h-8 text-xs">
+                      <SelectValue placeholder="SKU" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All SKUs</SelectItem>
+                      {skusForSupplier.map(s => (
                         <SelectItem key={s} value={s}>{s}</SelectItem>
                       ))}
                     </SelectContent>
@@ -585,7 +615,7 @@ export default function CustomerForecastPage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1 overflow-auto">
               {accuracyLoading ? (
                 <div className="flex items-center justify-center py-16">
                   <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
@@ -622,7 +652,7 @@ export default function CustomerForecastPage() {
                       data={(() => {
                         // Aggregate data by week
                         const weeklyData: Record<number, { week: number; forecast: number; actual: number }> = {}
-                        accuracyData.forEach(d => {
+                        filteredAccuracyData.forEach(d => {
                           if (!weeklyData[d.weekNumber]) {
                             weeklyData[d.weekNumber] = { week: d.weekNumber, forecast: 0, actual: 0 }
                           }
@@ -635,7 +665,7 @@ export default function CustomerForecastPage() {
                   </div>
 
                   {/* Compact Table */}
-                  <div className="border rounded-lg overflow-hidden max-h-[200px] overflow-auto">
+                  <div className="border rounded-lg overflow-hidden flex-1 min-h-[150px] overflow-auto">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-gray-50">
@@ -647,7 +677,7 @@ export default function CustomerForecastPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {accuracyData.slice(0, 10).map((row, idx) => (
+                        {filteredAccuracyData.slice(0, 15).map((row, idx) => (
                           <TableRow key={idx}>
                             <TableCell className="text-xs font-medium py-2">{row.skuCode}</TableCell>
                             <TableCell className="text-xs py-2">W{row.weekNumber}</TableCell>
@@ -660,9 +690,9 @@ export default function CustomerForecastPage() {
                         ))}
                       </TableBody>
                     </Table>
-                    {accuracyData.length > 10 && (
+                    {filteredAccuracyData.length > 15 && (
                       <div className="p-2 bg-gray-50 text-center text-xs text-gray-500">
-                        Showing 10 of {accuracyData.length} records
+                        Showing 15 of {filteredAccuracyData.length} records
                       </div>
                     )}
                   </div>
