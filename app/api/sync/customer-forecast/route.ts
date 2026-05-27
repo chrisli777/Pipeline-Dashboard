@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import * as XLSX from 'xlsx'
+import { SKU_FORMULAS } from '@/lib/sku-formulas'
 
 const BUCKET_NAME = 'forecast-files'
 
@@ -848,8 +849,12 @@ export async function POST(request: Request) {
           }
         }
         
-        if (!matchedModels.includes(`${skuCode} (aggregated: ${foundModels.join('+')})`)) {
-          matchedModels.push(`${skuCode} (aggregated: ${foundModels.join('+')})`)
+        // Use displayName from SKU_FORMULAS if available, otherwise fall back to skuCode
+        const formula = SKU_FORMULAS.find(f => f.targetSku === skuCode)
+        const displayLabel = formula?.displayName || skuCode
+        const displayText = `${displayLabel} (aggregated: ${foundModels.join('+')})`
+        if (!matchedModels.includes(displayText)) {
+          matchedModels.push(displayText)
         }
       } else {
         console.log(`[v0] Aggregation for ${skuCode}: no matching models found from ${modelNames.join(', ')}`)
