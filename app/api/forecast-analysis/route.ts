@@ -4,6 +4,9 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 const AGENT_ID = 'agent_01GGr1fPWFvJYh2hng8ayHHV'
 const ENVIRONMENT_ID = 'env_016qaDFym3wS7GkuBof5xNZZ'
 
+// Increase max duration for long-running agent calls (5 minutes)
+export const maxDuration = 300
+
 // Helper to wait
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -128,7 +131,7 @@ ${Object.entries(accuracySummary.bySupplier).map(([supplier, data]) =>
 
     // Step 3: Poll for agent response
     let analysisText = ''
-    const maxAttempts = 30 // Poll for up to 2.5 minutes
+    const maxAttempts = 60 // Poll for up to 5 minutes (60 * 5 seconds)
     
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await sleep(5000) // Wait 5 seconds between polls
