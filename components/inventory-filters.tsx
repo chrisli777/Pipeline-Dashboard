@@ -154,54 +154,56 @@ export function InventoryFilters({
 }: InventoryFiltersProps) {
   const weekOptions = Array.from({ length: totalWeeks }, (_, i) => i + 1)
 
-  // Build unique customer list from actual SKU data (including null as "Unassigned")
-  const allCustomers = useMemo(() => {
-    const set = new Set<string>()
-    skus.forEach((sku) => {
-      set.add(sku.customerCode || '__unassigned__')
-    })
-    return Array.from(set).sort((a, b) => {
-      if (a === '__unassigned__') return 1
-      if (b === '__unassigned__') return -1
-      return a.localeCompare(b)
-    })
-  }, [skus])
+  // Fixed customer list - only Genie for now
+  // All suppliers (HX, AMC, Winschem, TJJSH, DONGYU, PMP) belong to Genie
+  const allCustomers = ['Genie']
 
-  // Build vendor -> customer mapping (include null as unassigned)
+  // All suppliers map to Genie customer
   const vendorToCustomer = useMemo(() => {
     const map = new Map<string, string>()
+    // All known suppliers belong to Genie
+    const genieSuppliers = ['HX', 'AMC', 'WINSCHEM', 'TJJSH', 'DONGYU', 'PMP']
+    genieSuppliers.forEach(supplier => {
+      map.set(supplier, 'Genie')
+    })
+    // Also map any suppliers found in data to Genie
     skus.forEach((sku) => {
       if (sku.supplierCode) {
-        map.set(sku.supplierCode, sku.customerCode || '__unassigned__')
+        map.set(sku.supplierCode, 'Genie')
       }
     })
     return map
   }, [skus])
 
-  // All vendors
-  const allVendors = useMemo(() => {
-    const set = new Set<string>()
-    skus.forEach((sku) => {
-      if (sku.supplierCode) set.add(sku.supplierCode)
-    })
-    return Array.from(set).sort()
-  }, [skus])
+  // Fixed list of all Genie suppliers
+  const allVendors = ['HX', 'AMC', 'WINSCHEM', 'TJJSH', 'DONGYU', 'PMP']
 
-  // Vendors filtered by selected customers
+  // Vendors filtered by selected customers (all belong to Genie)
   const vendors = useMemo(() => {
-    if (selectedCustomers.length === 0) return allVendors
-    return allVendors.filter((v) => {
-      const cust = vendorToCustomer.get(v)
-      return cust && selectedCustomers.includes(cust)
-    })
-  }, [allVendors, selectedCustomers, vendorToCustomer])
+    // If no customer selected or Genie is selected, show all vendors
+    if (selectedCustomers.length === 0 || selectedCustomers.includes('Genie')) {
+      return allVendors
+    }
+    return []
+  }, [selectedCustomers])
+
+  // Helper function to check if SKU belongs to Genie customer
+  // Matches 'Genie', 'GENIE', or any variation
+  const isGenieCustomer = (customerCode: string | null | undefined): boolean => {
+    if (!customerCode) return false
+    return customerCode.toLowerCase() === 'genie'
+  }
 
   // Warehouses filtered by selected customers + vendors
   const warehouses = useMemo(() => {
     const set = new Set<string>()
     skus.forEach((sku) => {
       if (!sku.warehouse) return
-      if (selectedCustomers.length > 0 && !selectedCustomers.includes(sku.customerCode || '__unassigned__')) return
+      // If Genie is selected, include all Genie-related SKUs
+      if (selectedCustomers.length > 0) {
+        const isGenie = selectedCustomers.includes('Genie') && isGenieCustomer(sku.customerCode)
+        if (!isGenie) return
+      }
       if (selectedVendors.length > 0 && !selectedVendors.includes(sku.supplierCode || '')) return
       set.add(sku.warehouse)
     })
@@ -211,7 +213,11 @@ export function InventoryFilters({
   // SKUs filtered by selected customers, vendors, warehouses
   const filteredSkuOptions = useMemo(() => {
     return skus.filter((sku) => {
-      if (selectedCustomers.length > 0 && !selectedCustomers.includes(sku.customerCode || '__unassigned__')) return false
+      // If Genie is selected, match any Genie-related customer codes
+      if (selectedCustomers.length > 0) {
+        const isGenie = selectedCustomers.includes('Genie') && isGenieCustomer(sku.customerCode)
+        if (!isGenie) return false
+      }
       if (selectedVendors.length > 0 && !selectedVendors.includes(sku.supplierCode || '')) return false
       if (selectedWarehouses.length > 0 && !selectedWarehouses.includes(sku.warehouse || '')) return false
       return true
@@ -239,10 +245,7 @@ export function InventoryFilters({
         <label className="text-sm text-muted-foreground">Customer:</label>
         <MultiSelect
           label="Customer"
-          options={allCustomers.map((c) => ({ 
-            value: c, 
-            label: c === '__unassigned__' ? 'Unassigned' : c 
-          }))}
+          options={allCustomers.map((c) => ({ value: c, label: c }))}
           selected={selectedCustomers}
           onChange={onCustomersChange}
           width="w-[150px]"

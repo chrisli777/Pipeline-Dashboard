@@ -31,13 +31,40 @@ const COMPOUND_MODELS: Record<string, string[]> = {
   's60j & s80j': ['s60j', 's80j'],
 }
 
+// Aggregation: SKU code -> list of model names whose forecasts should be SUMMED
+// For SKUs where multiple customer models should aggregate into one SKU
+const SKU_AGGREGATION: Record<string, string[]> = {
+  '56174GT': ['z30n', 'z34n', 'z34ic', 'z34e'],  // WINSCHEM - sum of 4 models
+  // Note: 1288133GT (PMP GS-4655) has only ONE model, so it uses MODEL_ALIASES instead
+}
+
+// SKU usage multiplier: SKU code -> multiplier
+// For parts where each machine uses multiple units of the same part
+const SKU_USAGE_MULTIPLIER: Record<string, number> = {
+  '1288133GT': 2,  // PMP GS-4655 Counterweight - each machine uses 2 units
+}
+
+// Models that are part of aggregation - skip individual processing for these
+const AGGREGATION_SOURCE_MODELS = new Set<string>()
+for (const modelNames of Object.values(SKU_AGGREGATION)) {
+  for (const name of modelNames) {
+    AGGREGATION_SOURCE_MODELS.add(name.toLowerCase().replace(/[-\s]/g, ''))
+  }
+}
+
 // Aliases: forecast model name -> DB part_model search terms
 // Used when customer model names differ from supplier part model names
 const MODEL_ALIASES: Record<string, string[]> = {
   's60j': ['t60'],     // Genie S60J = HX T60 (Engine Side)
   's80j': ['t80'],     // Genie S80J = HX T80 (Control Side)
-  'gs-4655': ['gs4655', 'gs-4655'],  // Tianjin GS-4655
-  'gs4655': ['gs4655', 'gs-4655'],
+  'gs-4655': ['gs4655', 'gs-4655', '1288133'],  // PMP GS-4655 Counterweight
+  'gs4655': ['gs4655', 'gs-4655', '1288133'],
+  // WINSCHEM 56174 - Mini Slab / Z30N / Z34N / Z34IC / Z34E (individual mappings)
+  'mini slab': ['56174'],
+  'z30n': ['56174'],
+  'z34n': ['56174'],
+  'z34ic': ['56174'],
+  'z34e': ['56174'],
 }
 
 // Find matching SKU codes from the database for a given model name
@@ -577,11 +604,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to fetch SKUs' }, { status: 500 })
     }
     
-    const skuIdToCode = new Map<string, string>()
-    for (const sku of skusData || []) {
-      skuIdToCode.set(sku.id, sku.sku_code)
-    }
-    console.log(`[v0] Loaded ${skuIdToCode.size} SKU id->code mappings`)
+  const skuIdToCode = new Map<string, string>()
+  const skuCodeToSkuId = new Map<string, string>()  // Reverse mapping for aggregation
+  for (const sku of skusData || []) {
+    skuIdToCode.set(sku.id, sku.sku_code)
+    skuCodeToSkuId.set(sku.sku_code, sku.id)
+  }
+  console.log(`[v0] Loaded ${skuIdToCode.size} SKU id->code mappings`)
     
     let allExistingData: { sku_id: string; week_number: number }[] = []
     let offset = 0
@@ -659,6 +688,12 @@ export async function POST(request: Request) {
       // Normalize the model name for lookup
       const normalizedModelName = model.modelName.toLowerCase().replace(/[-\s]/g, '')
       
+      // Skip models that are part of an aggregation - they will be handled separately
+      if (AGGREGATION_SOURCE_MODELS.has(normalizedModelName)) {
+        console.log(`[v0] Skipping individual processing for "${model.modelName}" - will be aggregated`)
+        continue
+      }
+      
       // First, try to find SKUs from the machine model config
       let skusFromConfig = modelToSkusMap.get(normalizedModelName)
       
@@ -733,11 +768,77 @@ export async function POST(request: Request) {
       }
     }
 
+    // Handle SKU aggregation: sum forecasts from multiple models into one SKU
+    // e.g., 56174GT = Z30N + Z34N + Z34IC + Z34E
+    console.log(`[v0] Processing SKU aggregations. Available models: ${output.models.map(m => m.modelName).join(', ')}`)
+    
+    for (const [skuCode, modelNames] of Object.entries(SKU_AGGREGATION)) {
+      // Get the sku_id for this aggregation target
+      const targetSkuId = skuCodeToSkuId.get(skuCode)
+      if (!targetSkuId) {
+        console.log(`[v0] SKU aggregation target ${skuCode} not found in database`)
+        continue
+      }
+      
+      // Collect weekly totals from all models in this aggregation
+      const weeklyTotals = new Map<number, number>()
+      const foundModels: string[] = []
+      
+      for (const modelNameLower of modelNames) {
+        // Find matching model in output - try multiple matching strategies
+        const normalizedTarget = modelNameLower.toLowerCase().replace(/[-\s]/g, '')
+        
+        const matchingModel = output.models.find(m => {
+          const normalizedSource = m.modelName.toLowerCase().replace(/[-\s]/g, '')
+          return normalizedSource === normalizedTarget || 
+                 normalizedSource.includes(normalizedTarget) ||
+                 normalizedTarget.includes(normalizedSource)
+        })
+        
+        if (matchingModel) {
+          foundModels.push(matchingModel.modelName)
+          for (const weekData of matchingModel.weeklyData) {
+            const current = weeklyTotals.get(weekData.weekNumber) || 0
+            weeklyTotals.set(weekData.weekNumber, current + weekData.weeklyRate)
+          }
+        } else {
+          console.log(`[v0] Aggregation: model "${modelNameLower}" not found in parsed data`)
+        }
+      }
+      
+      if (foundModels.length > 0 && weeklyTotals.size > 0) {
+        console.log(`[v0] Aggregating ${foundModels.join(' + ')} -> ${skuCode}, weeks: ${weeklyTotals.size}, sample values: ${Array.from(weeklyTotals.entries()).slice(0, 5).map(([w, v]) => `W${w}=${v}`).join(', ')}`)
+        
+        // Apply aggregated values to the SKU
+        for (const [weekNumber, totalValue] of weeklyTotals) {
+          const key = `${skuCode}_${weekNumber}`
+          if (existingCombinations.has(key)) {
+            // Remove any individual updates for this SKU/week (replace with aggregate)
+            const existingIdx = updates.findIndex(u => u.skuId === targetSkuId && u.weekNumber === weekNumber)
+            if (existingIdx >= 0) {
+              updates[existingIdx].value = totalValue
+            } else {
+              updates.push({ skuId: targetSkuId, weekNumber, value: totalValue })
+            }
+          }
+        }
+        
+        if (!matchedModels.includes(`${skuCode} (aggregated: ${foundModels.join('+')})`)) {
+          matchedModels.push(`${skuCode} (aggregated: ${foundModels.join('+')})`)
+        }
+      } else {
+        console.log(`[v0] Aggregation for ${skuCode}: no matching models found from ${modelNames.join(', ')}`)
+      }
+    }
+
     // Apply updates to database
     let successCount = 0
     let errorCount = 0
 
     for (const update of updates) {
+      // Only update customer_forecast - actual_consumption will use COALESCE in the view
+      // Per business rules: Actual Consumption defaults to Customer Forecast via DB view
+      // Users can manually edit actual_consumption to override
       const { error: updateError } = await supabase
         .from('inventory_data')
         .update({ customer_forecast: update.value })
