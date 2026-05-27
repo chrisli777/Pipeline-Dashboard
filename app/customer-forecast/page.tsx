@@ -102,6 +102,29 @@ export default function CustomerForecastPage() {
     }
   }, [selectedWeekRange, selectedSupplier])
 
+  const suppliers = useMemo(() => {
+    const set = new Set(accuracyData.map(d => d.supplierCode))
+    return Array.from(set).sort()
+  }, [accuracyData])
+
+  // Get SKUs for selected supplier
+  const skusForSupplier = useMemo(() => {
+    const filtered = selectedSupplier === 'all' 
+      ? accuracyData 
+      : accuracyData.filter(d => d.supplierCode === selectedSupplier)
+    const set = new Set(filtered.map(d => d.skuCode))
+    return Array.from(set).sort()
+  }, [accuracyData, selectedSupplier])
+
+  // Filtered accuracy data for display - MUST be defined before accuracySummary
+  const filteredAccuracyData = useMemo(() => {
+    return accuracyData.filter(d => {
+      if (selectedSupplier !== 'all' && d.supplierCode !== selectedSupplier) return false
+      if (selectedSku !== 'all' && d.skuCode !== selectedSku) return false
+      return true
+    })
+  }, [accuracyData, selectedSupplier, selectedSku])
+
   const accuracySummary = useMemo((): AccuracySummary | null => {
     if (filteredAccuracyData.length === 0) return null
     
@@ -124,29 +147,6 @@ export default function CustomerForecastPage() {
       accuracy: Math.max(0, 100 - mape)
     }
   }, [filteredAccuracyData])
-
-  const suppliers = useMemo(() => {
-    const set = new Set(accuracyData.map(d => d.supplierCode))
-    return Array.from(set).sort()
-  }, [accuracyData])
-
-  // Get SKUs for selected supplier
-  const skusForSupplier = useMemo(() => {
-    const filtered = selectedSupplier === 'all' 
-      ? accuracyData 
-      : accuracyData.filter(d => d.supplierCode === selectedSupplier)
-    const set = new Set(filtered.map(d => d.skuCode))
-    return Array.from(set).sort()
-  }, [accuracyData, selectedSupplier])
-
-  // Filtered accuracy data for display
-  const filteredAccuracyData = useMemo(() => {
-    return accuracyData.filter(d => {
-      if (selectedSupplier !== 'all' && d.supplierCode !== selectedSupplier) return false
-      if (selectedSku !== 'all' && d.skuCode !== selectedSku) return false
-      return true
-    })
-  }, [accuracyData, selectedSupplier, selectedSku])
 
   // Generate forecast analysis using AI agent
   const generateAnalysis = useCallback(async () => {
