@@ -29,16 +29,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts'
+import dynamic from 'next/dynamic'
+
+// Dynamic import for chart component (client-side only)
+const AccuracyChart = dynamic(() => import('@/components/accuracy-chart').then(mod => mod.AccuracyChart), { 
+  ssr: false,
+  loading: () => <div className="flex items-center justify-center h-full"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+})
 
 interface ForecastFile {
   id: string
@@ -620,54 +617,20 @@ export default function CustomerForecastPage() {
 
                   {/* Line Chart */}
                   <div className="h-[280px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={(() => {
-                          // Aggregate data by week
-                          const weeklyData: Record<number, { week: number; forecast: number; actual: number }> = {}
-                          accuracyData.forEach(d => {
-                            if (!weeklyData[d.weekNumber]) {
-                              weeklyData[d.weekNumber] = { week: d.weekNumber, forecast: 0, actual: 0 }
-                            }
-                            weeklyData[d.weekNumber].forecast += d.customerForecast
-                            weeklyData[d.weekNumber].actual += d.actualConsumption
-                          })
-                          return Object.values(weeklyData).sort((a, b) => a.week - b.week)
-                        })()}
-                        margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis 
-                          dataKey="week" 
-                          tick={{ fontSize: 12 }}
-                          tickFormatter={(w) => `W${w}`}
-                        />
-                        <YAxis tick={{ fontSize: 12 }} />
-                        <Tooltip 
-                          formatter={(value: number) => value.toLocaleString()}
-                          labelFormatter={(w) => `Week ${w}`}
-                        />
-                        <Legend />
-                        <Line 
-                          type="monotone" 
-                          dataKey="forecast" 
-                          name="Forecast"
-                          stroke="#3b82f6" 
-                          strokeWidth={2}
-                          dot={{ r: 4 }}
-                          activeDot={{ r: 6 }}
-                        />
-                        <Line 
-                          type="monotone" 
-                          dataKey="actual" 
-                          name="Actual"
-                          stroke="#22c55e" 
-                          strokeWidth={2}
-                          dot={{ r: 4 }}
-                          activeDot={{ r: 6 }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <AccuracyChart 
+                      data={(() => {
+                        // Aggregate data by week
+                        const weeklyData: Record<number, { week: number; forecast: number; actual: number }> = {}
+                        accuracyData.forEach(d => {
+                          if (!weeklyData[d.weekNumber]) {
+                            weeklyData[d.weekNumber] = { week: d.weekNumber, forecast: 0, actual: 0 }
+                          }
+                          weeklyData[d.weekNumber].forecast += d.customerForecast
+                          weeklyData[d.weekNumber].actual += d.actualConsumption
+                        })
+                        return Object.values(weeklyData).sort((a, b) => a.week - b.week)
+                      })()}
+                    />
                   </div>
 
                   {/* Compact Table */}
