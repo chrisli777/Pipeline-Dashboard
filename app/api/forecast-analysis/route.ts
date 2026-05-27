@@ -9,49 +9,26 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 export async function POST(req: Request) {
   try {
-    const { forecastData, accuracyData, currentMonth } = await req.json()
+    const { selectedFiles, accuracyData, currentMonth } = await req.json()
 
-    // Prepare forecast summary for AI analysis
-    const forecastSummary = {
-      currentMonth: currentMonth || new Date().toISOString().slice(0, 7),
-      totalSkus: forecastData?.length || 0,
-      bySupplier: {} as Record<string, { totalForecast: number; skuCount: number }>,
-      byModel: {} as Record<string, { totalForecast: number; weeks: Record<number, number> }>,
+    // Check if files are provided
+    if (!selectedFiles || selectedFiles.length === 0) {
+      return Response.json(
+        { error: 'No forecast files selected for analysis' },
+        { status: 400 }
+      )
     }
 
-    // Aggregate forecast data
-    if (forecastData && Array.isArray(forecastData)) {
-      for (const item of forecastData) {
-        // By supplier
-        if (!forecastSummary.bySupplier[item.supplierCode]) {
-          forecastSummary.bySupplier[item.supplierCode] = { totalForecast: 0, skuCount: 0 }
-        }
-        forecastSummary.bySupplier[item.supplierCode].totalForecast += item.totalForecast || 0
-        forecastSummary.bySupplier[item.supplierCode].skuCount++
-
-        // By model (from description or part_model)
-        const model = item.partModel || item.description?.match(/([A-Z]{2,}-?\d+)/)?.[1] || 'Unknown'
-        if (!forecastSummary.byModel[model]) {
-          forecastSummary.byModel[model] = { totalForecast: 0, weeks: {} }
-        }
-        forecastSummary.byModel[model].totalForecast += item.totalForecast || 0
-      }
-    }
-
-    // Prepare accuracy summary
+    // Prepare accuracy summary for context
     const accuracySummary = {
       totalRecords: accuracyData?.length || 0,
       totalForecast: 0,
       totalActual: 0,
       overallVariance: 0,
-      mape: 0,
       bySupplier: {} as Record<string, { forecast: number; actual: number; variance: number }>,
     }
 
     if (accuracyData && Array.isArray(accuracyData)) {
-      let totalAbsVariancePercent = 0
-      let validCount = 0
-
       for (const item of accuracyData) {
         accuracySummary.totalForecast += item.customerForecast || 0
         accuracySummary.totalActual += item.actualConsumption || 0
@@ -63,24 +40,37 @@ export async function POST(req: Request) {
         accuracySummary.bySupplier[item.supplierCode].forecast += item.customerForecast || 0
         accuracySummary.bySupplier[item.supplierCode].actual += item.actualConsumption || 0
         accuracySummary.bySupplier[item.supplierCode].variance += item.variance || 0
-
-        if (item.customerForecast > 0) {
-          totalAbsVariancePercent += Math.abs(item.variancePercent || 0)
-          validCount++
-        }
       }
-
       accuracySummary.overallVariance = accuracySummary.totalActual - accuracySummary.totalForecast
-      accuracySummary.mape = validCount > 0 ? totalAbsVariancePercent / validCount : 0
     }
 
-    // Prepare the analysis context
-    const analysisContext = JSON.stringify({
-      analysisDate: new Date().toISOString(),
-      forecastSummary,
-      accuracySummary,
-      requestType: 'monthly_forecast_analysis',
-    }, null, 2)
+    // Format the analysis request message for the agent
+    // The agent expects Kent forecast Excel files to be described
+    const fileNames = selectedFiles.map((f: { fileName: string }) => f.fileName).join(', ')
+    const analysisPrompt = `请分析以下 Kent (Redmond) forecast 文件的变化趋势：
+
+选中的文件：${fileNames}
+
+当前月份：${currentMonth}
+
+Forecast Accuracy 数据摘要：
+- 总记录数：${accuracySummary.totalRecords}
+- 总预测量：${accuracySummary.totalForecast}
+- 总实际量：${accuracySummary.totalActual}
+- 总偏差：${accuracySummary.overallVariance}
+
+按供应商分类：
+${Object.entries(accuracySummary.bySupplier).map(([supplier, data]) => 
+  `- ${supplier}: Forecast ${data.forecast}, Actual ${data.actual}, Variance ${data.variance}`
+).join('\n')}
+
+请提供：
+1. Forecast Movement 分析 - 月度对比表和变化趋势
+2. Replenishment Cycle 评估 - 基于85/95天lead time
+3. Latest Notification Dates - 针对变化的通知截止日期
+4. Current Situation & Actions - 当前窗口评估和建议措施
+
+输出格式：请使用中文，提供结构化的分析报告。`
 
     // Step 1: Create a new session with the agent
     console.log('[v0] Creating forecast analysis session...')
@@ -109,7 +99,7 @@ export async function POST(req: Request) {
     console.log('[v0] Session created:', session.id)
 
     // Step 2: Send forecast data via events
-    console.log('[v0] Sending forecast data...')
+    console.log('[v0] Sending forecast analysis request...')
     const eventsResponse = await fetch(`https://api.anthropic.com/v1/sessions/${session.id}/events`, {
       method: 'POST',
       headers: {
@@ -122,7 +112,7 @@ export async function POST(req: Request) {
         events: [
           {
             type: 'user.message',
-            content: [{ type: 'text', text: analysisContext }],
+            content: [{ type: 'text', text: analysisPrompt }],
           },
         ],
       }),
@@ -202,7 +192,7 @@ export async function POST(req: Request) {
     return Response.json({ 
       analysis: analysisText || 'No analysis generated',
       metadata: {
-        forecastSummary,
+        selectedFiles,
         accuracySummary,
         sessionId: session.id,
       }

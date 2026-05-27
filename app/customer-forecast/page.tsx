@@ -116,6 +116,7 @@ export default function CustomerForecastPage() {
   const [analysisReport, setAnalysisReport] = useState<string>('')
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [selectedFilesForAnalysis, setSelectedFilesForAnalysis] = useState<string[]>([])
 
   const fetchAccuracyData = useCallback(async () => {
     setAccuracyLoading(true)
@@ -183,16 +184,25 @@ export default function CustomerForecastPage() {
     setAnalysisLoading(true)
     setAnalysisError(null)
     try {
-      // Use accuracy data directly - it contains forecast vs actual comparison
-      if (accuracyData.length === 0) {
-        setAnalysisError('No forecast data available. Please upload and sync forecast files first.')
+      // Check if files are selected
+      if (selectedFilesForAnalysis.length === 0) {
+        setAnalysisError('Please select at least one forecast file to analyze')
         return
       }
+      
+      // Get selected file details
+      const selectedFileDetails = files.filter(f => selectedFilesForAnalysis.includes(f.id))
       
       const res = await fetch('/api/forecast-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          selectedFiles: selectedFileDetails.map(f => ({
+            id: f.id,
+            fileName: f.file_name,
+            uploadedAt: f.uploaded_at,
+            syncStatus: f.sync_status,
+          })),
           accuracyData: accuracyData,
           currentMonth: new Date().toISOString().slice(0, 7),
         }),
@@ -210,7 +220,7 @@ export default function CustomerForecastPage() {
     } finally {
       setAnalysisLoading(false)
     }
-  }, [accuracyData])
+  }, [selectedFilesForAnalysis, files, accuracyData])
 
   const fetchFiles = useCallback(async () => {
     try {
@@ -560,10 +570,42 @@ export default function CustomerForecastPage() {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-4 py-4">
+                <div className="space-y-4">
+                  {/* File Selection for Analysis */}
+                  <div className="p-3 bg-white rounded-lg border border-blue-200">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Select Files to Analyze</p>
+                    {files.filter(f => f.sync_status === 'synced').length > 0 ? (
+                      <div className="space-y-2 max-h-[150px] overflow-auto">
+                        {files.filter(f => f.sync_status === 'synced').map(file => (
+                          <label key={file.id} className="flex items-center gap-2 p-2 rounded hover:bg-blue-50 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedFilesForAnalysis.includes(file.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedFilesForAnalysis(prev => [...prev, file.id])
+                                } else {
+                                  setSelectedFilesForAnalysis(prev => prev.filter(id => id !== file.id))
+                                }
+                              }}
+                              className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                            />
+                            <FileSpreadsheet className="h-4 w-4 text-green-600" />
+                            <span className="text-sm text-gray-700">{file.file_name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">No synced forecast files available. Please upload and sync files first.</p>
+                    )}
+                    {selectedFilesForAnalysis.length > 0 && (
+                      <p className="text-xs text-blue-600 mt-2">{selectedFilesForAnalysis.length} file(s) selected</p>
+                    )}
+                  </div>
+                  
                   <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-100/50 p-3 rounded-lg">
                     <AlertCircle className="h-4 w-4" />
-                    <span>Click &quot;Generate&quot; to analyze forecast changes by machine model</span>
+                    <span>Select forecast files above, then click &quot;Generate&quot; to analyze</span>
                   </div>
                   <div className="space-y-3">
                     <div className="p-3 bg-white rounded-lg border border-blue-100">
