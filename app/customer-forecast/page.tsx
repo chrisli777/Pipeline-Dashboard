@@ -443,13 +443,13 @@ export default function CustomerForecastPage() {
                     </div>
                   ) : (
                     <div className="border rounded-lg overflow-hidden">
-                      <Table>
+                      <Table className="table-fixed w-full">
                         <TableHeader>
                           <TableRow className="bg-gray-50">
-                            <TableHead className="text-xs">File</TableHead>
-                            <TableHead className="text-xs">Size</TableHead>
-                            <TableHead className="text-xs">Uploaded</TableHead>
-                            <TableHead className="text-xs text-right">Actions</TableHead>
+                            <TableHead className="text-xs w-[40%]">File</TableHead>
+                            <TableHead className="text-xs w-[15%]">Size</TableHead>
+                            <TableHead className="text-xs w-[25%]">Uploaded</TableHead>
+                            <TableHead className="text-xs text-right w-[20%]">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -462,7 +462,7 @@ export default function CustomerForecastPage() {
                                   ) : (
                                     <FileText className="h-4 w-4 text-red-500 shrink-0" />
                                   )}
-                                  <span className="text-sm truncate max-w-[200px]">{file.file_name}</span>
+                                  <span className="text-sm truncate">{file.file_name}</span>
                                 </div>
                               </TableCell>
                               <TableCell className="py-2 text-xs text-gray-500">{formatFileSize(file.file_size)}</TableCell>
