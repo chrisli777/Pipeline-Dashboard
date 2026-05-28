@@ -2,8 +2,7 @@
 
 import React from "react"
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -567,10 +566,28 @@ export default function CustomerForecastPage() {
                 </div>
               ) : analysisReport ? (
                 <div className="flex-1 overflow-auto">
-                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-table:text-sm prose-th:bg-gray-100 prose-th:p-2 prose-td:p-2 prose-td:border prose-th:border">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {analysisReport}
-                    </ReactMarkdown>
+                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-table:text-sm prose-th:bg-gray-100 prose-th:p-2 prose-td:p-2 prose-td:border prose-th:border whitespace-pre-wrap">
+                    {analysisReport.split('\n').map((line, i) => {
+                      // Simple markdown-like rendering
+                      if (line.startsWith('# ')) {
+                        return <h1 key={i} className="text-xl font-bold mt-4 mb-2">{line.slice(2)}</h1>
+                      } else if (line.startsWith('## ')) {
+                        return <h2 key={i} className="text-lg font-semibold mt-4 mb-2">{line.slice(3)}</h2>
+                      } else if (line.startsWith('### ')) {
+                        return <h3 key={i} className="text-base font-semibold mt-3 mb-1">{line.slice(4)}</h3>
+                      } else if (line.startsWith('- ')) {
+                        return <li key={i} className="ml-4">{line.slice(2)}</li>
+                      } else if (line.startsWith('|')) {
+                        // Table row - render as monospace
+                        return <div key={i} className="font-mono text-xs bg-gray-50 px-2 py-1">{line}</div>
+                      } else if (line.startsWith('---')) {
+                        return <hr key={i} className="my-4" />
+                      } else if (line.trim() === '') {
+                        return <br key={i} />
+                      } else {
+                        return <p key={i} className="my-1">{line}</p>
+                      }
+                    })}
                   </div>
                 </div>
               ) : (
