@@ -1,3 +1,6 @@
+import { createClient } from '@/lib/supabase/server'
+import * as XLSX from 'xlsx'
+
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 
 // Agent configuration - Forecast Supply Analyst
@@ -10,9 +13,53 @@ export const maxDuration = 300
 // Helper to wait
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
+// Helper to extract VS SUMMARY data from Excel file
+async function extractVsSummaryData(supabase: ReturnType<typeof createClient>, filePath: string): Promise<string | null> {
+  try {
+    const { data: fileData, error } = await supabase.storage
+      .from('forecast-files')
+      .download(filePath)
+    
+    if (error || !fileData) {
+      console.error('[v0] Failed to download file:', filePath, error)
+      return null
+    }
+    
+    const arrayBuffer = await fileData.arrayBuffer()
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+    
+    // Look for VS SUMMARY sheet
+    const vsSummarySheet = workbook.SheetNames.find(name => 
+      name.toLowerCase().includes('vs summary') || name.toLowerCase() === 'vs_summary'
+    )
+    
+    if (!vsSummarySheet) {
+      console.log('[v0] No VS SUMMARY sheet found in:', filePath)
+      return null
+    }
+    
+    const sheet = workbook.Sheets[vsSummarySheet]
+    const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+    
+    // Convert to readable format
+    let result = `\n=== ${filePath} - ${vsSummarySheet} ===\n`
+    for (const row of jsonData.slice(0, 50)) { // Limit to first 50 rows
+      if (Array.isArray(row) && row.some(cell => cell !== null && cell !== undefined && cell !== '')) {
+        result += (row as (string | number)[]).map(cell => cell ?? '').join('\t') + '\n'
+      }
+    }
+    
+    return result
+  } catch (err) {
+    console.error('[v0] Error extracting VS SUMMARY:', err)
+    return null
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { selectedFiles, accuracyData, currentMonth } = await req.json()
+    const supabase = await createClient()
 
     // Check if files are provided
     if (!selectedFiles || selectedFiles.length === 0) {
@@ -21,6 +68,27 @@ export async function POST(req: Request) {
         { status: 400 }
       )
     }
+
+    // Download and extract VS SUMMARY data from selected files
+    const vsSummaryDataParts: string[] = []
+    for (const file of selectedFiles) {
+      const storagePath = file.id // Assuming id is the storage path
+      // Try to get file path from database
+      const { data: fileRecord } = await supabase
+        .from('forecast_files')
+        .select('storage_path, file_name')
+        .eq('id', file.id)
+        .single()
+      
+      if (fileRecord?.storage_path) {
+        const summaryData = await extractVsSummaryData(supabase, fileRecord.storage_path)
+        if (summaryData) {
+          vsSummaryDataParts.push(summaryData)
+        }
+      }
+    }
+    
+    const hasVsSummaryData = vsSummaryDataParts.length > 0
 
     // Prepare accuracy summary for context
     const accuracySummary = {
@@ -48,15 +116,31 @@ export async function POST(req: Request) {
     }
 
     // Format the analysis request message for the agent
-    // The agent expects Kent forecast Excel files to be described
+    // Include actual VS SUMMARY data if available
     const fileNames = selectedFiles.map((f: { fileName: string }) => f.fileName).join(', ')
-    const analysisPrompt = `请分析以下 Kent (Redmond) forecast 文件的变化趋势：
+    
+    let analysisPrompt = `请分析以下 Kent (Redmond) forecast 文件的变化趋势：
 
 选中的文件：${fileNames}
-
 当前月份：${currentMonth}
 
-Forecast Accuracy 数据摘要：
+`
+
+    // Add VS SUMMARY data if extracted
+    if (hasVsSummaryData) {
+      analysisPrompt += `## VS SUMMARY 原始数据
+
+以下是从 Excel 文件中提取的 VS SUMMARY sheet 数据：
+${vsSummaryDataParts.join('\n')}
+
+`
+    } else {
+      analysisPrompt += `注意：未能从文件中提取 VS SUMMARY 数据。请基于以下 Forecast Accuracy 汇总数据进行分析。
+
+`
+    }
+
+    analysisPrompt += `## Forecast Accuracy 数据摘要
 - 总记录数：${accuracySummary.totalRecords}
 - 总预测量：${accuracySummary.totalForecast}
 - 总实际量：${accuracySummary.totalActual}
@@ -73,7 +157,7 @@ ${Object.entries(accuracySummary.bySupplier).map(([supplier, data]) =>
 3. Latest Notification Dates - 针对变化的通知截止日期
 4. Current Situation & Actions - 当前窗口评估和建议措施
 
-输出格式：请使用中文，提供结构化的分析报告。`
+输出格式：请使用中文，提供结构化的分析报告，使用 Markdown 格式。`
 
     // Step 1: Create a new session with the agent
     console.log('[v0] Creating forecast analysis session...')

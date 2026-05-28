@@ -2,6 +2,8 @@
 
 import React from "react"
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -564,9 +566,11 @@ export default function CustomerForecastPage() {
                   </div>
                 </div>
               ) : analysisReport ? (
-                <div className="max-h-[500px] overflow-auto">
-                  <div className="bg-white border rounded-lg p-4 whitespace-pre-wrap text-sm leading-relaxed">
-                    {analysisReport}
+                <div className="flex-1 overflow-auto">
+                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-table:text-sm prose-th:bg-gray-100 prose-th:p-2 prose-td:p-2 prose-td:border prose-th:border">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {analysisReport}
+                    </ReactMarkdown>
                   </div>
                 </div>
               ) : (
