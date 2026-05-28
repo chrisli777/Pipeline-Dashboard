@@ -31,7 +31,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import dynamic from 'next/dynamic'
 
 // Dynamic import for chart component (client-side only)
 const AccuracyChart = dynamic(() => import('@/components/accuracy-chart').then(mod => mod.AccuracyChart), { 
