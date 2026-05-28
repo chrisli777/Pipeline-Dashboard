@@ -14,8 +14,10 @@ export const maxDuration = 300
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 // Helper to extract VS SUMMARY data from Excel file
-async function extractVsSummaryData(supabase: ReturnType<typeof createClient>, filePath: string): Promise<string | null> {
+async function extractVsSummaryData(supabase: Awaited<ReturnType<typeof createClient>>, filePath: string): Promise<string | null> {
   try {
+    console.log('[v0] Downloading file from storage:', filePath)
+    
     const { data: fileData, error } = await supabase.storage
       .from('forecast-files')
       .download(filePath)
@@ -25,18 +27,26 @@ async function extractVsSummaryData(supabase: ReturnType<typeof createClient>, f
       return null
     }
     
+    console.log('[v0] File downloaded, size:', fileData.size)
+    
     const arrayBuffer = await fileData.arrayBuffer()
     const workbook = XLSX.read(arrayBuffer, { type: 'array' })
     
+    console.log('[v0] Workbook sheets:', workbook.SheetNames)
+    
     // Look for VS SUMMARY sheet
     const vsSummarySheet = workbook.SheetNames.find(name => 
-      name.toLowerCase().includes('vs summary') || name.toLowerCase() === 'vs_summary'
+      name.toLowerCase().includes('vs summary') || 
+      name.toLowerCase() === 'vs_summary' ||
+      name.toLowerCase().includes('vs_summary')
     )
     
     if (!vsSummarySheet) {
-      console.log('[v0] No VS SUMMARY sheet found in:', filePath)
+      console.log('[v0] No VS SUMMARY sheet found in:', filePath, 'Available sheets:', workbook.SheetNames)
       return null
     }
+    
+    console.log('[v0] Found VS SUMMARY sheet:', vsSummarySheet)
     
     const sheet = workbook.Sheets[vsSummarySheet]
     const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 })
@@ -49,6 +59,7 @@ async function extractVsSummaryData(supabase: ReturnType<typeof createClient>, f
       }
     }
     
+    console.log('[v0] Extracted VS SUMMARY data, length:', result.length)
     return result
   } catch (err) {
     console.error('[v0] Error extracting VS SUMMARY:', err)
@@ -72,18 +83,24 @@ export async function POST(req: Request) {
     // Download and extract VS SUMMARY data from selected files
     const vsSummaryDataParts: string[] = []
     for (const file of selectedFiles) {
-      const storagePath = file.id // Assuming id is the storage path
-      // Try to get file path from database
-      const { data: fileRecord } = await supabase
+      // Get file path from database using the correct column name
+      const { data: fileRecord, error: fileError } = await supabase
         .from('forecast_files')
-        .select('storage_path, file_name')
+        .select('file_path, file_name')
         .eq('id', file.id)
         .single()
       
-      if (fileRecord?.storage_path) {
-        const summaryData = await extractVsSummaryData(supabase, fileRecord.storage_path)
-        if (summaryData) {
-          vsSummaryDataParts.push(summaryData)
+      console.log('[v0] File lookup result:', { fileId: file.id, fileRecord, fileError })
+      
+      if (fileRecord?.file_path) {
+        // Only process Excel files (xlsx/xls)
+        if (fileRecord.file_name.match(/\.xlsx?$/i)) {
+          const summaryData = await extractVsSummaryData(supabase, fileRecord.file_path)
+          if (summaryData) {
+            vsSummaryDataParts.push(summaryData)
+          }
+        } else {
+          console.log('[v0] Skipping non-Excel file:', fileRecord.file_name)
         }
       }
     }
