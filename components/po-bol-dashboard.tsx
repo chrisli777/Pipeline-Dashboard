@@ -506,6 +506,14 @@ export function PoBolDashboard() {
     return Array.from(skuSet).sort()
   }, [orders])
 
+  // Debug: log unique customer names
+  useEffect(() => {
+    if (orders.length > 0) {
+      const uniqueCustomers = [...new Set(orders.map(o => o.customerName))]
+      console.log('[v0] Unique customer names in orders:', uniqueCustomers)
+    }
+  }, [orders])
+
   // Filter orders by customer (supplier), search query and selected SKUs
   const filteredOrders = orders.filter(order => {
     // Skip canceled orders (reference number contains "canceled")
@@ -514,18 +522,43 @@ export function PoBolDashboard() {
     }
     
     // Filter by supplier based on customer name
-    // Each supplier's orders have customer name containing the supplier code
+    // The WMS uses specific customer names that need to be mapped to suppliers
     const customerNameLower = order.customerName.toLowerCase()
     const supplierLower = supplier.toLowerCase()
     
-    // Check if customer name matches the selected supplier
-    // For TJJSH, also match "TJJ" prefix
-    if (supplierLower === 'tjjsh') {
-      if (!customerNameLower.includes('tjj')) return false
-    } else {
-      // For all other suppliers, match directly
-      if (!customerNameLower.includes(supplierLower)) return false
+    // Customer name to supplier mapping:
+    // - "hx" orders contain "hx" in customer name
+    // - "amc" orders contain "amc" in customer name  
+    // - "tjjsh" orders contain "tjj" or "tianjin" in customer name
+    // - "winschem" orders contain "winschem" or "winchem" in customer name
+    // - "pmp" orders contain "pmp" in customer name
+    // - "dongyu" orders contain "dongyu" or "dong yu" in customer name
+    
+    let matchesSupplier = false
+    switch (supplierLower) {
+      case 'hx':
+        matchesSupplier = customerNameLower.includes('hx')
+        break
+      case 'amc':
+        matchesSupplier = customerNameLower.includes('amc')
+        break
+      case 'tjjsh':
+        matchesSupplier = customerNameLower.includes('tjj') || customerNameLower.includes('tianjin')
+        break
+      case 'winschem':
+        matchesSupplier = customerNameLower.includes('winschem') || customerNameLower.includes('winchem')
+        break
+      case 'pmp':
+        matchesSupplier = customerNameLower.includes('pmp')
+        break
+      case 'dongyu':
+        matchesSupplier = customerNameLower.includes('dongyu') || customerNameLower.includes('dong yu')
+        break
+      default:
+        matchesSupplier = customerNameLower.includes(supplierLower)
     }
+    
+    if (!matchesSupplier) return false
     
     // Filter by search query
     if (searchQuery) {
