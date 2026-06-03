@@ -684,7 +684,12 @@ export async function POST(request: Request) {
     if (allSkusWithModel) {
       for (const sku of allSkusWithModel) {
         if (!sku.part_model) continue
-        const normalizedModel = sku.part_model.toLowerCase().replace(/[-\s]/g, '')
+        // part_model format is "SKU / Model" (e.g., "1286522 / GS-4655")
+        // Extract the model name (part after "/") for matching
+        const modelPart = sku.part_model.includes('/') 
+          ? sku.part_model.split('/').pop()!.trim() 
+          : sku.part_model
+        const normalizedModel = modelPart.toLowerCase().replace(/[-\s]/g, '')
         if (!modelToSkusMap.has(normalizedModel)) {
           modelToSkusMap.set(normalizedModel, [])
         }

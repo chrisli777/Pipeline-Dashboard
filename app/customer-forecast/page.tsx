@@ -2,6 +2,7 @@
 
 import React from "react"
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -30,7 +31,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import dynamic from 'next/dynamic'
 
 // Dynamic import for chart component (client-side only)
 const AccuracyChart = dynamic(() => import('@/components/accuracy-chart').then(mod => mod.AccuracyChart), { 
@@ -389,7 +389,7 @@ export default function CustomerForecastPage() {
                 )}
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogContent className="max-w-6xl max-h-[80vh] overflow-hidden flex flex-col">
               <DialogHeader>
                 <DialogTitle>Forecast File Management</DialogTitle>
                 <DialogDescription>
@@ -443,13 +443,13 @@ export default function CustomerForecastPage() {
                     </div>
                   ) : (
                     <div className="border rounded-lg overflow-hidden">
-                      <Table>
+                      <Table className="table-fixed w-full">
                         <TableHeader>
                           <TableRow className="bg-gray-50">
-                            <TableHead className="text-xs">File</TableHead>
-                            <TableHead className="text-xs">Size</TableHead>
-                            <TableHead className="text-xs">Uploaded</TableHead>
-                            <TableHead className="text-xs text-right">Actions</TableHead>
+                            <TableHead className="text-xs w-[35%]">File</TableHead>
+                            <TableHead className="text-xs w-[12%]">Size</TableHead>
+                            <TableHead className="text-xs w-[23%]">Uploaded</TableHead>
+                            <TableHead className="text-xs text-right w-[30%]">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -462,12 +462,12 @@ export default function CustomerForecastPage() {
                                   ) : (
                                     <FileText className="h-4 w-4 text-red-500 shrink-0" />
                                   )}
-                                  <span className="text-sm truncate max-w-[200px]">{file.file_name}</span>
+                                  <span className="text-sm truncate">{file.file_name}</span>
                                 </div>
                               </TableCell>
                               <TableCell className="py-2 text-xs text-gray-500">{formatFileSize(file.file_size)}</TableCell>
-                              <TableCell className="py-2 text-xs text-gray-500">{formatDate(file.uploaded_at)}</TableCell>
-                              <TableCell className="py-2 text-right">
+                              <TableCell className="py-2 text-xs text-gray-500 truncate">{formatDate(file.uploaded_at)}</TableCell>
+                              <TableCell className="py-2">
                                 <div className="flex items-center justify-end gap-1">
                                   <Button
                                     variant="ghost"
@@ -514,7 +514,7 @@ export default function CustomerForecastPage() {
         {/* Side-by-side Analysis Layout - Full Height */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
           {/* Left: Forecast Analysis Report - Agent Integration */}
-          <Card className="border border-blue-200 bg-gradient-to-br from-blue-50/50 to-white flex flex-col">
+          <Card className="border border-blue-200 bg-gradient-to-br from-blue-50/50 to-white flex flex-col min-h-[500px]">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -564,9 +564,29 @@ export default function CustomerForecastPage() {
                   </div>
                 </div>
               ) : analysisReport ? (
-                <div className="max-h-[500px] overflow-auto">
-                  <div className="bg-white border rounded-lg p-4 whitespace-pre-wrap text-sm leading-relaxed">
-                    {analysisReport}
+                <div className="flex-1 overflow-auto">
+                  <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-table:text-sm prose-th:bg-gray-100 prose-th:p-2 prose-td:p-2 prose-td:border prose-th:border whitespace-pre-wrap">
+                    {analysisReport.split('\n').map((line, i) => {
+                      // Simple markdown-like rendering
+                      if (line.startsWith('# ')) {
+                        return <h1 key={i} className="text-xl font-bold mt-4 mb-2">{line.slice(2)}</h1>
+                      } else if (line.startsWith('## ')) {
+                        return <h2 key={i} className="text-lg font-semibold mt-4 mb-2">{line.slice(3)}</h2>
+                      } else if (line.startsWith('### ')) {
+                        return <h3 key={i} className="text-base font-semibold mt-3 mb-1">{line.slice(4)}</h3>
+                      } else if (line.startsWith('- ')) {
+                        return <li key={i} className="ml-4">{line.slice(2)}</li>
+                      } else if (line.startsWith('|')) {
+                        // Table row - render as monospace
+                        return <div key={i} className="font-mono text-xs bg-gray-50 px-2 py-1">{line}</div>
+                      } else if (line.startsWith('---')) {
+                        return <hr key={i} className="my-4" />
+                      } else if (line.trim() === '') {
+                        return <br key={i} />
+                      } else {
+                        return <p key={i} className="my-1">{line}</p>
+                      }
+                    })}
                   </div>
                 </div>
               ) : (
@@ -574,9 +594,9 @@ export default function CustomerForecastPage() {
                   {/* File Selection for Analysis */}
                   <div className="p-3 bg-white rounded-lg border border-blue-200">
                     <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Select Files to Analyze</p>
-                    {files.filter(f => f.sync_status === 'synced').length > 0 ? (
-                      <div className="space-y-2 max-h-[150px] overflow-auto">
-                        {files.filter(f => f.sync_status === 'synced').map(file => (
+                    {files.length > 0 ? (
+                      <div className="space-y-2 max-h-[200px] overflow-auto">
+                        {files.map(file => (
                           <label key={file.id} className="flex items-center gap-2 p-2 rounded hover:bg-blue-50 cursor-pointer">
                             <input
                               type="checkbox"
@@ -591,12 +611,12 @@ export default function CustomerForecastPage() {
                               className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                             />
                             <FileSpreadsheet className="h-4 w-4 text-green-600" />
-                            <span className="text-sm text-gray-700">{file.file_name}</span>
+                            <span className="text-sm text-gray-700 flex-1 truncate">{file.file_name}</span>
                           </label>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-500">No synced forecast files available. Please upload and sync files first.</p>
+                      <p className="text-sm text-gray-500">No forecast files uploaded. Click &quot;Manage Files&quot; to upload.</p>
                     )}
                     {selectedFilesForAnalysis.length > 0 && (
                       <p className="text-xs text-blue-600 mt-2">{selectedFilesForAnalysis.length} file(s) selected</p>

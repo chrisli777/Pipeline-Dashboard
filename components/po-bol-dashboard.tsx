@@ -80,7 +80,7 @@ interface Pagination {
 
 // Warehouse and supplier options
 const WAREHOUSES = ['Moses Lake', 'Kent']
-const SUPPLIERS = ['HX', 'AMC', 'TJJSH']
+const SUPPLIERS = ['HX', 'AMC', 'TJJSH', 'PMP', 'WINSCHEM', 'DONGYU']
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '-'
@@ -133,7 +133,7 @@ export function PoBolDashboard() {
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
-  const [parseStatusFilter, setParseStatusFilter] = useState<string>('all') // 'all', 'match', 'mismatch', 'bol_missing', 'po_missing', 'unparsed'
+  const [parseStatusFilter, setParseStatusFilter] = useState<string>('all') // 'all' or 'issues'
   
   // Pagination
   const [pagination, setPagination] = useState<Pagination>({
@@ -506,6 +506,14 @@ export function PoBolDashboard() {
     return Array.from(skuSet).sort()
   }, [orders])
 
+  // Debug: log unique customer names
+  useEffect(() => {
+    if (orders.length > 0) {
+      const uniqueCustomers = [...new Set(orders.map(o => o.customerName))]
+      console.log('[v0] Unique customer names in orders:', uniqueCustomers)
+    }
+  }, [orders])
+
   // Filter orders by customer (supplier), search query and selected SKUs
   const filteredOrders = orders.filter(order => {
     // Skip canceled orders (reference number contains "canceled")
@@ -514,22 +522,43 @@ export function PoBolDashboard() {
     }
     
     // Filter by supplier based on customer name
-    // HX orders have customer name containing "HX"
-    // TJJSH orders have customer name containing "TJJSH" or "TJJ"
-    // AMC orders have customer name containing "AMC"
+    // The WMS uses specific customer names that need to be mapped to suppliers
     const customerNameLower = order.customerName.toLowerCase()
     const supplierLower = supplier.toLowerCase()
     
-    // Check if customer name matches the selected supplier
-    if (supplierLower === 'hx' && !customerNameLower.includes('hx')) {
-      return false
+    // Customer name to supplier mapping:
+    // - "hx" orders contain "hx" in customer name
+    // - "amc" orders contain "amc" in customer name  
+    // - "tjjsh" orders contain "tjj" or "tianjin" in customer name
+    // - "winschem" orders contain "winschem" or "winchem" in customer name
+    // - "pmp" orders contain "pmp" in customer name
+    // - "dongyu" orders contain "dongyu" or "dong yu" in customer name
+    
+    let matchesSupplier = false
+    switch (supplierLower) {
+      case 'hx':
+        matchesSupplier = customerNameLower.includes('hx')
+        break
+      case 'amc':
+        matchesSupplier = customerNameLower.includes('amc')
+        break
+      case 'tjjsh':
+        matchesSupplier = customerNameLower.includes('tjj') || customerNameLower.includes('tianjin')
+        break
+      case 'winschem':
+        matchesSupplier = customerNameLower.includes('winschem') || customerNameLower.includes('winchem')
+        break
+      case 'pmp':
+        matchesSupplier = customerNameLower.includes('pmp')
+        break
+      case 'dongyu':
+        matchesSupplier = customerNameLower.includes('dongyu') || customerNameLower.includes('dong yu')
+        break
+      default:
+        matchesSupplier = customerNameLower.includes(supplierLower)
     }
-    if (supplierLower === 'tjjsh' && !customerNameLower.includes('tjj')) {
-      return false
-    }
-    if (supplierLower === 'amc' && !customerNameLower.includes('amc')) {
-      return false
-    }
+    
+    if (!matchesSupplier) return false
     
     // Filter by search query
     if (searchQuery) {
@@ -550,14 +579,11 @@ export function PoBolDashboard() {
       if (!hasMatchingSku) return false
     }
     
-    // Filter by parse status
-    if (parseStatusFilter !== 'all') {
+    // Filter by parse status - simplified to 'all' or 'issues'
+    if (parseStatusFilter === 'issues') {
       const result = parseResults[order.orderId]
-      if (parseStatusFilter === 'unparsed') {
-        if (result) return false
-      } else {
-        if (!result || result.status !== parseStatusFilter) return false
-      }
+      // Show only orders with issues (mismatch, missing files, errors, or not yet parsed)
+      if (result && result.status === 'match') return false
     }
     
     return true
@@ -769,14 +795,10 @@ export function PoBolDashboard() {
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="match">Match</SelectItem>
-                <SelectItem value="mismatch">Mismatch</SelectItem>
-                <SelectItem value="bol_missing">BOL Missing</SelectItem>
-                <SelectItem value="po_missing">PO Missing</SelectItem>
-                <SelectItem value="unparsed">Unparsed</SelectItem>
-              </SelectContent>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="issues">Issues Only</SelectItem>
+            </SelectContent>
             </Select>
           </div>
           
@@ -1420,12 +1442,8 @@ export function PoBolDashboard() {
           
           <div className="flex justify-between items-center pt-4 border-t mt-4">
             <div className="text-xs text-muted-foreground">
-              Quick filter: 
-              <Button variant="link" size="sm" className="px-2 h-auto" onClick={() => { setParseStatusFilter('mismatch'); setShowDiscrepanciesPanel(false) }}>
-                Mismatch ({parseStats.mismatch})
-              </Button>
-              <Button variant="link" size="sm" className="px-2 h-auto" onClick={() => { setParseStatusFilter('bol_missing'); setShowDiscrepanciesPanel(false) }}>
-                BOL Missing ({parseStats.bolMissing})
+              <Button variant="link" size="sm" className="px-2 h-auto" onClick={() => { setParseStatusFilter('issues'); setShowDiscrepanciesPanel(false) }}>
+                View All Issues ({parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing})
               </Button>
             </div>
             <Button variant="outline" onClick={() => setShowDiscrepanciesPanel(false)}>
