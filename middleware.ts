@@ -23,16 +23,22 @@ export function middleware(request: NextRequest) {
       if (sessionData.role === 'viewer') {
         return NextResponse.redirect(new URL('/pipeline', request.url))
       }
+      // po_bol_only role goes directly to PO/BOL reconciliation
+      if (sessionData.role === 'po_bol_only') {
+        return NextResponse.redirect(new URL('/po-bol', request.url))
+      }
     } catch {
       // If session parse fails, go to default
     }
     return NextResponse.redirect(new URL('/', request.url))
   }
 
-  // Viewer role can only access pipeline page
+  // Role-based access control
   if (session && !isPublicPath) {
     try {
       const sessionData = JSON.parse(session)
+      
+      // Viewer role can only access pipeline page
       if (sessionData.role === 'viewer') {
         const allowedPaths = ['/pipeline', '/api/']
         const isAllowed = allowedPaths.some(path => request.nextUrl.pathname.startsWith(path))
@@ -42,6 +48,19 @@ export function middleware(request: NextRequest) {
         // Redirect viewer from home to pipeline
         if (request.nextUrl.pathname === '/') {
           return NextResponse.redirect(new URL('/pipeline', request.url))
+        }
+      }
+      
+      // po_bol_only role can only access PO/BOL reconciliation page
+      if (sessionData.role === 'po_bol_only') {
+        const allowedPaths = ['/po-bol', '/api/']
+        const isAllowed = allowedPaths.some(path => request.nextUrl.pathname.startsWith(path))
+        if (!isAllowed && request.nextUrl.pathname !== '/') {
+          return NextResponse.redirect(new URL('/po-bol', request.url))
+        }
+        // Redirect po_bol_only from home to po-bol
+        if (request.nextUrl.pathname === '/') {
+          return NextResponse.redirect(new URL('/po-bol', request.url))
         }
       }
     } catch {
