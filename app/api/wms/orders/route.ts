@@ -102,6 +102,8 @@ export async function GET(request: NextRequest) {
         referenceNumber: order.ReferenceNum || '',
         poNumber: order.PoNum || order.ReferenceNum?.split('-')[0] || '', // Try extracting PO from ReferenceNum
         customerName: order.ReadOnly?.CustomerIdentifier?.Name || order.CustomerIdentifier?.Name || '',
+        warehouseName: order.ReadOnly?.FacilityIdentifier?.Name || order.FacilityIdentifier?.Name || '',
+        warehouseId: order.ReadOnly?.FacilityIdentifier?.Id || order.FacilityIdentifier?.Id || '',
         status: statusText,
         statusCode: statusCode,
         processDate: order.ReadOnly?.ProcessDate || null,

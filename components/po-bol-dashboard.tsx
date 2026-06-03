@@ -47,6 +47,8 @@ interface Order {
   referenceNumber: string
   poNumber: string
   customerName: string
+  warehouseName: string
+  warehouseId: string
   status: string
   processDate: string | null
   creationDate: string | null
@@ -529,54 +531,43 @@ export function PoBolDashboard() {
   return Array.from(skuSet).sort()
   }, [supplierSkus, orders])
 
-  // Debug: log customer names to understand filtering
+  // Debug: log warehouse names to understand filtering
   useEffect(() => {
     if (orders.length > 0) {
+      const uniqueWarehouses = [...new Set(orders.map(o => o.warehouseName))]
       const uniqueCustomers = [...new Set(orders.map(o => o.customerName))]
+      console.log('[v0] Unique warehouses:', uniqueWarehouses)
       console.log('[v0] Unique customer names:', uniqueCustomers)
-      console.log('[v0] Current warehouse:', warehouse, 'supplier:', supplier)
+      console.log('[v0] Current filter - warehouse:', warehouse, 'supplier:', supplier)
     }
   }, [orders, warehouse, supplier])
 
-  // Filter orders by customer (supplier), warehouse, search query and selected SKUs
+  // Filter orders by warehouse, supplier (customer name), search query and selected SKUs
   const filteredOrders = orders.filter(order => {
     // Skip canceled orders (reference number contains "canceled")
     if (order.referenceNumber.toLowerCase().includes('cancel')) {
       return false
     }
     
-    // Warehouse/Supplier combinations that have dedicated WMS credentials
-    // For these, the API already returns the correct warehouse's orders
-    const dedicatedCredentials = [
-      'Moses Lake|HX', 
-      'Kent|HX', 
-      'Kent|AMC', 
-      'Moses Lake|AMC',
-      'Kent|TJJSH'
-    ]
-    const hasDedicatedCredential = dedicatedCredentials.includes(`${warehouse}|${supplier}`)
-    
-    const customerNameLower = order.customerName.toLowerCase()
-    const supplierLower = supplier.toLowerCase()
+    // Filter by warehouse using warehouseName field from API
+    // WMS warehouse names: "Kent Warehouse", "Moses Lake Warehouse", etc.
+    const warehouseNameLower = (order.warehouseName || '').toLowerCase()
     const warehouseLower = warehouse.toLowerCase()
     
-    // Only filter by warehouse if using shared credentials (multiple suppliers share same WMS account)
-    // For dedicated credentials, the API already returns correct warehouse orders
-    if (!hasDedicatedCredential) {
-      // Check warehouse match for shared credential suppliers
-      // Moses Lake = "moses lake" or "ml" or "moses"
-      // Kent = "kent"
-      let matchesWarehouse = false
-      if (warehouseLower === 'moses lake') {
-        matchesWarehouse = customerNameLower.includes('moses') || customerNameLower.includes(' ml')
-      } else if (warehouseLower === 'kent') {
-        matchesWarehouse = customerNameLower.includes('kent')
-      } else {
-        matchesWarehouse = customerNameLower.includes(warehouseLower)
-      }
-      
-      if (!matchesWarehouse) return false
+    let matchesWarehouse = false
+    if (warehouseLower === 'moses lake') {
+      matchesWarehouse = warehouseNameLower.includes('moses') || warehouseNameLower.includes('ml')
+    } else if (warehouseLower === 'kent') {
+      matchesWarehouse = warehouseNameLower.includes('kent')
+    } else {
+      matchesWarehouse = warehouseNameLower.includes(warehouseLower)
     }
+    
+    if (!matchesWarehouse) return false
+    
+    // Filter by supplier based on customer name
+    const customerNameLower = order.customerName.toLowerCase()
+    const supplierLower = supplier.toLowerCase()
     
     // Customer name to supplier mapping:
     // - "hx" orders contain "hx" in customer name
