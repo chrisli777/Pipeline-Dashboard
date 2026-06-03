@@ -201,6 +201,9 @@ export function PoBolDashboard() {
       }
       
       const data = await response.json()
+      // Debug: log first 3 orders to see full data structure including warehouse
+      console.log('[v0] API Response - First 3 orders:', JSON.stringify(data.orders?.slice(0, 3), null, 2))
+      console.log('[v0] Total orders from API:', data.orders?.length, 'Total count:', data.pagination?.totalCount)
       setOrders(data.orders || [])
       setPagination(data.pagination || pagination)
     } catch (err) {
