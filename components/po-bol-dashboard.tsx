@@ -545,25 +545,38 @@ export function PoBolDashboard() {
       return false
     }
     
-    // Filter by supplier AND warehouse based on customer name
-    // WMS customer name format: "Tianjin/WHI - Kent", "HX/WHI - Moses Lake", etc.
+    // Warehouse/Supplier combinations that have dedicated WMS credentials
+    // For these, the API already returns the correct warehouse's orders
+    const dedicatedCredentials = [
+      'Moses Lake|HX', 
+      'Kent|HX', 
+      'Kent|AMC', 
+      'Moses Lake|AMC',
+      'Kent|TJJSH'
+    ]
+    const hasDedicatedCredential = dedicatedCredentials.includes(`${warehouse}|${supplier}`)
+    
     const customerNameLower = order.customerName.toLowerCase()
     const supplierLower = supplier.toLowerCase()
     const warehouseLower = warehouse.toLowerCase()
     
-    // Check warehouse match first
-    // Moses Lake = "moses lake" or "ml"
-    // Kent = "kent"
-    let matchesWarehouse = false
-    if (warehouseLower === 'moses lake') {
-      matchesWarehouse = customerNameLower.includes('moses') || customerNameLower.includes(' ml')
-    } else if (warehouseLower === 'kent') {
-      matchesWarehouse = customerNameLower.includes('kent')
-    } else {
-      matchesWarehouse = customerNameLower.includes(warehouseLower)
+    // Only filter by warehouse if using shared credentials (multiple suppliers share same WMS account)
+    // For dedicated credentials, the API already returns correct warehouse orders
+    if (!hasDedicatedCredential) {
+      // Check warehouse match for shared credential suppliers
+      // Moses Lake = "moses lake" or "ml" or "moses"
+      // Kent = "kent"
+      let matchesWarehouse = false
+      if (warehouseLower === 'moses lake') {
+        matchesWarehouse = customerNameLower.includes('moses') || customerNameLower.includes(' ml')
+      } else if (warehouseLower === 'kent') {
+        matchesWarehouse = customerNameLower.includes('kent')
+      } else {
+        matchesWarehouse = customerNameLower.includes(warehouseLower)
+      }
+      
+      if (!matchesWarehouse) return false
     }
-    
-    if (!matchesWarehouse) return false
     
     // Customer name to supplier mapping:
     // - "hx" orders contain "hx" in customer name
