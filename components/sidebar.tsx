@@ -1,48 +1,73 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { LayoutDashboard, FileText, Ship, Truck, BarChart3, ChevronLeft, ChevronRight, LogOut, ClipboardCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
-const menuItems = [
+const allMenuItems = [
   {
     name: 'Pipeline Dashboard',
     href: '/',
     icon: LayoutDashboard,
+    roles: ['admin', 'viewer'], // Available to admin and viewer
   },
   {
     name: 'Customer Forecast',
     href: '/customer-forecast',
     icon: FileText,
+    roles: ['admin'],
   },
   {
     name: 'Shipment Tracking',
     href: '/shipments',
     icon: Ship,
+    roles: ['admin'],
   },
   {
     name: 'Dispatcher',
     href: '/dispatcher',
     icon: Truck,
+    roles: ['admin'],
   },
   {
     name: 'Replenishment',
     href: '/replenishment',
     icon: BarChart3,
+    roles: ['admin'],
   },
   {
     name: 'PO/BOL Check',
     href: '/po-bol',
     icon: ClipboardCheck,
+    roles: ['admin', 'po_bol_only'], // Available to admin and po_bol_only
   },
 ]
 
 export function Sidebar() {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(true)
+  const [userRole, setUserRole] = useState<string>('admin')
+
+  // Get user role from session cookie
+  useEffect(() => {
+    const sessionCookie = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('whi_session='))
+    if (sessionCookie) {
+      try {
+        const sessionData = JSON.parse(decodeURIComponent(sessionCookie.split('=')[1]))
+        setUserRole(sessionData.role || 'admin')
+      } catch {
+        // Keep default role
+      }
+    }
+  }, [])
+
+  // Filter menu items based on user role
+  const menuItems = allMenuItems.filter(item => item.roles.includes(userRole))
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
