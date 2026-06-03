@@ -135,7 +135,7 @@ export function PoBolDashboard() {
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSkus, setSelectedSkus] = useState<string[]>([])
-  const [parseStatusFilter, setParseStatusFilter] = useState<string>('all') // 'all' or 'issues'
+  const [showOnlyIssues, setShowOnlyIssues] = useState(false) // Toggle to show only issues from DB
   
   // Pagination
   const [pagination, setPagination] = useState<Pagination>({
@@ -178,6 +178,78 @@ export function PoBolDashboard() {
 
   // Parse issues panel state
   const [showDiscrepanciesPanel, setShowDiscrepanciesPanel] = useState(false)
+  
+  // Saved discrepancies from database
+  const [savedDiscrepancies, setSavedDiscrepancies] = useState<any[]>([])
+  const [loadingDiscrepancies, setLoadingDiscrepancies] = useState(false)
+
+  // Fetch saved discrepancies from DB
+  const fetchDiscrepancies = useCallback(async () => {
+    setLoadingDiscrepancies(true)
+    try {
+      const params = new URLSearchParams({
+        warehouse,
+        supplier,
+        resolved: 'false', // Only unresolved issues
+      })
+      const response = await fetch(`/api/po-bol-discrepancies?${params}`)
+      if (response.ok) {
+        const data = await response.json()
+        setSavedDiscrepancies(data.discrepancies || [])
+      }
+    } catch (err) {
+      console.error('[v0] Failed to fetch discrepancies:', err)
+    } finally {
+      setLoadingDiscrepancies(false)
+    }
+  }, [warehouse, supplier])
+
+  // Save discrepancy to DB
+  const saveDiscrepancy = async (order: Order, result: ParseResult) => {
+    // Only save if there's an issue (not a match)
+    if (result.status === 'match') return
+    
+    try {
+      await fetch('/api/po-bol-discrepancies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.orderId,
+          referenceNumber: order.referenceNumber,
+          warehouse,
+          supplierCode: supplier,
+          customerName: order.customerName,
+          processDate: order.processDate,
+          status: result.status,
+          bolData: result.bolData,
+          poData: result.poData,
+          comparisonData: result.comparison,
+          errorMessage: result.message || null,
+        }),
+      })
+      // Refresh discrepancies list
+      fetchDiscrepancies()
+    } catch (err) {
+      console.error('[v0] Failed to save discrepancy:', err)
+    }
+  }
+
+  // Remove discrepancy from DB (when resolved)
+  const resolveDiscrepancy = async (orderId: string) => {
+    try {
+      const discrepancy = savedDiscrepancies.find(d => d.order_id === orderId)
+      if (discrepancy) {
+        await fetch('/api/po-bol-discrepancies', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: discrepancy.id, resolved: true }),
+        })
+        fetchDiscrepancies()
+      }
+    } catch (err) {
+      console.error('[v0] Failed to resolve discrepancy:', err)
+    }
+  }
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -201,9 +273,6 @@ export function PoBolDashboard() {
       }
       
       const data = await response.json()
-      // Debug: log first 3 orders to see full data structure including warehouse
-      console.log('[v0] API Response - First 3 orders:', JSON.stringify(data.orders?.slice(0, 3), null, 2))
-      console.log('[v0] Total orders from API:', data.orders?.length, 'Total count:', data.pagination?.totalCount)
       setOrders(data.orders || [])
       setPagination(data.pagination || pagination)
     } catch (err) {
@@ -217,6 +286,11 @@ export function PoBolDashboard() {
   useEffect(() => {
     fetchOrders()
   }, [fetchOrders])
+
+  // Fetch saved discrepancies when warehouse/supplier changes
+  useEffect(() => {
+    fetchDiscrepancies()
+  }, [fetchDiscrepancies])
 
   // Fetch SKUs for the selected supplier from database
   useEffect(() => {
@@ -352,9 +426,15 @@ export function PoBolDashboard() {
         throw new Error(errorData.error || 'Failed to parse files')
       }
       
-      const data = await response.json()
-      setParseResults(prev => ({ ...prev, [orderId]: data.result }))
-    } catch (err: any) {
+  const data = await response.json()
+  setParseResults(prev => ({ ...prev, [orderId]: data.result }))
+  
+  // Save discrepancy to DB if there's an issue
+  const order = orders.find(o => o.orderId === orderId)
+  if (order && data.result) {
+    saveDiscrepancy(order, data.result)
+  }
+  } catch (err: any) {
       console.error('[v0] Parse compare error:', err)
       setParseResults(prev => ({ 
         ...prev, 
@@ -488,6 +568,9 @@ export function PoBolDashboard() {
 
         // Update individual parse results
         setParseResults(prev => ({ ...prev, [order.orderId]: result }))
+        
+        // Save discrepancy to DB if there's an issue
+        saveDiscrepancy(order, result)
 
         // Categorize result
         if (result.status === 'match') {
@@ -533,17 +616,6 @@ export function PoBolDashboard() {
   })
   return Array.from(skuSet).sort()
   }, [supplierSkus, orders])
-
-  // Debug: log warehouse names to understand filtering
-  useEffect(() => {
-    if (orders.length > 0) {
-      const uniqueWarehouses = [...new Set(orders.map(o => o.warehouseName))]
-      const uniqueCustomers = [...new Set(orders.map(o => o.customerName))]
-      console.log('[v0] Unique warehouses:', uniqueWarehouses)
-      console.log('[v0] Unique customer names:', uniqueCustomers)
-      console.log('[v0] Current filter - warehouse:', warehouse, 'supplier:', supplier)
-    }
-  }, [orders, warehouse, supplier])
 
   // Filter orders by warehouse, supplier (customer name), search query and selected SKUs
   const filteredOrders = orders.filter(order => {
@@ -623,14 +695,15 @@ export function PoBolDashboard() {
       const orderSkus = order.skuSummary.map(s => s.sku)
       const hasMatchingSku = selectedSkus.some(sku => orderSkus.includes(sku))
       if (!hasMatchingSku) return false
-    }
-    
-    // Filter by parse status - simplified to 'all' or 'issues'
-    if (parseStatusFilter === 'issues') {
-      const result = parseResults[order.orderId]
-      // Show only orders with issues (mismatch, missing files, errors, or not yet parsed)
-      if (result && result.status === 'match') return false
-    }
+  }
+  
+  // Filter by issues - show only orders that have issues in DB or current session
+  if (showOnlyIssues) {
+    const hasDbIssue = savedDiscrepancies.some(d => d.order_id === order.orderId)
+    const sessionResult = parseResults[order.orderId]
+    const hasSessionIssue = sessionResult && sessionResult.status !== 'match'
+    if (!hasDbIssue && !hasSessionIssue) return false
+  }
     
     return true
   })
@@ -833,27 +906,12 @@ export function PoBolDashboard() {
             </div>
           </div>
 
-          <div className="flex-1 min-w-[150px]">
-            <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
-              Parse Status
-            </label>
-            <Select value={parseStatusFilter} onValueChange={setParseStatusFilter}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="issues">Issues Only</SelectItem>
-            </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="flex-1 min-w-[150px]">
-            <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
-              Start Date
-            </label>
-            <Input
-              type="date"
+  <div className="flex-1 min-w-[150px]">
+  <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+  Start Date
+  </label>
+  <Input
+  type="date"
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
             />
@@ -934,35 +992,39 @@ export function PoBolDashboard() {
         <Card 
           className={cn(
             "p-4 cursor-pointer transition-colors",
-            (parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing) > 0 
+            (savedDiscrepancies.length > 0 || parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing > 0) 
               ? "border-red-200 bg-red-50 hover:bg-red-100" 
               : "hover:bg-muted/50"
           )}
-          onClick={() => setShowDiscrepanciesPanel(true)}
+          onClick={() => {
+            if (savedDiscrepancies.length > 0 || parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing > 0) {
+              setShowOnlyIssues(!showOnlyIssues)
+            }
+          }}
         >
           <div className="flex items-center gap-3">
             <div className={cn(
               "p-2 rounded-lg",
-              (parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing) > 0 ? "bg-red-100" : "bg-orange-100"
+              (savedDiscrepancies.length > 0 || parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing > 0) ? "bg-red-100" : "bg-orange-100"
             )}>
               <Archive className={cn(
                 "h-5 w-5",
-                (parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing) > 0 ? "text-red-600" : "text-orange-600"
+                (savedDiscrepancies.length > 0 || parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing > 0) ? "text-red-600" : "text-orange-600"
               )} />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Parse Issues</p>
+              <p className="text-sm text-muted-foreground">
+                {showOnlyIssues ? 'Showing Issues Only' : 'Parse Issues'}
+              </p>
               <p className={cn(
                 "text-2xl font-semibold",
-                (parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing) > 0 ? "text-red-600" : ""
+                (savedDiscrepancies.length > 0) ? "text-red-600" : ""
               )}>
-                {parseStats.mismatch + parseStats.bolMissing + parseStats.poMissing}
+                {savedDiscrepancies.length}
               </p>
-              {(parseStats.mismatch > 0 || parseStats.bolMissing > 0 || parseStats.poMissing > 0) && (
+              {savedDiscrepancies.length > 0 && (
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {parseStats.mismatch > 0 && `${parseStats.mismatch} mismatch`}
-                  {parseStats.mismatch > 0 && parseStats.bolMissing > 0 && ', '}
-                  {parseStats.bolMissing > 0 && `${parseStats.bolMissing} BOL missing`}
+                  Click to {showOnlyIssues ? 'show all' : 'filter'}
                 </p>
               )}
             </div>
