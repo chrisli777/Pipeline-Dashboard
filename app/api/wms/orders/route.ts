@@ -9,7 +9,7 @@ function formatDateForRQL(date: Date): string {
   return `${year}-${month}-${day}T00:00:00`
 }
 
-// GET /api/wms/orders - Fetch orders from WMS for PO/BOL reconciliation
+// GET /api/wms/orders - Fetch ALL orders from WMS for PO/BOL reconciliation (auto-paginate)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -17,8 +17,7 @@ export async function GET(request: NextRequest) {
     const supplier = searchParams.get('supplier') || 'HX'
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
-    const page = parseInt(searchParams.get('page') || '1')
-    const pageSize = parseInt(searchParams.get('pageSize') || '50')
+    const pageSize = 500 // WMS page size per request
 
     // Get WMS token
     const token = await getWmsToken(warehouse, supplier)
@@ -37,38 +36,54 @@ export async function GET(request: NextRequest) {
 
     const rqlEncoded = encodeURIComponent(rql)
 
-    // Fetch orders from WMS with OrderItems detail (same pattern as consumption API)
-    const wmsUrl = `https://secure-wms.com/orders?pgsiz=${pageSize}&pgnum=${page}&rql=${rqlEncoded}&detail=OrderItems`
+    // Fetch ALL pages from WMS
+    let allOrders: any[] = []
+    let currentPage = 1
+    let totalResults = 0
+    let hasMore = true
 
+    while (hasMore) {
+      const wmsUrl = `https://secure-wms.com/orders?pgsiz=${pageSize}&pgnum=${currentPage}&rql=${rqlEncoded}&detail=OrderItems`
 
+      const response = await fetch(wmsUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      })
 
-    const response = await fetch(wmsUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json',
-      },
-    })
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('[v0] WMS orders fetch failed:', response.status, errorText)
+        return NextResponse.json(
+          { error: `WMS API error: ${response.status}`, details: errorText },
+          { status: response.status }
+        )
+      }
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('[v0] WMS orders fetch failed:', response.status, errorText)
-      return NextResponse.json(
-        { error: `WMS API error: ${response.status}`, details: errorText },
-        { status: response.status }
-      )
+      const data = await response.json()
+      const orders = data.ResourceList || []
+      totalResults = data.TotalResults || 0
+
+      allOrders = [...allOrders, ...orders]
+
+      // Check if there are more pages
+      const totalPages = Math.ceil(totalResults / pageSize)
+      hasMore = currentPage < totalPages
+      currentPage++
+
+      // Safety limit to prevent infinite loops
+      if (currentPage > 50) {
+        console.warn('[v0] Reached max page limit (50), stopping pagination')
+        break
+      }
     }
 
-    const data = await response.json()
-    
-    // WMS returns ResourceList array (same as consumption API)
-    const orders = data.ResourceList || []
-    const totalResults = data.TotalResults || orders.length
-
-
+    console.log(`[v0] Fetched ${allOrders.length} orders across ${currentPage - 1} pages`)
 
     // Transform orders for frontend
-    const transformedOrders = orders.map((order: any) => {
+    const transformedOrders = allOrders.map((order: any) => {
       // Get OrderItems - handle both array and ResourceList format
       const rawOrderItems = order.OrderItems
       let orderItems: any[] = []
@@ -100,8 +115,10 @@ export async function GET(request: NextRequest) {
       return {
         orderId: order.ReadOnly?.OrderId || order.OrderId || '',
         referenceNumber: order.ReferenceNum || '',
-        poNumber: order.PoNum || order.ReferenceNum?.split('-')[0] || '', // Try extracting PO from ReferenceNum
+        poNumber: order.PoNum || order.ReferenceNum?.split('-')[0] || '',
         customerName: order.ReadOnly?.CustomerIdentifier?.Name || order.CustomerIdentifier?.Name || '',
+        warehouseName: order.ReadOnly?.FacilityIdentifier?.Name || order.FacilityIdentifier?.Name || '',
+        warehouseId: order.ReadOnly?.FacilityIdentifier?.Id || order.FacilityIdentifier?.Id || '',
         status: statusText,
         statusCode: statusCode,
         processDate: order.ReadOnly?.ProcessDate || null,
@@ -118,10 +135,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       orders: transformedOrders,
       pagination: {
-        page,
-        pageSize,
-        totalCount: totalResults,
-        totalPages: Math.ceil(totalResults / pageSize),
+        page: 1,
+        pageSize: transformedOrders.length,
+        totalCount: transformedOrders.length,
+        totalPages: 1, // All data in one page
       },
     })
   } catch (error) {

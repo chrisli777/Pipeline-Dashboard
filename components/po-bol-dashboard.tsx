@@ -47,6 +47,8 @@ interface Order {
   referenceNumber: string
   poNumber: string
   customerName: string
+  warehouseName: string
+  warehouseId: string
   status: string
   processDate: string | null
   creationDate: string | null
@@ -137,11 +139,14 @@ export function PoBolDashboard() {
   
   // Pagination
   const [pagination, setPagination] = useState<Pagination>({
-    page: 1,
-    pageSize: 50,
-    totalCount: 0,
-    totalPages: 0,
+  page: 1,
+  pageSize: 1000, // Large page size to get all orders
+  totalCount: 0,
+  totalPages: 0,
   })
+  
+  // SKUs from database for the selected supplier
+  const [supplierSkus, setSupplierSkus] = useState<string[]>([])
   
   // Expanded rows for SKU details
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -196,6 +201,9 @@ export function PoBolDashboard() {
       }
       
       const data = await response.json()
+      // Debug: log first 3 orders to see full data structure including warehouse
+      console.log('[v0] API Response - First 3 orders:', JSON.stringify(data.orders?.slice(0, 3), null, 2))
+      console.log('[v0] Total orders from API:', data.orders?.length, 'Total count:', data.pagination?.totalCount)
       setOrders(data.orders || [])
       setPagination(data.pagination || pagination)
     } catch (err) {
@@ -209,6 +217,22 @@ export function PoBolDashboard() {
   useEffect(() => {
     fetchOrders()
   }, [fetchOrders])
+
+  // Fetch SKUs for the selected supplier from database
+  useEffect(() => {
+    async function fetchSupplierSkus() {
+      try {
+        const response = await fetch(`/api/skus?supplier=${supplier}`)
+        if (response.ok) {
+          const data = await response.json()
+          setSupplierSkus(data.skus?.map((s: { sku_code: string }) => s.sku_code) || [])
+        }
+      } catch (err) {
+        console.error('[v0] Failed to fetch supplier SKUs:', err)
+      }
+    }
+    fetchSupplierSkus()
+  }, [supplier])
 
   const toggleRow = (orderId: string) => {
     setExpandedRows(prev => {
@@ -495,44 +519,66 @@ export function PoBolDashboard() {
     setShowResultsModal(true)
   }
 
-  // Get all unique SKUs from orders for the filter dropdown
+  // Get SKUs for filter dropdown - prefer database SKUs, fallback to order SKUs
   const availableSkus = useMemo(() => {
-    const skuSet = new Set<string>()
-    orders.forEach(order => {
-      order.skuSummary.forEach(item => {
-        skuSet.add(item.sku)
-      })
-    })
-    return Array.from(skuSet).sort()
-  }, [orders])
+  if (supplierSkus.length > 0) {
+    return supplierSkus.sort()
+  }
+  // Fallback: extract from orders if database SKUs not loaded
+  const skuSet = new Set<string>()
+  orders.forEach(order => {
+  order.skuSummary.forEach(item => {
+  skuSet.add(item.sku)
+  })
+  })
+  return Array.from(skuSet).sort()
+  }, [supplierSkus, orders])
 
-  // Debug: log unique customer names
+  // Debug: log warehouse names to understand filtering
   useEffect(() => {
     if (orders.length > 0) {
+      const uniqueWarehouses = [...new Set(orders.map(o => o.warehouseName))]
       const uniqueCustomers = [...new Set(orders.map(o => o.customerName))]
-      console.log('[v0] Unique customer names in orders:', uniqueCustomers)
+      console.log('[v0] Unique warehouses:', uniqueWarehouses)
+      console.log('[v0] Unique customer names:', uniqueCustomers)
+      console.log('[v0] Current filter - warehouse:', warehouse, 'supplier:', supplier)
     }
-  }, [orders])
+  }, [orders, warehouse, supplier])
 
-  // Filter orders by customer (supplier), search query and selected SKUs
+  // Filter orders by warehouse, supplier (customer name), search query and selected SKUs
   const filteredOrders = orders.filter(order => {
     // Skip canceled orders (reference number contains "canceled")
     if (order.referenceNumber.toLowerCase().includes('cancel')) {
       return false
     }
     
+    // Filter by warehouse using warehouseName field from API
+    // WMS warehouse names: "Kent Warehouse", "Moses Lake Warehouse", etc.
+    const warehouseNameLower = (order.warehouseName || '').toLowerCase()
+    const warehouseLower = warehouse.toLowerCase()
+    
+    let matchesWarehouse = false
+    if (warehouseLower === 'moses lake') {
+      matchesWarehouse = warehouseNameLower.includes('moses') || warehouseNameLower.includes('ml')
+    } else if (warehouseLower === 'kent') {
+      matchesWarehouse = warehouseNameLower.includes('kent')
+    } else {
+      matchesWarehouse = warehouseNameLower.includes(warehouseLower)
+    }
+    
+    if (!matchesWarehouse) return false
+    
     // Filter by supplier based on customer name
-    // The WMS uses specific customer names that need to be mapped to suppliers
     const customerNameLower = order.customerName.toLowerCase()
     const supplierLower = supplier.toLowerCase()
     
     // Customer name to supplier mapping:
     // - "hx" orders contain "hx" in customer name
-    // - "amc" orders contain "amc" in customer name  
-    // - "tjjsh" orders contain "tjj" or "tianjin" in customer name
-    // - "winschem" orders contain "winschem" or "winchem" in customer name
+    // - "amc" orders contain "alliance" in customer name  
+    // - "tjjsh" orders contain "tianjin" in customer name
+    // - "winschem" orders contain "winschem" in customer name
     // - "pmp" orders contain "pmp" in customer name
-    // - "dongyu" orders contain "dongyu" or "dong yu" in customer name
+    // - "dongyu" orders contain "dongyu" in customer name
     
     let matchesSupplier = false
     switch (supplierLower) {
@@ -540,19 +586,19 @@ export function PoBolDashboard() {
         matchesSupplier = customerNameLower.includes('hx')
         break
       case 'amc':
-        matchesSupplier = customerNameLower.includes('amc')
+        matchesSupplier = customerNameLower.includes('alliance')
         break
       case 'tjjsh':
-        matchesSupplier = customerNameLower.includes('tjj') || customerNameLower.includes('tianjin')
+        matchesSupplier = customerNameLower.includes('tianjin')
         break
       case 'winschem':
-        matchesSupplier = customerNameLower.includes('winschem') || customerNameLower.includes('winchem')
+        matchesSupplier = customerNameLower.includes('winschem')
         break
       case 'pmp':
         matchesSupplier = customerNameLower.includes('pmp')
         break
       case 'dongyu':
-        matchesSupplier = customerNameLower.includes('dongyu') || customerNameLower.includes('dong yu')
+        matchesSupplier = customerNameLower.includes('dongyu')
         break
       default:
         matchesSupplier = customerNameLower.includes(supplierLower)
@@ -1150,35 +1196,12 @@ export function PoBolDashboard() {
           </table>
         </div>
         
-        {/* Pagination */}
-        {pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between p-4 border-t">
-            <p className="text-sm text-muted-foreground">
-              Showing {filteredOrders.length} of {pagination.totalCount} orders
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={pagination.page <= 1}
-                onClick={() => setPagination(p => ({ ...p, page: p.page - 1 }))}
-              >
-                Previous
-              </Button>
-              <span className="flex items-center px-3 text-sm">
-                Page {pagination.page} of {pagination.totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={pagination.page >= pagination.totalPages}
-                onClick={() => setPagination(p => ({ ...p, page: p.page + 1 }))}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-        )}
+        {/* Order count summary */}
+        <div className="p-4 border-t">
+          <p className="text-sm text-muted-foreground">
+            Showing {filteredOrders.length} of {orders.length} orders loaded
+          </p>
+        </div>
       </Card>
 
       {/* Batch Results Modal */}
