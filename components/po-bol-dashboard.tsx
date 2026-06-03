@@ -529,6 +529,15 @@ export function PoBolDashboard() {
   return Array.from(skuSet).sort()
   }, [supplierSkus, orders])
 
+  // Debug: log customer names to understand filtering
+  useEffect(() => {
+    if (orders.length > 0) {
+      const uniqueCustomers = [...new Set(orders.map(o => o.customerName))]
+      console.log('[v0] Unique customer names:', uniqueCustomers)
+      console.log('[v0] Current warehouse:', warehouse, 'supplier:', supplier)
+    }
+  }, [orders, warehouse, supplier])
+
   // Filter orders by customer (supplier), warehouse, search query and selected SKUs
   const filteredOrders = orders.filter(order => {
     // Skip canceled orders (reference number contains "canceled")
