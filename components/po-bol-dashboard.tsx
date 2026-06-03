@@ -528,11 +528,11 @@ export function PoBolDashboard() {
     
     // Customer name to supplier mapping:
     // - "hx" orders contain "hx" in customer name
-    // - "amc" orders contain "amc" in customer name  
-    // - "tjjsh" orders contain "tjj" or "tianjin" in customer name
-    // - "winschem" orders contain "winschem" or "winchem" in customer name
+    // - "amc" orders contain "alliance" in customer name  
+    // - "tjjsh" orders contain "tianjin" in customer name
+    // - "winschem" orders contain "winschem" in customer name
     // - "pmp" orders contain "pmp" in customer name
-    // - "dongyu" orders contain "dongyu" or "dong yu" in customer name
+    // - "dongyu" orders contain "dongyu" in customer name
     
     let matchesSupplier = false
     switch (supplierLower) {
@@ -540,19 +540,19 @@ export function PoBolDashboard() {
         matchesSupplier = customerNameLower.includes('hx')
         break
       case 'amc':
-        matchesSupplier = customerNameLower.includes('amc')
+        matchesSupplier = customerNameLower.includes('alliance')
         break
       case 'tjjsh':
-        matchesSupplier = customerNameLower.includes('tjj') || customerNameLower.includes('tianjin')
+        matchesSupplier = customerNameLower.includes('tianjin')
         break
       case 'winschem':
-        matchesSupplier = customerNameLower.includes('winschem') || customerNameLower.includes('winchem')
+        matchesSupplier = customerNameLower.includes('winschem')
         break
       case 'pmp':
         matchesSupplier = customerNameLower.includes('pmp')
         break
       case 'dongyu':
-        matchesSupplier = customerNameLower.includes('dongyu') || customerNameLower.includes('dong yu')
+        matchesSupplier = customerNameLower.includes('dongyu')
         break
       default:
         matchesSupplier = customerNameLower.includes(supplierLower)
