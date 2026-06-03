@@ -137,11 +137,14 @@ export function PoBolDashboard() {
   
   // Pagination
   const [pagination, setPagination] = useState<Pagination>({
-    page: 1,
-    pageSize: 50,
-    totalCount: 0,
-    totalPages: 0,
+  page: 1,
+  pageSize: 500, // Increased to get more orders
+  totalCount: 0,
+  totalPages: 0,
   })
+  
+  // SKUs from database for the selected supplier
+  const [supplierSkus, setSupplierSkus] = useState<string[]>([])
   
   // Expanded rows for SKU details
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -209,6 +212,22 @@ export function PoBolDashboard() {
   useEffect(() => {
     fetchOrders()
   }, [fetchOrders])
+
+  // Fetch SKUs for the selected supplier from database
+  useEffect(() => {
+    async function fetchSupplierSkus() {
+      try {
+        const response = await fetch(`/api/skus?supplier=${supplier}`)
+        if (response.ok) {
+          const data = await response.json()
+          setSupplierSkus(data.skus?.map((s: { sku_code: string }) => s.sku_code) || [])
+        }
+      } catch (err) {
+        console.error('[v0] Failed to fetch supplier SKUs:', err)
+      }
+    }
+    fetchSupplierSkus()
+  }, [supplier])
 
   const toggleRow = (orderId: string) => {
     setExpandedRows(prev => {
@@ -495,36 +514,47 @@ export function PoBolDashboard() {
     setShowResultsModal(true)
   }
 
-  // Get all unique SKUs from orders for the filter dropdown
+  // Get SKUs for filter dropdown - prefer database SKUs, fallback to order SKUs
   const availableSkus = useMemo(() => {
-    const skuSet = new Set<string>()
-    orders.forEach(order => {
-      order.skuSummary.forEach(item => {
-        skuSet.add(item.sku)
-      })
-    })
-    return Array.from(skuSet).sort()
-  }, [orders])
+  if (supplierSkus.length > 0) {
+    return supplierSkus.sort()
+  }
+  // Fallback: extract from orders if database SKUs not loaded
+  const skuSet = new Set<string>()
+  orders.forEach(order => {
+  order.skuSummary.forEach(item => {
+  skuSet.add(item.sku)
+  })
+  })
+  return Array.from(skuSet).sort()
+  }, [supplierSkus, orders])
 
-  // Debug: log unique customer names
-  useEffect(() => {
-    if (orders.length > 0) {
-      const uniqueCustomers = [...new Set(orders.map(o => o.customerName))]
-      console.log('[v0] Unique customer names in orders:', uniqueCustomers)
-    }
-  }, [orders])
-
-  // Filter orders by customer (supplier), search query and selected SKUs
+  // Filter orders by customer (supplier), warehouse, search query and selected SKUs
   const filteredOrders = orders.filter(order => {
     // Skip canceled orders (reference number contains "canceled")
     if (order.referenceNumber.toLowerCase().includes('cancel')) {
       return false
     }
     
-    // Filter by supplier based on customer name
-    // The WMS uses specific customer names that need to be mapped to suppliers
+    // Filter by supplier AND warehouse based on customer name
+    // WMS customer name format: "Tianjin/WHI - Kent", "HX/WHI - Moses Lake", etc.
     const customerNameLower = order.customerName.toLowerCase()
     const supplierLower = supplier.toLowerCase()
+    const warehouseLower = warehouse.toLowerCase()
+    
+    // Check warehouse match first
+    // Moses Lake = "moses lake" or "ml"
+    // Kent = "kent"
+    let matchesWarehouse = false
+    if (warehouseLower === 'moses lake') {
+      matchesWarehouse = customerNameLower.includes('moses') || customerNameLower.includes(' ml')
+    } else if (warehouseLower === 'kent') {
+      matchesWarehouse = customerNameLower.includes('kent')
+    } else {
+      matchesWarehouse = customerNameLower.includes(warehouseLower)
+    }
+    
+    if (!matchesWarehouse) return false
     
     // Customer name to supplier mapping:
     // - "hx" orders contain "hx" in customer name
