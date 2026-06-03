@@ -140,7 +140,7 @@ export function PoBolDashboard() {
   // Pagination
   const [pagination, setPagination] = useState<Pagination>({
   page: 1,
-  pageSize: 500, // Increased to get more orders
+  pageSize: 1000, // Large page size to get all orders
   totalCount: 0,
   totalPages: 0,
   })
@@ -1196,31 +1196,34 @@ export function PoBolDashboard() {
           </table>
         </div>
         
-        {/* Pagination */}
+        {/* Pagination info - only show if there are more pages from API */}
         {pagination.totalPages > 1 && (
           <div className="flex items-center justify-between p-4 border-t">
             <p className="text-sm text-muted-foreground">
-              Showing {filteredOrders.length} of {pagination.totalCount} orders
+              Showing {filteredOrders.length} of {pagination.totalCount} total orders (Page {pagination.page} of {pagination.totalPages} from API)
             </p>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 disabled={pagination.page <= 1}
-                onClick={() => setPagination(p => ({ ...p, page: p.page - 1 }))}
+                onClick={() => {
+                  setPagination(p => ({ ...p, page: p.page - 1 }))
+                  // Re-fetch will happen via useEffect
+                }}
               >
-                Previous
+                Load Previous
               </Button>
-              <span className="flex items-center px-3 text-sm">
-                Page {pagination.page} of {pagination.totalPages}
-              </span>
               <Button
                 variant="outline"
                 size="sm"
                 disabled={pagination.page >= pagination.totalPages}
-                onClick={() => setPagination(p => ({ ...p, page: p.page + 1 }))}
+                onClick={() => {
+                  setPagination(p => ({ ...p, page: p.page + 1 }))
+                  // Re-fetch will happen via useEffect
+                }}
               >
-                Next
+                Load Next
               </Button>
             </div>
           </div>

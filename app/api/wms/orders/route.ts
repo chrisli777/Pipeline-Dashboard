@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
     const page = parseInt(searchParams.get('page') || '1')
-    const pageSize = parseInt(searchParams.get('pageSize') || '500') // Increased default to get more orders
+    const pageSize = parseInt(searchParams.get('pageSize') || '1000') // Large page size to get all orders
 
     // Get WMS token
     const token = await getWmsToken(warehouse, supplier)
