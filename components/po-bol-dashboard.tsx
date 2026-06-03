@@ -1196,38 +1196,12 @@ export function PoBolDashboard() {
           </table>
         </div>
         
-        {/* Pagination info - only show if there are more pages from API */}
-        {pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between p-4 border-t">
-            <p className="text-sm text-muted-foreground">
-              Showing {filteredOrders.length} of {pagination.totalCount} total orders (Page {pagination.page} of {pagination.totalPages} from API)
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={pagination.page <= 1}
-                onClick={() => {
-                  setPagination(p => ({ ...p, page: p.page - 1 }))
-                  // Re-fetch will happen via useEffect
-                }}
-              >
-                Load Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={pagination.page >= pagination.totalPages}
-                onClick={() => {
-                  setPagination(p => ({ ...p, page: p.page + 1 }))
-                  // Re-fetch will happen via useEffect
-                }}
-              >
-                Load Next
-              </Button>
-            </div>
-          </div>
-        )}
+        {/* Order count summary */}
+        <div className="p-4 border-t">
+          <p className="text-sm text-muted-foreground">
+            Showing {filteredOrders.length} of {orders.length} orders loaded
+          </p>
+        </div>
       </Card>
 
       {/* Batch Results Modal */}
