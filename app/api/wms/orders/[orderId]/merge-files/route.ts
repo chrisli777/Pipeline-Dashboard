@@ -60,10 +60,11 @@ export async function GET(
     for (const file of files) {
       const fileName = file.docName || ''
       const upperFileName = fileName.toUpperCase()
-      // BOL files can start with "BOL" or "UTF" prefix
-      if (upperFileName.startsWith('BOL') || upperFileName.startsWith('UTF')) {
+      // BOL files start with "BOL"
+      if (upperFileName.startsWith('BOL')) {
         bolFiles.push(file)
-      } else if (upperFileName.startsWith('PO')) {
+      // PO files can start with "PO" or "UTF" prefix (UTF files are release documents that serve as PO)
+      } else if (upperFileName.startsWith('PO') || upperFileName.startsWith('UTF')) {
         poFiles.push(file)
       }
     }
