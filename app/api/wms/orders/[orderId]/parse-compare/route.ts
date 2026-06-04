@@ -88,7 +88,10 @@ export async function POST(
       
       const downloadPath = file._links?.['http://api.3plcentral.com/rels/orders/orderfile']?.href ||
                            file._links?.['http://api.3plCentral.com/rels/orders/orderfile']?.href
-      if (!downloadPath) return null
+      if (!downloadPath) {
+        console.error('[v0] No download path for file:', file.docName)
+        return null
+      }
 
       const fileUrl = `https://secure-wms.com${downloadPath}`
       const response = await fetch(fileUrl, {
@@ -98,16 +101,55 @@ export async function POST(
         },
       })
 
-      if (!response.ok) return null
+      if (!response.ok) {
+        console.error('[v0] File download failed:', file.docName, response.status)
+        return null
+      }
 
       const buffer = await response.arrayBuffer()
-      return Buffer.from(buffer).toString('base64')
+      const base64 = Buffer.from(buffer).toString('base64')
+      
+      // Validate it's actually a PDF (starts with %PDF)
+      const pdfHeader = Buffer.from(buffer.slice(0, 5)).toString()
+      if (!pdfHeader.startsWith('%PDF')) {
+        console.error('[v0] Downloaded file is not a valid PDF:', file.docName, 'Header:', pdfHeader.slice(0, 20))
+        return null
+      }
+      
+      return base64
     }
 
     const [bolBase64, poBase64] = await Promise.all([
       downloadFile(bolFile),
       downloadFile(poFile),
     ])
+
+    // Check for missing/invalid files
+    if (!bolBase64 && bolFile) {
+      return NextResponse.json({
+        success: true,
+        result: {
+          status: 'error',
+          message: `BOL file (${bolFile.docName}) could not be downloaded or is not a valid PDF`,
+          bolData: null,
+          poData: null,
+          comparison: null,
+        }
+      })
+    }
+    
+    if (!poBase64 && poFile) {
+      return NextResponse.json({
+        success: true,
+        result: {
+          status: 'error',
+          message: `PO file (${poFile.docName}) could not be downloaded or is not a valid PDF`,
+          bolData: null,
+          poData: null,
+          comparison: null,
+        }
+      })
+    }
 
     // Use Claude to parse both documents
     const anthropic = new Anthropic()
