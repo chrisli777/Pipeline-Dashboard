@@ -136,12 +136,8 @@ export async function POST(
       const buffer = await response.arrayBuffer()
       const base64 = Buffer.from(buffer).toString('base64')
       
-      // Validate it's actually a PDF (starts with %PDF)
-      const pdfHeader = Buffer.from(buffer.slice(0, 5)).toString()
-      if (!pdfHeader.startsWith('%PDF')) {
-        console.error('[v0] Downloaded file is not a valid PDF:', file.docName, 'Header:', pdfHeader.slice(0, 20))
-        return null
-      }
+      // Log file size for debugging
+      console.log('[v0] Downloaded file:', file.docName, 'Size:', buffer.byteLength, 'bytes')
       
       return base64
     }
@@ -151,13 +147,13 @@ export async function POST(
       downloadFile(poFile),
     ])
 
-    // Check for missing/invalid files
-    if (!bolBase64 && bolFile) {
+    // Check for download failures
+    if (!bolBase64) {
       return NextResponse.json({
         success: true,
         result: {
           status: 'error',
-          message: `BOL file (${bolFile.docName}) could not be downloaded or is not a valid PDF`,
+          message: `BOL file (${bolFile.docName}) could not be downloaded`,
           bolData: null,
           poData: null,
           comparison: null,
@@ -165,17 +161,18 @@ export async function POST(
       })
     }
     
-    if (!poBase64 && poFile) {
+    if (!poBase64) {
       return NextResponse.json({
         success: true,
         result: {
           status: 'error',
-          message: `PO file (${poFile.docName}) could not be downloaded or is not a valid PDF`,
+          message: `PO file (${poFile.docName}) could not be downloaded`,
           bolData: null,
           poData: null,
           comparison: null,
         }
       })
+    }
     }
 
     // Use Claude to parse both documents
