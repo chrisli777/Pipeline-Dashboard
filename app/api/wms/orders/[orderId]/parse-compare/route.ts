@@ -52,7 +52,11 @@ export async function POST(
     }
 
     // Find all BOL and PO files
-    const bolFiles = files.filter((f: any) => f.docName?.toUpperCase().startsWith('BOL'))
+    // BOL files can start with "BOL" or "UTF" prefix
+    const bolFiles = files.filter((f: any) => {
+      const docName = f.docName?.toUpperCase() || ''
+      return docName.startsWith('BOL') || docName.startsWith('UTF')
+    })
     const poFiles = files.filter((f: any) => f.docName?.toUpperCase().startsWith('PO'))
 
     // Sort by version number (descending) and pick the highest version
@@ -258,7 +262,7 @@ If no items found, return: {"items":[]}`,
     })
 
   } catch (error: any) {
-    console.error('[v0] Parse compare error:', error)
+    console.error('[v0] Parse compare error:', error.message, error.stack)
     return NextResponse.json(
       { error: error.message || 'Failed to parse and compare files' },
       { status: 500 }

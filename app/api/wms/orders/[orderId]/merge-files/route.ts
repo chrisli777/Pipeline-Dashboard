@@ -59,9 +59,11 @@ export async function GET(
 
     for (const file of files) {
       const fileName = file.docName || ''
-      if (fileName.toUpperCase().startsWith('BOL')) {
+      const upperFileName = fileName.toUpperCase()
+      // BOL files can start with "BOL" or "UTF" prefix
+      if (upperFileName.startsWith('BOL') || upperFileName.startsWith('UTF')) {
         bolFiles.push(file)
-      } else if (fileName.toUpperCase().startsWith('PO')) {
+      } else if (upperFileName.startsWith('PO')) {
         poFiles.push(file)
       }
     }
