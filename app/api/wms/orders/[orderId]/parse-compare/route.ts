@@ -82,6 +82,33 @@ export async function POST(
       })
     }
 
+    // Check for missing files before downloading
+    if (!bolFile) {
+      return NextResponse.json({
+        success: true,
+        result: {
+          status: 'bol_missing',
+          message: 'BOL file not found - cannot compare',
+          bolData: null,
+          poData: { file: poFile?.docName },
+          comparison: null,
+        }
+      })
+    }
+
+    if (!poFile) {
+      return NextResponse.json({
+        success: true,
+        result: {
+          status: 'po_missing',
+          message: 'PO file not found - cannot compare',
+          bolData: { file: bolFile?.docName },
+          poData: null,
+          comparison: null,
+        }
+      })
+    }
+
     // Download both files
     const downloadFile = async (file: any): Promise<string | null> => {
       if (!file) return null
