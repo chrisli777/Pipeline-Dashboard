@@ -357,7 +357,6 @@ export function PipelineDashboard() {
           const session = await res.json()
           if (session.role === 'viewer') {
             setUserRole('viewer')
-            setSelectedVendors(['HX'])  // Force HX only for viewer
           } else {
             setUserRole('admin')
           }

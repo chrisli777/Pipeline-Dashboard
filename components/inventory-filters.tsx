@@ -255,19 +255,13 @@ export function InventoryFilters({
   {/* Tier 2: Vendor */}
   <div className="flex items-center gap-2">
   <label className="text-sm text-muted-foreground">Vendor:</label>
-  {userRole === 'viewer' ? (
-    <div className="px-3 py-1.5 bg-blue-100 text-blue-800 rounded text-sm font-medium">
-      HX (locked)
-    </div>
-  ) : (
-    <MultiSelect
-      label="Vendor"
-      options={vendors.map((v) => ({ value: v, label: v }))}
-      selected={selectedVendors}
-      onChange={onVendorsChange}
-      width="w-[140px]"
-    />
-  )}
+  <MultiSelect
+    label="Vendor"
+    options={vendors.map((v) => ({ value: v, label: v }))}
+    selected={selectedVendors}
+    onChange={onVendorsChange}
+    width="w-[140px]"
+  />
   </div>
 
       {/* Tier 3: Warehouse */}
