@@ -408,9 +408,12 @@ export function PoBolDashboard() {
   }
 
   // Parse and compare BOL vs PO
-  const parseAndCompare = async (orderId: string) => {
-    // Skip if already parsing or already have result
-    if (parsingOrders.has(orderId) || parseResults[orderId]) return
+  const parseAndCompare = async (orderId: string, forceReparse = false) => {
+    // Skip if already parsing
+    if (parsingOrders.has(orderId)) return
+    // Skip if already have successful result (match) unless force reparse
+    const existingResult = parseResults[orderId]
+    if (existingResult && existingResult.status === 'match' && !forceReparse) return
 
     setParsingOrders(prev => new Set(prev).add(orderId))
     
@@ -1127,27 +1130,36 @@ export function PoBolDashboard() {
                         {parsingOrders.has(order.orderId) ? (
                           <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
                         ) : parseResults[order.orderId] ? (
-                          <div className="flex items-center justify-center">
+                          <div className="flex items-center justify-center gap-1">
                             {parseResults[order.orderId].status === 'match' ? (
                               <span className="flex items-center gap-1 text-green-600 text-xs font-medium">
                                 <CheckCircle2 className="h-4 w-4" />
                                 Match
                               </span>
                             ) : parseResults[order.orderId].status === 'mismatch' ? (
-                              <span className="flex items-center gap-1 text-red-600 text-xs font-medium cursor-help" 
-                                    title={parseResults[order.orderId].comparison?.mismatches.map(m => m.message).join('\n')}>
+                              <span className="flex items-center gap-1 text-red-600 text-xs font-medium cursor-pointer" 
+                                    title={`Click to reparse. ${parseResults[order.orderId].comparison?.mismatches.map(m => m.message).join('\n')}`}
+                                    onClick={(e) => { e.stopPropagation(); parseAndCompare(order.orderId, true) }}>
                                 <AlertCircle className="h-4 w-4" />
                                 Mismatch
                               </span>
                             ) : parseResults[order.orderId].status === 'no_files' ? (
-                              <span className="text-xs text-muted-foreground">No files</span>
+                              <span className="text-xs text-muted-foreground cursor-pointer"
+                                    title="Click to retry"
+                                    onClick={(e) => { e.stopPropagation(); parseAndCompare(order.orderId, true) }}>
+                                No files
+                              </span>
                             ) : parseResults[order.orderId].status === 'error' ? (
-                              <span className="flex items-center gap-1 text-orange-600 text-xs" title={parseResults[order.orderId].message}>
+                              <span className="flex items-center gap-1 text-orange-600 text-xs cursor-pointer" 
+                                    title={`Click to retry. Error: ${parseResults[order.orderId].message}`}
+                                    onClick={(e) => { e.stopPropagation(); parseAndCompare(order.orderId, true) }}>
                                 <AlertCircle className="h-4 w-4" />
                                 Error
                               </span>
                             ) : (
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-xs text-muted-foreground cursor-pointer"
+                                    title="Click to reparse"
+                                    onClick={(e) => { e.stopPropagation(); parseAndCompare(order.orderId, true) }}>
                                 {parseResults[order.orderId].status}
                               </span>
                             )}

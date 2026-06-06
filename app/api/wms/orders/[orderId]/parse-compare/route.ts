@@ -52,8 +52,12 @@ export async function POST(
     }
 
     // Find all BOL and PO files
+    // PO files can also start with "UTF" (release documents)
     const bolFiles = files.filter((f: any) => f.docName?.toUpperCase().startsWith('BOL'))
-    const poFiles = files.filter((f: any) => f.docName?.toUpperCase().startsWith('PO'))
+    const poFiles = files.filter((f: any) => {
+      const docName = f.docName?.toUpperCase() || ''
+      return docName.startsWith('PO') || docName.startsWith('UTF')
+    })
 
     // Sort by version number (descending) and pick the highest version
     bolFiles.sort((a: any, b: any) => getVersionNumber(b.docName || '') - getVersionNumber(a.docName || ''))
