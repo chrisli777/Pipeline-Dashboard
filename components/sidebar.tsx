@@ -51,19 +51,21 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(true)
   const [userRole, setUserRole] = useState<string>('admin')
 
-  // Get user role from session cookie
+  // Get user role from server endpoint (whi_session cookie is httpOnly,
+  // so it cannot be read via document.cookie on the client)
   useEffect(() => {
-    const sessionCookie = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('whi_session='))
-    if (sessionCookie) {
+    const loadRole = async () => {
       try {
-        const sessionData = JSON.parse(decodeURIComponent(sessionCookie.split('=')[1]))
-        setUserRole(sessionData.role || 'admin')
+        const res = await fetch('/api/auth/me')
+        if (res.ok) {
+          const session = await res.json()
+          setUserRole(session.role || 'admin')
+        }
       } catch {
         // Keep default role
       }
     }
+    loadRole()
   }, [])
 
   // Filter menu items based on user role

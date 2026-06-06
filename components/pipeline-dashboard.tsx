@@ -344,28 +344,31 @@ export function PipelineDashboard() {
     }
   }, [])
 
-  // Load data on mount and detect user role from cookie
+  // Load data on mount and detect user role from server (cookie is httpOnly)
   useEffect(() => {
     fetchData()
-    
-    // Get user role from session cookie (client-side only)
-    const value = `; ${document.cookie}`
-    const parts = value.split(`; whi_session=`)
-    if (parts.length === 2) {
+
+    // Get user role from server endpoint (whi_session cookie is httpOnly,
+    // so it cannot be read via document.cookie on the client)
+    const loadRole = async () => {
       try {
-        const sessionStr = parts.pop()?.split(';').shift()
-        if (sessionStr) {
-          const session = JSON.parse(decodeURIComponent(sessionStr))
+        const res = await fetch('/api/auth/me')
+        if (res.ok) {
+          const session = await res.json()
           if (session.role === 'viewer') {
             setUserRole('viewer')
             setSelectedVendors(['HX'])  // Force HX only for viewer
+          } else {
+            setUserRole('admin')
           }
         }
       } catch {
-        // Ignore parse errors
+        // Ignore errors, default stays admin
+      } finally {
+        setRoleLoaded(true)
       }
     }
-    setRoleLoaded(true)
+    loadRole()
   }, [fetchData])
 
   // Derive inventory alerts from SKU data
