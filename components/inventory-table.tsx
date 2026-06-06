@@ -597,6 +597,7 @@ function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedAta
             <EditableCell
               value={week.customerForecast}
               onChange={(v) => onDataChange(sku.id, week.weekNumber, 'customerForecast', v)}
+              isReadOnly={userRole === 'viewer'}
             />
           </td>
         ))}
@@ -611,10 +612,10 @@ function SKURows({ sku, filteredWeeks, weekRange, highlightedSet, highlightedAta
           {skuWeeks.map((week) => {
             const value = week[rowType]
             // Calculated Actual Inventory is read-only (except week 1)
-            // Viewer role can only edit ETD
+            // Viewer role is fully read-only - cannot edit anything
             const isReadOnly =
               (rowType === 'actualInventory' && week.weekNumber !== 1) ||
-              (userRole === 'viewer' && rowType !== 'etd')
+              userRole === 'viewer'
             const isHighlighted = highlightedSet.has(week.weekNumber)
             
             // Check if this cell should be highlighted based on hover
