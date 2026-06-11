@@ -43,7 +43,9 @@ export async function GET(request: NextRequest) {
     .filter(row => row.customer_forecast > 0 || row.actual_consumption > 0)
     .map(row => {
       const forecast = row.customer_forecast || 0
-      const actual = row.actual_consumption || forecast  // Default to forecast if null
+      // Only fall back to forecast when actual is genuinely missing (null/undefined).
+      // A real value of 0 must be preserved, not replaced by the forecast.
+      const actual = row.actual_consumption != null ? Number(row.actual_consumption) : forecast
       const variance = actual - forecast
       const variancePercent = forecast > 0 ? (variance / forecast) * 100 : 0
 
