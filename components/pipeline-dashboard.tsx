@@ -654,12 +654,9 @@ export function PipelineDashboard() {
         }
         return s
       }
-      const currentWeekNumber = (() => {
-        const now = new Date()
-        const start = new Date(now.getFullYear(), 0, 1)
-        const diff = now.getTime() - start.getTime()
-        return Math.ceil(diff / (7 * 24 * 60 * 60 * 1000))
-      })()
+      // Use the same "current week" the app uses elsewhere, so the past/future
+      // boundary for formulas matches what the dashboard treats as current.
+      const currentWeekNumber = getDefaultWeek()
 
       // Styles - using 'as const' objects instead of ExcelJS type annotations
       const solidFill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
@@ -839,8 +836,10 @@ export function PipelineDashboard() {
           }
 
           if (rowType === 'eta') {
-            // ETA = ETD from 6 weeks earlier (when that week is within the export range).
+            // Future weeks: ETA = ETD from 6 weeks earlier (when within range).
+            // Past/current weeks keep their real (static) ETA values.
             for (let j = 0; j < skuWeeks.length; j++) {
+              if (skuWeeks[j].weekNumber <= currentWeekNumber) continue
               const sourceWeek = skuWeeks[j].weekNumber - 6
               const k = skuWeeks.findIndex(w => w.weekNumber === sourceWeek)
               if (k >= 0) {
@@ -856,8 +855,10 @@ export function PipelineDashboard() {
           }
 
           if (rowType === 'ata') {
-            // ATA defaults to ETA in the same column (rollover ignored).
+            // Future weeks: ATA defaults to ETA in the same column (rollover ignored).
+            // Past/current weeks keep their real (static) ATA values.
             for (let j = 0; j < skuWeeks.length; j++) {
+              if (skuWeeks[j].weekNumber <= currentWeekNumber) continue
               const c = 3 + j
               const cell = ws.getRow(thisRowNum).getCell(c)
               const cached = skuWeeks[j].ata
