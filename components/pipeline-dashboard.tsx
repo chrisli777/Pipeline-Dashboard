@@ -814,10 +814,59 @@ export function PipelineDashboard() {
 
           // --- Inject live formulas for calculated rows ---
           // Row numbers within this SKU block (absolute sheet rows)
+          const forecastRow = startRowNum      // customerForecast
           const consRow = startRowNum + 1      // actualConsumption
+          const etdRow = startRowNum + 2       // etd
+          const etaRow = startRowNum + 3       // eta
           const ataRow = startRowNum + 4       // ata
           const invRow = startRowNum + 6       // actualInventory
           const thisRowNum = startRowNum + idx
+
+          if (rowType === 'actualConsumption') {
+            // Future weeks: actual consumption defaults to the customer forecast.
+            // Past/current weeks keep their real (static) consumption values.
+            for (let j = 0; j < skuWeeks.length; j++) {
+              if (skuWeeks[j].weekNumber > currentWeekNumber) {
+                const c = 3 + j
+                const cell = ws.getRow(thisRowNum).getCell(c)
+                const cached = skuWeeks[j].actualConsumption
+                cell.value = {
+                  formula: `${colLetter(c)}${forecastRow}`,
+                  result: typeof cached === 'number' ? cached : 0,
+                }
+              }
+            }
+          }
+
+          if (rowType === 'eta') {
+            // ETA = ETD from 6 weeks earlier (when that week is within the export range).
+            for (let j = 0; j < skuWeeks.length; j++) {
+              const sourceWeek = skuWeeks[j].weekNumber - 6
+              const k = skuWeeks.findIndex(w => w.weekNumber === sourceWeek)
+              if (k >= 0) {
+                const c = 3 + j
+                const cell = ws.getRow(thisRowNum).getCell(c)
+                const cached = skuWeeks[j].eta
+                cell.value = {
+                  formula: `${colLetter(3 + k)}${etdRow}`,
+                  result: typeof cached === 'number' ? cached : 0,
+                }
+              }
+            }
+          }
+
+          if (rowType === 'ata') {
+            // ATA defaults to ETA in the same column (rollover ignored).
+            for (let j = 0; j < skuWeeks.length; j++) {
+              const c = 3 + j
+              const cell = ws.getRow(thisRowNum).getCell(c)
+              const cached = skuWeeks[j].ata
+              cell.value = {
+                formula: `${colLetter(c)}${etaRow}`,
+                result: typeof cached === 'number' ? cached : 0,
+              }
+            }
+          }
 
           if (rowType === 'actualInventory') {
             // inventory[c] = inventory[c-1] - consumption[c] + ata[c]
