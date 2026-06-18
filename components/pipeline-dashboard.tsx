@@ -643,12 +643,20 @@ export function PipelineDashboard() {
         w => w.weekNumber >= weekRange.start && w.weekNumber <= weekRange.end
       ) || []
       const numWeeks = weeks.length
-      const currentWeekNumber = (() => {
-        const now = new Date()
-        const start = new Date(now.getFullYear(), 0, 1)
-        const diff = now.getTime() - start.getTime()
-        return Math.ceil(diff / (7 * 24 * 60 * 60 * 1000))
-      })()
+
+      // Convert a 1-based column number to its Excel letter (1->A, 27->AA, ...)
+      const colLetter = (n: number) => {
+        let s = ''
+        while (n > 0) {
+          const rem = (n - 1) % 26
+          s = String.fromCharCode(65 + rem) + s
+          n = Math.floor((n - 1) / 26)
+        }
+        return s
+      }
+      // Use the same "current week" the app uses elsewhere, so the past/future
+      // boundary for formulas matches what the dashboard treats as current.
+      const currentWeekNumber = getDefaultWeek()
 
       // Styles - using 'as const' objects instead of ExcelJS type annotations
       const solidFill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } })
@@ -752,6 +760,12 @@ export function PipelineDashboard() {
 
           const row = ws.addRow([skuCell, label, ...values])
 
+          // Hide the ETA row by default (kept in the file, just collapsed).
+          // Other rows reference it (e.g. ATA), so the data must remain present.
+          if (rowType === 'eta') {
+            row.hidden = true
+          }
+
           // Style each cell in the row
           row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
             cell.border = thinBorder
@@ -800,6 +814,99 @@ export function PipelineDashboard() {
               cell.fill = wohRowFill
             }
           })
+
+          // --- Inject live formulas for calculated rows ---
+          // Row numbers within this SKU block (absolute sheet rows)
+          const forecastRow = startRowNum      // customerForecast
+          const consRow = startRowNum + 1      // actualConsumption
+          const etdRow = startRowNum + 2       // etd
+          const etaRow = startRowNum + 3       // eta
+          const ataRow = startRowNum + 4       // ata
+          const invRow = startRowNum + 6       // actualInventory
+          const thisRowNum = startRowNum + idx
+
+          if (rowType === 'actualConsumption') {
+            // Future weeks: actual consumption defaults to the customer forecast.
+            // Past/current weeks keep their real (static) consumption values.
+            for (let j = 0; j < skuWeeks.length; j++) {
+              if (skuWeeks[j].weekNumber > currentWeekNumber) {
+                const c = 3 + j
+                const cell = ws.getRow(thisRowNum).getCell(c)
+                const cached = skuWeeks[j].actualConsumption
+                cell.value = {
+                  formula: `${colLetter(c)}${forecastRow}`,
+                  result: typeof cached === 'number' ? cached : 0,
+                }
+              }
+            }
+          }
+
+          if (rowType === 'eta') {
+            // Future weeks: ETA = ETD from 6 weeks earlier (when within range).
+            // Past/current weeks keep their real (static) ETA values.
+            for (let j = 0; j < skuWeeks.length; j++) {
+              if (skuWeeks[j].weekNumber <= currentWeekNumber) continue
+              const sourceWeek = skuWeeks[j].weekNumber - 6
+              const k = skuWeeks.findIndex(w => w.weekNumber === sourceWeek)
+              if (k >= 0) {
+                const c = 3 + j
+                const cell = ws.getRow(thisRowNum).getCell(c)
+                const cached = skuWeeks[j].eta
+                cell.value = {
+                  formula: `${colLetter(3 + k)}${etdRow}`,
+                  result: typeof cached === 'number' ? cached : 0,
+                }
+              }
+            }
+          }
+
+          if (rowType === 'ata') {
+            // Future weeks: ATA defaults to ETA in the same column (rollover ignored).
+            // Past/current weeks keep their real (static) ATA values.
+            for (let j = 0; j < skuWeeks.length; j++) {
+              if (skuWeeks[j].weekNumber <= currentWeekNumber) continue
+              const c = 3 + j
+              const cell = ws.getRow(thisRowNum).getCell(c)
+              const cached = skuWeeks[j].ata
+              cell.value = {
+                formula: `${colLetter(c)}${etaRow}`,
+                result: typeof cached === 'number' ? cached : 0,
+              }
+            }
+          }
+
+          if (rowType === 'actualInventory') {
+            // inventory[c] = inventory[c-1] - consumption[c] + ata[c]
+            // First exported column stays as a static base value.
+            for (let j = 1; j < skuWeeks.length; j++) {
+              const c = 3 + j
+              const cell = ws.getRow(thisRowNum).getCell(c)
+              const cached = skuWeeks[j].actualInventory
+              cell.value = {
+                formula: `${colLetter(c - 1)}${invRow}-${colLetter(c)}${consRow}+${colLetter(c)}${ataRow}`,
+                result: typeof cached === 'number' ? cached : 0,
+              }
+            }
+          }
+
+          if (rowType === 'weeksOnHand') {
+            // wohOnHand = inventory / (13-week rolling avg consumption)
+            // window = [j-4, j+8] clamped to the exported range
+            for (let j = 0; j < skuWeeks.length; j++) {
+              const c = 3 + j
+              const cell = ws.getRow(thisRowNum).getCell(c)
+              const wStart = Math.max(0, j - 4)
+              const wEnd = Math.min(skuWeeks.length - 1, j + 8)
+              const sumRange = `SUM(${colLetter(3 + wStart)}${consRow}:${colLetter(3 + wEnd)}${consRow})`
+              const invCell = `${colLetter(c)}${invRow}`
+              const avg = `${sumRange}/13`
+              const cached = skuWeeks[j].weeksOnHand
+              cell.value = {
+                formula: `IF(${avg}<=0,IF(${invCell}>0,999,0),ROUND(${invCell}/(${avg}),2))`,
+                result: typeof cached === 'number' ? cached : 0,
+              }
+            }
+          }
         })
 
         // Merge SKU info cells (column A)
