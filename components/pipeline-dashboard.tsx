@@ -760,6 +760,12 @@ export function PipelineDashboard() {
 
           const row = ws.addRow([skuCell, label, ...values])
 
+          // Hide the ETA row by default (kept in the file, just collapsed).
+          // Other rows reference it (e.g. ATA), so the data must remain present.
+          if (rowType === 'eta') {
+            row.hidden = true
+          }
+
           // Style each cell in the row
           row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
             cell.border = thinBorder
