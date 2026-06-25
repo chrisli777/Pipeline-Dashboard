@@ -203,7 +203,8 @@ function getCellBackground(rowType: RowType, value: number | null): string {
 const ROW_TYPE_ORDER: RowType[] = [
   'customerForecast',
   'actualConsumption',
-  'etd',
+  // 'etd' is intentionally hidden from the dashboard display.
+  // ETD data is still loaded and used for ETA calculation and the Excel export.
   'eta',
   'ata',
   'defect',
