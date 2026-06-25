@@ -176,14 +176,15 @@ export async function POST(request: Request) {
     
     let accumulatedDefect = 0
     if (totalDefect > 0) {
-      // Walk back through prior weeks to find the latest stored defect.
-      // Defect carries forward, so prior weeks may legitimately be null.
+      // Defect carries forward (0 means "inherit previous"), so the effective
+      // prior defect is the most recent POSITIVE value before this week.
+      // Add this week's return qty on top of that to keep it cumulative.
       const { data: priorWeeks } = await supabase
         .from('inventory_data')
         .select('week_number, defect')
         .eq('sku_id', skuId)
         .lt('week_number', weekNumber)
-        .not('defect', 'is', null)
+        .gt('defect', 0)
         .order('week_number', { ascending: false })
         .limit(1)
       

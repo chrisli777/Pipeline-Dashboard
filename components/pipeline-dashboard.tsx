@@ -120,15 +120,14 @@ function transformDatabaseData(
     // Sort all weeks including historical data
     sku.allWeeks.sort((a, b) => a.weekNumber - b.weekNumber)
     
-    // Apply defect carry-forward with manual priority:
-    // - A stored (non-null) defect is authoritative for that week. This covers
-    //   manual edits AND values synced from WMS returns, so edits always persist
-    //   (even when lowering the value) instead of being clobbered by a max().
-    // - A week with no stored defect simply inherits the previous week's value.
+    // Apply defect carry-forward. Defect defaults to the previous week's value
+    // and only changes when a week has its own value (a manual edit, or a WMS
+    // return that raised it). Storage uses 0 as the "unset" default and never
+    // null, so a falsy value (0/null) means "inherit from the previous week".
     for (let i = 1; i < sku.allWeeks.length; i++) {
       const currentWeek = sku.allWeeks[i]
       const prevWeek = sku.allWeeks[i - 1]
-      if (currentWeek.defect === null || currentWeek.defect === undefined) {
+      if (!currentWeek.defect) {
         currentWeek.defect = prevWeek.defect ?? 0
       }
     }
