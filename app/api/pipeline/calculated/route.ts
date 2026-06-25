@@ -138,15 +138,14 @@ function transformDatabaseData(
   skuMap.forEach((sku) => {
     sku.allWeeks.sort((a: any, b: any) => a.weekNumber - b.weekNumber)
     
-    // Apply defect carry-forward. Defect defaults to the previous week's value
-    // and only changes when a week has its own value (a manual edit, or a WMS
-    // return that raised it). Storage uses 0 as the "unset" default and never
-    // null, so a falsy value (0/null) means "inherit from the previous week".
-    for (let i = 1; i < sku.allWeeks.length; i++) {
+    // Apply defect carry-forward. NULL means "inherit from the previous week";
+    // any stored number (including an explicit 0) is a real value that wins, so
+    // manual edits and WMS return values always persist. The first week falls
+    // back to 0 when it has no stored value.
+    for (let i = 0; i < sku.allWeeks.length; i++) {
       const currentWeek = sku.allWeeks[i]
-      const prevWeek = sku.allWeeks[i - 1]
-      if (!currentWeek.defect) {
-        currentWeek.defect = prevWeek.defect ?? 0
+      if (currentWeek.defect === null || currentWeek.defect === undefined) {
+        currentWeek.defect = i > 0 ? (sku.allWeeks[i - 1].defect ?? 0) : 0
       }
     }
     
