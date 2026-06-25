@@ -120,14 +120,15 @@ function transformDatabaseData(
     // Sort all weeks including historical data
     sku.allWeeks.sort((a, b) => a.weekNumber - b.weekNumber)
     
-    // Apply defect inheritance - defect is cumulative, always take the max of current and previous
-    for (let i = 1; i < sku.allWeeks.length; i++) {
+    // Apply defect carry-forward. NULL means "inherit from the previous week";
+    // any stored number (including an explicit 0) is a real value that wins, so
+    // manual edits and WMS return values always persist. The first week falls
+    // back to 0 when it has no stored value.
+    for (let i = 0; i < sku.allWeeks.length; i++) {
       const currentWeek = sku.allWeeks[i]
-      const prevWeek = sku.allWeeks[i - 1]
-      const prevDefect = prevWeek.defect ?? 0
-      const currentDefect = currentWeek.defect ?? 0
-      // Defect should never decrease - take the maximum of previous and current
-      currentWeek.defect = Math.max(prevDefect, currentDefect)
+      if (currentWeek.defect === null || currentWeek.defect === undefined) {
+        currentWeek.defect = i > 0 ? (sku.allWeeks[i - 1].defect ?? 0) : 0
+      }
     }
     
     // Build ETD lookup map for ETA/ATA default calculation

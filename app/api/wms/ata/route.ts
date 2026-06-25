@@ -170,20 +170,25 @@ export async function POST(request: Request) {
     const referenceNumbers = [...new Set([...normalRefs, ...asnRefs, ...defectRefs])]
 
     // Update ATA in database
-    // Defect should ACCUMULATE - add return qty to previous week's defect
+    // Defect should ACCUMULATE - add this week's return qty on top of the
+    // carried-forward defect (the most recent non-null defect in a prior week).
     const supabase = await createClient()
     
-    // First, get the previous week's defect value to accumulate
     let accumulatedDefect = 0
     if (totalDefect > 0) {
-      const { data: prevWeekData } = await supabase
+      // Defect carries forward (NULL means "inherit previous"), so the effective
+      // prior defect is the most recent NON-NULL value before this week.
+      // Add this week's return qty on top of that to keep it cumulative.
+      const { data: priorWeeks } = await supabase
         .from('inventory_data')
-        .select('defect')
+        .select('week_number, defect')
         .eq('sku_id', skuId)
-        .eq('week_number', weekNumber - 1)
-        .single()
+        .lt('week_number', weekNumber)
+        .not('defect', 'is', null)
+        .order('week_number', { ascending: false })
+        .limit(1)
       
-      const prevDefect = prevWeekData?.defect ?? 0
+      const prevDefect = priorWeeks && priorWeeks.length > 0 ? (priorWeeks[0].defect ?? 0) : 0
       accumulatedDefect = prevDefect + totalDefect
     }
     

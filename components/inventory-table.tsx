@@ -204,7 +204,8 @@ const ROW_TYPE_ORDER: RowType[] = [
   'customerForecast',
   'actualConsumption',
   'etd',
-  'eta',
+  // 'eta' is intentionally hidden from the dashboard display.
+  // ETA data is still loaded and used for calculations and the Excel export.
   'ata',
   'defect',
   'actualInventory',
