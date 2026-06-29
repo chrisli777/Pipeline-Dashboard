@@ -145,6 +145,10 @@ function transformDatabaseData(
         const sourceWeek = w.weekNumber - 6
         const sourceEtd = etdByWeek.get(sourceWeek)
         w.eta = sourceEtd ?? 0
+        // ATA defaults to ETA. The initial ata above used the (null) DB ETA, so
+        // re-sync it to the freshly derived ETA so ETD edits flow through to ATA.
+        // (The rollover branch below overrides this whenever WMS syncs exist.)
+        w.ata = w.eta
       }
     }
     
