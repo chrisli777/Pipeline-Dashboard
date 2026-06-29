@@ -148,82 +148,8 @@ function transformDatabaseData(
       }
     }
     
-    // ATA display logic with rollover:
-    // Goal: ETA total must equal ATA total
-    // 1. Find the last synced ATA week (last week where rawAtaFromDb is not null)
-    // 2. Sum all synced ATA values up to that week
-    // 3. Use synced ATA total to "consume" ETA week by week from the beginning
-    // 4. Whatever ETA is not yet consumed shows as future ATA
-    
-    // Find last synced week (last week with non-null rawAtaFromDb - meaning it was synced from WMS)
-    let lastSyncedWeekIndex = -1
-    for (let i = sku.allWeeks.length - 1; i >= 0; i--) {
-      if (sku.allWeeks[i].rawAtaFromDb !== null && sku.allWeeks[i].rawAtaFromDb !== undefined) {
-        lastSyncedWeekIndex = i
-        break
-      }
-    }
-    
-    if (lastSyncedWeekIndex === -1) {
-      // No synced ATA yet - ATA already defaults to ETA in the data loading above
-      // Nothing more to do
-    } else {
-      // Calculate total synced ATA and total ETA up to lastSyncedWeek
-      // Use rawAtaFromDb for synced weeks (the actual synced values from WMS)
-      let totalSyncedAta = 0
-      let totalEtaUpToSynced = 0
-      for (let i = 0; i <= lastSyncedWeekIndex; i++) {
-        // Use the raw database ATA value for synced weeks
-        totalSyncedAta += sku.allWeeks[i].rawAtaFromDb ?? 0
-        totalEtaUpToSynced += sku.allWeeks[i].eta ?? 0
-        // Also set the display ATA to the synced value
-        sku.allWeeks[i].ata = sku.allWeeks[i].rawAtaFromDb ?? 0
-      }
-      
-      // ROLLOVER LOGIC
-      // remainingSyncedAta = totalSyncedAta - totalEtaUpToSynced
-      // This represents how much "extra" ATA arrived beyond what was expected (ETA) up to synced week
-      // - If positive: more arrived than expected, this consumes future weeks' ETA
-      // - If negative: less arrived than expected, future weeks keep their ETA as ATA
-      // - If zero: exactly matched, future weeks keep their ETA as ATA
-      
-      let remainingSyncedAta = totalSyncedAta - totalEtaUpToSynced
-      let batchEnded = false
-      
-      // Process weeks AFTER lastSyncedWeek to calculate rollover ATA
-      for (let i = lastSyncedWeekIndex + 1; i < sku.allWeeks.length; i++) {
-        const weekEta = sku.allWeeks[i].eta ?? 0
-        
-        if (batchEnded) {
-          // After batch ends, new batch: ATA = ETA directly
-          sku.allWeeks[i].ata = weekEta
-          // If this is a non-zero ETA, start tracking a new potential batch
-          if (weekEta > 0) {
-            batchEnded = false // Reset for potential future rollover from new syncs
-          }
-        } else if (weekEta === 0) {
-          // ETA = 0, set ATA = 0
-          // Only mark batch as ended if we've consumed all remaining synced ATA
-          // This handles cases with consecutive ETA=0 weeks (e.g., ETA: 0, 0, 8, 2)
-          sku.allWeeks[i].ata = 0
-          if (remainingSyncedAta <= 0) {
-            batchEnded = true
-          }
-          // If remainingSyncedAta > 0, keep looking for the next ETA to consume
-        } else if (remainingSyncedAta >= weekEta) {
-          // This week's ETA is fully consumed by remaining synced ATA
-          remainingSyncedAta -= weekEta
-          sku.allWeeks[i].ata = 0  // Already arrived via earlier syncs
-        } else if (remainingSyncedAta > 0) {
-          // Partially consumed - ATA = remaining ETA not yet arrived
-          sku.allWeeks[i].ata = weekEta - remainingSyncedAta
-          remainingSyncedAta = 0
-        } else {
-          // No more synced ATA to consume - ATA = ETA (not yet arrived)
-          sku.allWeeks[i].ata = weekEta
-        }
-      }
-    }
+    // ATA display logic with rollover (shared with the live ETD edit cascade).
+    applyAtaRollover(sku.allWeeks)
 
     // Calculate actual inventory for display weeks starting from week 2
     // Formula: actualInventory = prevWeek.actualInventory - actualConsumption + ATA
@@ -274,6 +200,63 @@ function getDefaultWeek(): number {
   const diffTime = lastFriday.getTime() - week1Sunday.getTime()
   const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
   return Math.max(1, Math.floor(diffDays / 7) + 1)
+}
+
+// Compute display ATA from ETA + synced WMS ATA using the rollover rule.
+// Goal: total ATA equals total ETA. Synced (rawAtaFromDb != null) weeks show
+// their synced value; any "extra" synced ATA beyond expected ETA consumes
+// future weeks' ETA (so an early/over arrival removes later expected ATA).
+// This is the single source of truth shared by the initial transform and the
+// live ETD edit cascade, so the preview always matches the post-save result.
+function applyAtaRollover(weeks: WeekData[]): void {
+  // Default ATA to ETA for every week.
+  for (const w of weeks) {
+    w.ata = w.eta ?? 0
+  }
+
+  // Find the last synced week (last week with a non-null raw DB ATA).
+  let lastSyncedWeekIndex = -1
+  for (let i = weeks.length - 1; i >= 0; i--) {
+    if (weeks[i].rawAtaFromDb !== null && weeks[i].rawAtaFromDb !== undefined) {
+      lastSyncedWeekIndex = i
+      break
+    }
+  }
+
+  // No synced ATA yet: ATA already defaults to ETA above.
+  if (lastSyncedWeekIndex === -1) return
+
+  // Sum synced ATA and expected ETA up to the last synced week.
+  let totalSyncedAta = 0
+  let totalEtaUpToSynced = 0
+  for (let i = 0; i <= lastSyncedWeekIndex; i++) {
+    totalSyncedAta += weeks[i].rawAtaFromDb ?? 0
+    totalEtaUpToSynced += weeks[i].eta ?? 0
+    weeks[i].ata = weeks[i].rawAtaFromDb ?? 0
+  }
+
+  // Extra synced ATA beyond expected ETA rolls over to consume future ETA.
+  let remainingSyncedAta = totalSyncedAta - totalEtaUpToSynced
+  let batchEnded = false
+
+  for (let i = lastSyncedWeekIndex + 1; i < weeks.length; i++) {
+    const weekEta = weeks[i].eta ?? 0
+    if (batchEnded) {
+      weeks[i].ata = weekEta
+      if (weekEta > 0) batchEnded = false
+    } else if (weekEta === 0) {
+      weeks[i].ata = 0
+      if (remainingSyncedAta <= 0) batchEnded = true
+    } else if (remainingSyncedAta >= weekEta) {
+      remainingSyncedAta -= weekEta
+      weeks[i].ata = 0
+    } else if (remainingSyncedAta > 0) {
+      weeks[i].ata = weekEta - remainingSyncedAta
+      remainingSyncedAta = 0
+    } else {
+      weeks[i].ata = weekEta
+    }
+  }
 }
 
 export function PipelineDashboard() {
@@ -425,6 +408,28 @@ export function PipelineDashboard() {
             return { ...week, [field]: value }
           })
           
+          // Editing ETD cascades to ETA (6 weeks later), then ATA via the same
+          // rollover rule used on load, then inventory. ETA[W] = ETD[W-6].
+          if (field === 'etd') {
+            const targetWeekNumber = weekNumber + 6
+            const targetIndex = updatedWeeks.findIndex(w => w.weekNumber === targetWeekNumber)
+            if (targetIndex >= 0) {
+              updatedWeeks[targetIndex].eta = value ?? 0
+              // Recompute ATA for all weeks using the shared rollover helper so
+              // the live preview matches what the transform produces after save.
+              applyAtaRollover(updatedWeeks)
+              // Recalculate actualInventory from week 2 onwards.
+              for (let i = 1; i < updatedWeeks.length; i++) {
+                const prevWeek = updatedWeeks[i - 1]
+                const currentWeek = updatedWeeks[i]
+                const consumption = currentWeek.actualConsumption ?? currentWeek.customerForecast ?? 0
+                const ata = currentWeek.ata ?? 0
+                const prevInventory = prevWeek.actualInventory ?? 0
+                currentWeek.actualInventory = prevInventory - consumption + ata
+              }
+            }
+          }
+
           // If changing actualInventory for week 1, or changing consumption/ATA,
           // recalculate actualInventory for subsequent weeks
           if (field === 'actualInventory' && weekNumber === 1) {
