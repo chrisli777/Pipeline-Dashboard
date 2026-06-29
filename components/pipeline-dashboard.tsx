@@ -425,6 +425,27 @@ export function PipelineDashboard() {
             return { ...week, [field]: value }
           })
           
+          // Editing ETD cascades to ETA (6 weeks later) and ATA, then inventory.
+          // ETA[W] = ETD[W-6], and ATA defaults to ETA for that week.
+          if (field === 'etd') {
+            const targetWeekNumber = weekNumber + 6
+            const targetIndex = updatedWeeks.findIndex(w => w.weekNumber === targetWeekNumber)
+            if (targetIndex >= 0) {
+              const targetWeek = updatedWeeks[targetIndex]
+              targetWeek.eta = value
+              targetWeek.ata = value ?? 0
+              // Recalculate actualInventory from the affected week onwards
+              for (let i = Math.max(1, targetIndex); i < updatedWeeks.length; i++) {
+                const prevWeek = updatedWeeks[i - 1]
+                const currentWeek = updatedWeeks[i]
+                const consumption = currentWeek.actualConsumption ?? currentWeek.customerForecast ?? 0
+                const ata = currentWeek.ata ?? 0
+                const prevInventory = prevWeek.actualInventory ?? 0
+                currentWeek.actualInventory = prevInventory - consumption + ata
+              }
+            }
+          }
+
           // If changing actualInventory for week 1, or changing consumption/ATA,
           // recalculate actualInventory for subsequent weeks
           if (field === 'actualInventory' && weekNumber === 1) {
