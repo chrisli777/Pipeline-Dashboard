@@ -109,6 +109,10 @@ function transformDatabaseData(
       eta: etaValue, // ETA from database (synced = ETD from 6 weeks prior)
       ata: etaValue ?? 0, // ATA defaults to ETA, or 0 if ETA is null
       rawAtaFromDb: rawAtaFromDb, // Store raw DB value for rollover detection
+      // Raw DB values used by the Excel export to tell manual edits (non-null =
+      // explicitly stored -> export as static value) from derived defaults.
+      rawConsumptionFromDb: row.actual_consumption !== null ? Number(row.actual_consumption) : null,
+      rawEtaFromDb: etaValue,
       defect: row.defect !== null ? Number(row.defect) : null,
       actualInventory: row.actual_inventory !== null ? Number(row.actual_inventory) : null,
       weeksOnHand: 0, // Will be calculated after sorting
@@ -834,8 +838,9 @@ export function PipelineDashboard() {
           if (rowType === 'actualConsumption') {
             // Future weeks: actual consumption defaults to the customer forecast.
             // Past/current weeks keep their real (static) consumption values.
+            // A manually-edited week (raw DB value present) stays static, no formula.
             for (let j = 0; j < skuWeeks.length; j++) {
-              if (skuWeeks[j].weekNumber > currentWeekNumber) {
+              if (skuWeeks[j].weekNumber > currentWeekNumber && skuWeeks[j].rawConsumptionFromDb == null) {
                 const c = 3 + j
                 const cell = ws.getRow(thisRowNum).getCell(c)
                 const cached = skuWeeks[j].actualConsumption
@@ -850,8 +855,10 @@ export function PipelineDashboard() {
           if (rowType === 'eta') {
             // Future weeks: ETA = ETD from 6 weeks earlier (when within range).
             // Past/current weeks keep their real (static) ETA values.
+            // A manually-set ETA (raw DB value present) stays static, no formula.
             for (let j = 0; j < skuWeeks.length; j++) {
               if (skuWeeks[j].weekNumber <= currentWeekNumber) continue
+              if (skuWeeks[j].rawEtaFromDb != null) continue
               const sourceWeek = skuWeeks[j].weekNumber - 6
               const k = skuWeeks.findIndex(w => w.weekNumber === sourceWeek)
               if (k >= 0) {
@@ -867,10 +874,15 @@ export function PipelineDashboard() {
           }
 
           if (rowType === 'ata') {
-            // Future weeks: ATA defaults to ETA in the same column (rollover ignored).
-            // Past/current weeks keep their real (static) ATA values.
+            // Future weeks: ATA links to ETA in the same column, but ONLY when the
+            // value is truly derived. Keep static (no formula) when:
+            //  - there's a raw synced/manual ATA (rawAtaFromDb present), or
+            //  - the rollover adjusted ATA so it no longer equals ETA
+            // (otherwise a =ETA formula would overwrite the real data on recalc).
             for (let j = 0; j < skuWeeks.length; j++) {
               if (skuWeeks[j].weekNumber <= currentWeekNumber) continue
+              if (skuWeeks[j].rawAtaFromDb != null) continue
+              if (skuWeeks[j].ata !== skuWeeks[j].eta) continue
               const c = 3 + j
               const cell = ws.getRow(thisRowNum).getCell(c)
               const cached = skuWeeks[j].ata
